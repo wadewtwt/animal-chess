@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics } from 'cc';
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 
@@ -35,6 +35,12 @@ export class BoardView extends Component {
 
     @property(SpriteFrame)
     public blueBaseSF: SpriteFrame = null!; // 蓝方棋子底座
+
+    @property(SpriteFrame)
+    public grass1SF: SpriteFrame = null!; // 草地贴图1 (caoping1)
+
+    @property(SpriteFrame)
+    public grass2SF: SpriteFrame = null!; // 草地贴图2 (caoping2)
 
     // === UI 节点 ===
     @property(Label)
@@ -159,10 +165,10 @@ export class BoardView extends Component {
                     const sprite = cellNode.getComponent(Sprite);
                     if (sprite) {
                         if (this.engine.isRiver(x, y)) {
-                            // 小河格：底色深水蓝
-                            sprite.color = new Color(20, 85, 175, 255);
+                            // 小河格：底色深水蓝 (更深沉，提供更好的质感)
+                            sprite.color = new Color(25, 75, 160, 255);
 
-                            // 高级多粒子流水波光特效（不依赖 Shader，100% 兼容无错）
+                            // 1. 高级多粒子流水波光特效（不依赖 Shader，100% 兼容无错）
                             const rippleCount = 8; // 增加到 8 个高光波光带，形成密集流动质感
                             for (let i = 0; i < rippleCount; i++) {
                                 const rippleNode = new Node(`RiverRipple_${i}`);
@@ -243,15 +249,316 @@ export class BoardView extends Component {
                                     this.scheduleOnce(startCycle, initialDelay);
                                 }, 0.05);
                             }
-                        } else if (this.engine.isDen(x, y)) {
-                            // 兽穴格：金色
-                            sprite.color = new Color(255, 215, 0, 220);
+
+                            // 2. 特色：添加浮萍/荷叶 (Lily Pads) 浮动效果
+                            if (Math.random() < 0.35) {
+                                const lilyPad = new Node(`LilyPad`);
+                                lilyPad.parent = cellNode;
+                                lilyPad.layer = cellNode.layer;
+
+                                const lpTransform = lilyPad.addComponent(UITransform);
+                                const size = 12 + Math.random() * 8;
+                                lpTransform.setContentSize(size, size);
+                                lpTransform.setAnchorPoint(0.5, 0.5);
+
+                                const lpSprite = lilyPad.addComponent(Sprite);
+                                lpSprite.sizeMode = 0;
+                                lpSprite.spriteFrame = sprite.spriteFrame;
+                                lpSprite.color = new Color(46, 139, 87, 240); // 浮萍绿 (SeaGreen)
+
+                                const lpOpacity = lilyPad.addComponent(UIOpacity);
+                                lpOpacity.opacity = 160 + Math.random() * 60;
+
+                                // 随机位置与旋转
+                                const padX = -35 + Math.random() * 70;
+                                const padY = -35 + Math.random() * 70;
+                                lilyPad.setPosition(new Vec3(padX, padY, 0));
+                                lilyPad.setRotationFromEuler(0, 0, Math.random() * 360);
+
+                                // 浮萍上下漂浮与微幅旋转动画 (体现Motion技能的轻微缓动)
+                                const floatDuration = 2.0 + Math.random() * 1.5;
+                                tween(lilyPad)
+                                    .by(floatDuration, { position: new Vec3(0, 2 + Math.random() * 2, 0) }, { easing: 'sineInOut' })
+                                    .by(floatDuration, { position: new Vec3(0, -(2 + Math.random() * 2), 0) }, { easing: 'sineInOut' })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+
+                                const rotateDuration = 3.0 + Math.random() * 2.0;
+                                tween(lilyPad)
+                                    .by(rotateDuration, { angle: 10 + Math.random() * 10 }, { easing: 'sineInOut' })
+                                    .by(rotateDuration, { angle: -(10 + Math.random() * 10) }, { easing: 'sineInOut' })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+                            }
+
+                            // 3. 特色：添加游动的小鲤鱼 (Koi Fish) 和摆尾动画
+                            if (Math.random() < 0.4) {
+                                const fishNode = new Node(`KoiFish`);
+                                fishNode.parent = cellNode;
+                                fishNode.layer = cellNode.layer;
+
+                                const fTransform = fishNode.addComponent(UITransform);
+                                fTransform.setContentSize(14, 6);
+
+                                const fSprite = fishNode.addComponent(Sprite);
+                                fSprite.sizeMode = 0;
+                                fSprite.spriteFrame = sprite.spriteFrame;
+                                fSprite.color = new Color(235, 90, 50, 255); // 喜庆橘红色鲤鱼
+
+                                const fOpacity = fishNode.addComponent(UIOpacity);
+                                fOpacity.opacity = 0;
+
+                                // 鱼尾巴 (二级动画，模拟物理运动)
+                                const tailNode = new Node(`KoiTail`);
+                                tailNode.parent = fishNode;
+                                tailNode.layer = fishNode.layer;
+                                const tTransform = tailNode.addComponent(UITransform);
+                                tTransform.setContentSize(5, 3);
+                                tTransform.setAnchorPoint(1.0, 0.5); // 右侧对齐为尾关节
+                                tailNode.setPosition(new Vec3(-7, 0, 0)); // 挂载在身体后部
+                                
+                                const tSprite = tailNode.addComponent(Sprite);
+                                tSprite.sizeMode = 0;
+                                tSprite.spriteFrame = sprite.spriteFrame;
+                                tSprite.color = new Color(250, 140, 70, 255); // 浅色尾鳍
+
+                                // 尾巴循环摆动
+                                tween(tailNode)
+                                    .to(0.12, { angle: 25 }, { easing: 'sineInOut' })
+                                    .to(0.24, { angle: -25 }, { easing: 'sineInOut' })
+                                    .to(0.12, { angle: 0 }, { easing: 'sineInOut' })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+
+                                // 游动大循环
+                                const swimCycle = () => {
+                                    if (!fishNode.isValid || !fOpacity.isValid) return;
+
+                                    const dir = Math.random() > 0.5 ? 1 : -1;
+                                    const startX = -60 * dir;
+                                    const endX = 60 * dir;
+                                    const swimY = -25 + Math.random() * 50;
+
+                                    fishNode.setPosition(new Vec3(startX, swimY, 0));
+                                    fishNode.setScale(new Vec3(dir, 1.0, 1.0)); // 调转鱼头方向
+                                    fOpacity.opacity = 0;
+
+                                    const duration = 2.2 + Math.random() * 1.3;
+
+                                    // 游动进出渐显渐隐
+                                    tween(fOpacity)
+                                        .to(0.4, { opacity: 190 }, { easing: 'sineOut' })
+                                        .delay(duration - 0.8)
+                                        .to(0.4, { opacity: 0 }, { easing: 'sineIn' })
+                                        .start();
+
+                                    // 鱼儿在水流中微微扭动着前行
+                                    tween(fishNode)
+                                        .to(duration, { position: new Vec3(endX, swimY + (Math.random() * 16 - 8), 0) }, { easing: 'sineInOut' })
+                                        .call(() => {
+                                            this.scheduleOnce(swimCycle, 2.0 + Math.random() * 3.0);
+                                        })
+                                        .start();
+                                };
+
+                                this.scheduleOnce(swimCycle, Math.random() * 2.5);
+                            }
                         } else if (this.engine.getTrapCamp(x, y) !== null) {
-                            // 陷阱格：暗粉/红
-                            sprite.color = new Color(255, 100, 100, 150);
+                            // 陷阱格：危险暗粉红色
+                            sprite.color = new Color(220, 75, 75, 200);
+
+                            // 特色：警示呼吸光环
+                            const glowNode = new Node(`TrapGlow`);
+                            glowNode.parent = cellNode;
+                            glowNode.layer = cellNode.layer;
+                            const gTransform = glowNode.addComponent(UITransform);
+                            gTransform.setContentSize(this.cellWidth - 16, this.cellHeight - 16);
+                            
+                            const gSprite = glowNode.addComponent(Sprite);
+                            gSprite.sizeMode = 0;
+                            gSprite.spriteFrame = sprite.spriteFrame;
+                            gSprite.color = new Color(255, 0, 0, 60);
+
+                            const gOpacity = glowNode.addComponent(UIOpacity);
+                            gOpacity.opacity = 50;
+
+                            // 快速闪烁脉动动效
+                            tween(gOpacity)
+                                .to(0.7, { opacity: 140 }, { easing: 'sineInOut' })
+                                .to(0.7, { opacity: 20 }, { easing: 'sineInOut' })
+                                .union()
+                                .repeatForever()
+                                .start();
                         } else {
-                            // 陆地格：米黄色
-                            sprite.color = new Color(245, 240, 225, 255);
+                            // 陆地与兽穴格：相隔排列 caoping1 和 caoping2
+                            const useGrass1 = (x + y) % 2 === 0;
+                            const targetSF = useGrass1 ? this.grass1SF : this.grass2SF;
+
+                            if (targetSF) {
+                                sprite.spriteFrame = targetSF;
+                                sprite.color = new Color(255, 255, 255, 255); // 使用贴图原色彩
+                            } else {
+                                // 备用降级方案（未在编辑器绑定贴图时使用纯色相隔）
+                                sprite.color = useGrass1 ? new Color(115, 185, 120, 255) : new Color(125, 195, 130, 255);
+                            }
+
+                            // 兽穴格额外增加金色魔力结界光圈
+                            if (this.engine.isDen(x, y)) {
+                                const shineNode = new Node(`DenShine`);
+                                shineNode.parent = cellNode;
+                                shineNode.layer = cellNode.layer;
+                                const sTransform = shineNode.addComponent(UITransform);
+                                sTransform.setContentSize(this.cellWidth - 10, this.cellHeight - 10);
+                                
+                                const sSprite = shineNode.addComponent(Sprite);
+                                sSprite.sizeMode = 0;
+                                sSprite.spriteFrame = this.gridCellPrefab.data.getComponent(Sprite)?.spriteFrame || sprite.spriteFrame;
+                                sSprite.color = new Color(255, 235, 120, 100);
+
+                                const sOpacity = shineNode.addComponent(UIOpacity);
+                                sOpacity.opacity = 80;
+
+                                // 呼吸脉动动效
+                                tween(sOpacity)
+                                    .to(1.5, { opacity: 160 }, { easing: 'sineInOut' })
+                                    .to(1.5, { opacity: 40 }, { easing: 'sineInOut' })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+
+                                // 慢速旋转
+                                tween(shineNode)
+                                    .to(10.0, { angle: 360 })
+                                    .call(() => { shineNode.angle = 0; })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+                            }
+
+                            // 1. 特色：动态随风摇曳的草叶 (Grass Blades) 
+                            const grassCount = 3 + Math.floor(Math.random() * 2);
+                            for (let i = 0; i < grassCount; i++) {
+                                const bladeNode = new Node(`GrassBlade_${i}`);
+                                bladeNode.parent = cellNode;
+                                bladeNode.layer = cellNode.layer;
+
+                                const bTransform = bladeNode.addComponent(UITransform);
+                                const w = 4 + Math.random() * 2;
+                                const h = 14 + Math.random() * 12;
+                                bTransform.setContentSize(w, h);
+                                bTransform.setAnchorPoint(0.5, 0.0); // 设置草叶根部为旋转中心
+
+                                const graphics = bladeNode.addComponent(Graphics);
+                                const greenColor = new Color(
+                                    35 + Math.random() * 20,
+                                    115 + Math.random() * 25,
+                                    40 + Math.random() * 15,
+                                    255
+                                );
+                                graphics.fillColor = greenColor;
+                                graphics.strokeColor = new Color(
+                                    Math.max(0, greenColor.r - 15),
+                                    Math.max(0, greenColor.g - 25),
+                                    Math.max(0, greenColor.b - 10),
+                                    120
+                                );
+                                graphics.lineWidth = 1;
+
+                                // 1. 后置叶片 (较深暗绿色，偏左)
+                                const hBack = h * 0.85;
+                                const wBack = w * 0.7;
+                                const leanBack = -wBack - 4;
+                                graphics.fillColor = new Color(25, 80, 35, 255);
+                                graphics.strokeColor = new Color(15, 60, 25, 120);
+                                graphics.moveTo(-wBack / 2 - 2, 0);
+                                graphics.quadraticCurveTo(-wBack, hBack * 0.5, leanBack, hBack);
+                                graphics.quadraticCurveTo(leanBack * 0.5 + wBack / 2, hBack * 0.4, wBack / 2 - 2, 0);
+                                graphics.close();
+                                graphics.fill();
+                                graphics.stroke();
+
+                                // 2. 主叶片 (中度翠绿色，偏右)
+                                const leanMain = w + 4 + (Math.random() - 0.5) * 4;
+                                graphics.fillColor = new Color(45, 135, 60, 255);
+                                graphics.strokeColor = new Color(30, 95, 40, 120);
+                                graphics.moveTo(-w / 2, 0);
+                                graphics.quadraticCurveTo(-w / 4, h * 0.5, leanMain, h);
+                                graphics.quadraticCurveTo(w / 4 + leanMain * 0.5, h * 0.45, w / 2, 0);
+                                graphics.close();
+                                graphics.fill();
+                                graphics.stroke();
+
+                                // 3. 前置短叶片 (明亮黄绿色，偏左)
+                                const hFront = h * 0.6;
+                                const wFront = w * 0.8;
+                                const leanFront = -wFront - 2;
+                                graphics.fillColor = new Color(125, 195, 50, 255);
+                                graphics.strokeColor = new Color(90, 145, 30, 120);
+                                graphics.moveTo(-wFront / 2 + 1, 0);
+                                graphics.quadraticCurveTo(-wFront * 0.8, hFront * 0.55, leanFront, hFront);
+                                graphics.quadraticCurveTo(leanFront * 0.5 + wFront / 2, hFront * 0.4, wFront / 2 + 1, 0);
+                                graphics.close();
+                                graphics.fill();
+                                graphics.stroke();
+
+                                const bOpacity = bladeNode.addComponent(UIOpacity);
+                                bOpacity.opacity = 210;
+
+                                // 铺在格子的随机中下部
+                                const posX = -38 + Math.random() * 76;
+                                const posY = -45 + Math.random() * 25; 
+                                bladeNode.setPosition(new Vec3(posX, posY, 0));
+                                bladeNode.setRotationFromEuler(0, 0, Math.random() * 12 - 6);
+
+                                // 随风摆动的微型动画 (Motion 物理感觉)
+                                const swayTime = 1.3 + Math.random() * 0.7;
+                                const maxAngle = 6 + Math.random() * 8;
+                                tween(bladeNode)
+                                    .to(swayTime, { angle: maxAngle }, { easing: 'sineInOut' })
+                                    .to(swayTime, { angle: -maxAngle }, { easing: 'sineInOut' })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+                            }
+
+                            // 2. 特色：偶有呼吸绽放的小野花 (Flowers)
+                            if (Math.random() < 0.25) {
+                                const flowerNode = new Node(`Flower`);
+                                flowerNode.parent = cellNode;
+                                flowerNode.layer = cellNode.layer;
+
+                                const fTransform = flowerNode.addComponent(UITransform);
+                                flowerNode.setScale(new Vec3(1.0, 1.0, 1.0));
+                                fTransform.setContentSize(6, 6);
+                                fTransform.setAnchorPoint(0.5, 0.5);
+
+                                const fSprite = flowerNode.addComponent(Sprite);
+                                fSprite.sizeMode = 0;
+                                fSprite.spriteFrame = this.gridCellPrefab.data.getComponent(Sprite)?.spriteFrame || sprite.spriteFrame;
+                                // 随机出白色、黄色或淡紫色的花朵
+                                const colors = [
+                                    new Color(255, 255, 255, 255), // 白色
+                                    new Color(255, 215, 0, 255),   // 黄色
+                                    new Color(210, 160, 255, 255),  // 淡紫色
+                                ];
+                                fSprite.color = colors[Math.floor(Math.random() * colors.length)];
+
+                                const flowX = -35 + Math.random() * 70;
+                                const flowY = -15 + Math.random() * 45;
+                                flowerNode.setPosition(new Vec3(flowX, flowY, 0));
+
+                                // 呼吸微型动效
+                                const scaleTime = 0.8 + Math.random() * 0.5;
+                                tween(flowerNode)
+                                    .to(scaleTime, { scale: new Vec3(1.2, 1.2, 1.0) }, { easing: 'sineInOut' })
+                                    .to(scaleTime, { scale: new Vec3(0.8, 0.8, 1.0) }, { easing: 'sineInOut' })
+                                    .union()
+                                    .repeatForever()
+                                    .start();
+                            }
                         }
                     }
                 }

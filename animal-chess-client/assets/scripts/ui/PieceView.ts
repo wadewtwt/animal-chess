@@ -103,16 +103,104 @@ export class PieceView extends Component {
     public smoothMoveTo(targetPos: Vec3, callback?: () => void): void {
         this.stopAllTweens();
         this.stopWalkAnimation(false);
-        this.applyDefaultLayout(false);
+        
+        const currentPos = this.node.position.clone();
+        const distance = Vec3.distance(currentPos, targetPos);
 
-        tween(this.node)
-            .to(0.08, { scale: new Vec3(1.03, 0.98, 1) }, { easing: 'quadOut' })
-            .to(0.28, { position: targetPos }, { easing: 'cubicOut' })
-            .to(0.10, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
-            .call(() => callback?.())
-            .start();
+        // 每个格子大小是 100 像素，跨河跳跃距离至少在 300 像素以上
+        const isJumping = distance > 150;
 
-        this.playMoveBounce();
+        if (isJumping) {
+            // 初始化布局
+            this.applyDefaultLayout(true);
+
+            // 1. 主节点在水平面平移，并在落地时增加挤压反弹动效（体现跳落的物理反馈）
+            const jumpDuration = 0.52;
+            tween(this.node)
+                .to(jumpDuration, { position: targetPos }, { easing: 'sineInOut' })
+                .to(0.10, { scale: new Vec3(1.06, 0.92, 1) }, { easing: 'quadOut' }) // 落地挤压扁平
+                .to(0.12, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }) // 恢复
+                .call(() => callback?.())
+                .start();
+
+            // 2. 子节点（Animal, Base, NameLabel）在垂直方向做抛物线升降，并给动物增加空中倾斜微动
+            if (this.animalSprite) {
+                const animNode = this.animalSprite.node;
+                const startY = this.layout.animalPos.y;
+                const peakY = startY + 130; // 空中腾起高度
+                
+                // 根据阵营（朝向）决定空中倾斜角度，使腾空更有动感
+                const isBlue = this.pieceData.camp === Camp.BLUE;
+                const tiltAngle = isBlue ? -15 : 15;
+
+                tween(animNode)
+                    .parallel(
+                        // 升降抛物线
+                        tween().to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
+                              .to(jumpDuration * 0.5, { position: this.layout.animalPos }, { easing: 'cubicIn' }),
+                        // 空中旋转倾斜
+                        tween().to(jumpDuration * 0.3, { angle: tiltAngle })
+                              .to(jumpDuration * 0.4, { angle: -tiltAngle * 0.5 })
+                              .to(jumpDuration * 0.3, { angle: 0 })
+                    )
+                    .start();
+            }
+
+            if (this.baseSprite) {
+                const baseNode = this.baseSprite.node;
+                const startY = this.layout.basePos.y;
+                const peakY = startY + 110;
+
+                tween(baseNode)
+                    .to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
+                    .to(jumpDuration * 0.5, { position: this.layout.basePos }, { easing: 'cubicIn' })
+                    .start();
+            }
+
+            if (this.nameLabel) {
+                const labelNode = this.nameLabel.node;
+                const startY = this.layout.labelPos.y;
+                const peakY = startY + 110;
+
+                tween(labelNode)
+                    .to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
+                    .to(jumpDuration * 0.5, { position: this.layout.labelPos }, { easing: 'cubicIn' })
+                    .start();
+            }
+
+            // 3. 阴影节点（Shadow）在跳跃至最高点时，比例缩小、透明度变淡（表现高度变化带来的投影衰减）
+            if (this.shadowNode) {
+                const startScale = this.layout.shadowScale;
+                const peakScale = new Vec3(startScale.x * 0.4, startScale.y * 0.4, 1);
+
+                tween(this.shadowNode)
+                    .to(jumpDuration * 0.5, { scale: peakScale }, { easing: 'sineOut' })
+                    .to(jumpDuration * 0.5, { scale: startScale }, { easing: 'sineIn' })
+                    .start();
+            }
+
+            if (this.shadowOpacity) {
+                const startOpacity = 105;
+                const peakOpacity = 25; // 最淡时的透明度
+
+                tween(this.shadowOpacity)
+                    .to(jumpDuration * 0.5, { opacity: peakOpacity }, { easing: 'sineOut' })
+                    .to(jumpDuration * 0.5, { opacity: startOpacity }, { easing: 'sineIn' })
+                    .start();
+            }
+        } else {
+            // 普通一格移动（保留原有的挤压和回弹）
+            this.applyDefaultLayout(false);
+
+            tween(this.node)
+                .to(0.08, { scale: new Vec3(1.03, 0.98, 1) }, { easing: 'quadOut' })
+                .to(0.28, { position: targetPos }, { easing: 'cubicOut' })
+                .to(0.10, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+                .call(() => callback?.())
+                .start();
+
+            this.playMoveBounce();
+        }
     }
 
     public playEatenAnimation(callback: () => void): void {

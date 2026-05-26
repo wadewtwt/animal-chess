@@ -371,7 +371,7 @@
     "_priority": 1073741824,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 458.4560143626571,
+    "_orthoHeight": 448.8590604026845,
     "_near": 1,
     "_far": 2000,
     "_color": {
@@ -531,62 +531,21 @@
         "__expectedType__": "cc.SpriteFrame"
       }
     ],
-    "animalWalkSprites": [
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null
-    ],
+    "animalWalkSprites": [],
     "redBaseSF": {
       "__uuid__": "f2b9631a-e8d1-419b-a01e-c6dfccff4b11@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
     "blueBaseSF": {
       "__uuid__": "f2b9631a-e8d1-419b-a01e-c6dfccff4b11@f9941",
+      "__expectedType__": "cc.SpriteFrame"
+    },
+    "grass1SF": {
+      "__uuid__": "8c9fbdc6-dc1e-477e-8bbc-7e96d602a743@f9941",
+      "__expectedType__": "cc.SpriteFrame"
+    },
+    "grass2SF": {
+      "__uuid__": "4d5c117a-38b3-4ac6-b655-d2baa6ee4240@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
     "turnIndicator": {
@@ -622,7 +581,7 @@
     "_string": "label",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 20,
+    "_actualFontSize": 27.9375,
     "_fontSize": 20,
     "_fontFamily": "Arial",
     "_lineHeight": 40,
@@ -721,7 +680,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 42.255859375,
+      "width": 42.24447706935123,
       "height": 50.4
     },
     "_anchorPoint": {
