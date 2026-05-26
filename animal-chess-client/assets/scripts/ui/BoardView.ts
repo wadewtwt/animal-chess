@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material } from 'cc';
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 
@@ -7,10 +7,10 @@ const { ccclass, property } = _decorator;
 @ccclass('BoardView')
 export class BoardView extends Component {
     // === 游戏配置属性 ===
-    @property({ type: Number, tooltip: '单元格宽度' })
+    @property({ type: CCFloat, tooltip: '单元格宽度' })
     public cellWidth: number = 100;
 
-    @property({ type: Number, tooltip: '单元格高度' })
+    @property({ type: CCFloat, tooltip: '单元格高度' })
     public cellHeight: number = 100;
 
     // === 预制体 (Prefabs) ===
@@ -26,6 +26,9 @@ export class BoardView extends Component {
     // === 美术贴图 (SpriteFrames) ===
     @property({ type: SpriteFrame, tooltip: '鼠,猫,狗,狼,豹,虎,狮,象 的图片，按战力升序排列 (共8张)' })
     public animalSprites: SpriteFrame[] = [];
+
+    @property({ type: SpriteFrame, tooltip: '每只动物6帧走路图，顺序按鼠猫狗狼豹虎狮象，每种6帧，共48帧' })
+    public animalWalkSprites: SpriteFrame[] = [];
 
     @property(SpriteFrame)
     public redBaseSF: SpriteFrame = null!; // 红方棋子底座
@@ -52,6 +55,8 @@ export class BoardView extends Component {
     private pieceViews: Map<string, PieceView> = new Map(); // id -> PieceView
     private highlightNodes: Node[] = []; // 当前高亮节点列表
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
+    private walkFramesByType: Map<number, SpriteFrame[]> = new Map();
+    private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
@@ -66,8 +71,10 @@ export class BoardView extends Component {
         console.log("BoardView: start() called.");
         this.engine = new LocalEngine();
         this.initBoardBackground();
-        this.adjustBoardScale(); // 初始化时自动缩放棋盘
-        this.restartGame();
+        this.adjustBoardScale(); // ???????????????
+        this.loadWalkSprites().then(() => {
+            this.restartGame();
+        });
     }
 
     /**
@@ -133,7 +140,8 @@ export class BoardView extends Component {
             this.boardContainer = this.node;
         }
 
-        // 清空容器内旧节点（排除非格子节点）
+        this.riverSprites = [];
+
         // 如果提供了 gridCellPrefab，则自动铺满 7x9 = 63 个格子
         if (this.gridCellPrefab) {
             for (let x = 0; x < LocalEngine.COLS; x++) {
@@ -150,79 +158,88 @@ export class BoardView extends Component {
                     // 根据地形给格子涂色，方便新手认清棋盘
                     const sprite = cellNode.getComponent(Sprite);
                     if (sprite) {
-                        if (x === 0 && y === 0) console.log("BoardView: Cell (0,0) Sprite component found. SpriteFrame:", sprite.spriteFrame);
                         if (this.engine.isRiver(x, y)) {
-                            // 小河格：底色蓝色
-                            sprite.color = new Color(30, 110, 220, 255);
+                            // 小河格：底色深水蓝
+                            sprite.color = new Color(20, 85, 175, 255);
 
-                            // 创建多个“波光粼粼”的水流反射波纹子节点，模拟自然水面反光
-                            const rippleCount = 4;
+                            // 高级多粒子流水波光特效（不依赖 Shader，100% 兼容无错）
+                            const rippleCount = 8; // 增加到 8 个高光波光带，形成密集流动质感
                             for (let i = 0; i < rippleCount; i++) {
                                 const rippleNode = new Node(`RiverRipple_${i}`);
                                 rippleNode.parent = cellNode;
                                 rippleNode.layer = cellNode.layer; // 保持 UI_2D 图层
 
                                 const rTransform = rippleNode.addComponent(UITransform);
-                                // 随机化波纹宽度 (15 ~ 35) 和高度 (2 ~ 4)
-                                const rWidth = 15 + Math.random() * 20;
-                                const rHeight = 2 + Math.random() * 2;
+                                // 随机化波光尺寸，有的细长（拉伸水纹），有的圆润（反光光斑）
+                                const rWidth = 12 + Math.random() * 25;
+                                const rHeight = 1.5 + Math.random() * 2;
                                 rTransform.setContentSize(rWidth, rHeight);
 
                                 const rSprite = rippleNode.addComponent(Sprite);
                                 rSprite.sizeMode = 0; // CUSTOM
                                 rSprite.spriteFrame = sprite.spriteFrame; // white_square 贴图
 
-                                // 亮蓝色/白色的波光反光色
-                                rSprite.color = new Color(220, 245, 255, 255);
+                                // 采用淡水蓝到亮白之间的粼粼高光色
+                                rSprite.color = new Color(210, 245, 255, 255);
 
                                 // 挂载 2D 透明度控制组件
                                 const rOpacity = rippleNode.addComponent(UIOpacity);
-                                rOpacity.opacity = 0; // 初始完全透明
+                                rOpacity.opacity = 0;
 
-                                // 延时在场景树中完全激活后启动循环的波纹运动
+                                // 启动循环的水流波动与漂移运动
                                 this.scheduleOnce(() => {
                                     if (!rippleNode.isValid || !rOpacity.isValid) return;
 
                                     const startCycle = () => {
                                         if (!rippleNode.isValid || !rOpacity.isValid) return;
 
-                                        // 随机初始位置 (-35 ~ 35)，偏向水平流动
-                                        const startX = -35 + Math.random() * 70;
-                                        const startY = -35 + Math.random() * 70;
+                                        // 流动统一从格子左边缘外开始，向右滑动至右边缘外
+                                        const startX = -55;
+                                        const endX = 55;
+                                        // 垂直分布在不同的高度通道中
+                                        const startY = -42 + (i * 12) + (Math.random() * 4 - 2); 
+                                        
                                         rippleNode.setPosition(new Vec3(startX, startY, 0));
                                         rippleNode.setScale(new Vec3(0.5, 1.0, 1.0));
+                                        rippleNode.setRotationFromEuler(0, 0, Math.random() * 10 - 5); // 带有微弱的角度倾斜，更自然
                                         rOpacity.opacity = 0;
 
-                                        // 流动方向 (左/右) 与距离 (10 ~ 25 像素)
-                                        const flowDist = 10 + Math.random() * 15;
-                                        const flowDir = Math.random() > 0.5 ? 1 : -1;
-                                        const targetX = startX + flowDist * flowDir;
+                                        // 随机流动周期 (1.5秒 ~ 2.8秒)
+                                        const duration = 1.5 + Math.random() * 1.3;
 
-                                        // 随机本次波动周期时长 (1.2秒 ~ 2.4秒)
-                                        const duration = 1.2 + Math.random() * 1.2;
-
-                                        // 渐显后渐隐，达到闪烁效果
+                                        // 渐入（0.3周期）、持续、渐出（0.3周期）
                                         tween(rOpacity)
-                                            .to(duration * 0.4, { opacity: 100 + Math.random() * 100 }, { easing: 'sineOut' })
-                                            .to(duration * 0.6, { opacity: 0 }, { easing: 'sineIn' })
+                                            .to(duration * 0.3, { opacity: 100 + Math.random() * 120 }, { easing: 'sineOut' })
+                                            .to(duration * 0.4, { opacity: 100 + Math.random() * 120 })
+                                            .to(duration * 0.3, { opacity: 0 }, { easing: 'sineIn' })
                                             .start();
 
-                                        // 移动位置与横向拉伸 (模拟水波舒展)
-                                        tween(rippleNode)
-                                            .to(duration, {
-                                                position: new Vec3(targetX, startY, 0),
-                                                scale: new Vec3(1.3 + Math.random() * 0.7, 1.0, 1.0)
-                                            }, { easing: 'sineInOut' })
-                                            .call(() => {
-                                                // 单次周期结束，延迟一段时间后自动开启下一次，使波光参差不齐更加自然
-                                                const nextDelay = Math.random() * 1.0;
-                                                this.scheduleOnce(startCycle, nextDelay);
-                                            })
-                                            .start();
+                                        // 沿 X 轴平移流动，同时在 Y 轴做微小正弦波上下晃动，模拟水流涟漪
+                                        const segmentCount = 3;
+                                        const segmentTime = duration / segmentCount;
+                                        const stepX = (endX - startX) / segmentCount;
+                                        
+                                        let myTween = tween(rippleNode);
+                                        for (let k = 1; k <= segmentCount; k++) {
+                                            const nextX = startX + k * stepX;
+                                            const waveY = startY + Math.sin(k * Math.PI * 0.6 + i) * 3;
+                                            const targetScaleX = 0.8 + (k / segmentCount) * 1.0 + Math.random() * 0.4;
+                                            const targetAngle = (Math.random() * 10 - 5) + Math.cos(k) * 4; // 角度波动
+                                            
+                                            myTween = myTween.to(segmentTime, {
+                                                position: new Vec3(nextX, waveY, 0),
+                                                scale: new Vec3(targetScaleX, 1.0, 1.0),
+                                                angle: targetAngle as any
+                                            }, { easing: 'sineInOut' });
+                                        }
+
+                                        myTween.call(() => {
+                                            const nextDelay = Math.random() * 0.6;
+                                            this.scheduleOnce(startCycle, nextDelay);
+                                        }).start();
                                     };
 
-                                    // 随机错开每个波纹的首次启动时间
-                                    const initialDelay = Math.random() * 1.5;
+                                    const initialDelay = Math.random() * 1.6;
                                     this.scheduleOnce(startCycle, initialDelay);
                                 }, 0.05);
                             }
@@ -233,7 +250,7 @@ export class BoardView extends Component {
                             // 陷阱格：暗粉/红
                             sprite.color = new Color(255, 100, 100, 150);
                         } else {
-                            // 陆地格：深灰/浅黑 (扁平绘本明亮风中，我们可以用淡淡的米黄色)
+                            // 陆地格：米黄色
                             sprite.color = new Color(245, 240, 225, 255);
                         }
                     }
@@ -267,8 +284,9 @@ export class BoardView extends Component {
             // 获取对应的动物图片 (注意 AnimalType 1-8，数组下标 0-7)
             const animalSF = this.animalSprites[p.type - 1];
             const baseSF = p.camp === Camp.RED ? this.redBaseSF : this.blueBaseSF;
+            const walkFrames = this.getWalkFramesForType(p.type);
 
-            view.init(p, animalSF, baseSF);
+            view.init(p, animalSF, baseSF, walkFrames);
             this.pieceViews.set(p.id, view);
 
             // 监听子节点（Base和Animal）的点击事件，解决最外层节点无渲染组件导致点击穿透的引擎缺陷
@@ -599,5 +617,65 @@ export class BoardView extends Component {
         const posX = (x - 3) * this.cellWidth;
         const posY = (y - 4) * this.cellHeight;
         return new Vec3(posX, posY, 0);
+    }
+
+    private getWalkFramesForType(type: number): SpriteFrame[] {
+        return this.walkFramesByType.get(type) ?? [];
+    }
+
+    private loadWalkSprites(): Promise<void> {
+        const animals = ['cat', 'dog', 'elephant', 'leopard', 'lion', 'rat', 'tiger', 'wolf'];
+        const typeMap: Record<string, number> = {
+            rat: 1,
+            cat: 2,
+            dog: 3,
+            wolf: 4,
+            leopard: 5,
+            tiger: 6,
+            lion: 7,
+            elephant: 8,
+        };
+
+        return new Promise((resolve) => {
+            resources.loadDir('animals_walk', SpriteFrame, (err, frames) => {
+                if (err) {
+                    console.warn('BoardView: failed to load walk sprite frames from resources/animals_walk', err);
+                    resolve();
+                    return;
+                }
+
+                console.log('BoardView: loaded walk sprite frames count =', frames.length);
+
+                const grouped = new Map<number, SpriteFrame[]>();
+                for (let i = 1; i <= 8; i++) {
+                    grouped.set(i, []);
+                }
+
+                const requiredCount = animals.length * 6;
+                if (frames.length < requiredCount) {
+                    console.warn(`BoardView: walk sprite frame count is ${frames.length}, expected ${requiredCount}`);
+                }
+
+                for (let animalIndex = 0; animalIndex < animals.length; animalIndex++) {
+                    const animal = animals[animalIndex];
+                    const type = typeMap[animal];
+                    for (let frameIndex = 0; frameIndex < 6; frameIndex++) {
+                        const assetIndex = animalIndex * 6 + frameIndex;
+                        const frame = frames[assetIndex] as SpriteFrame | undefined;
+                        if (!frame) continue;
+                        frame.name = `${animal}_walk_${frameIndex + 1}`;
+                        grouped.get(type)?.push(frame);
+                    }
+                }
+
+                for (const [type, frameList] of grouped.entries()) {
+                    console.log(`BoardView: loaded walk frames for type ${type}: ${frameList.length}`);
+                }
+
+                this.walkFramesByType = grouped;
+                console.log('BoardView: walk frame loading finished');
+                resolve();
+            });
+        });
     }
 }
