@@ -62,6 +62,7 @@ export class BoardView extends Component {
     private highlightNodes: Node[] = []; // 当前高亮节点列表
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
     private walkFramesByType: Map<number, SpriteFrame[]> = new Map();
+    private pieceArtByCampAndType: Map<string, SpriteFrame> = new Map();
     private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
 
     onLoad() {
@@ -78,7 +79,7 @@ export class BoardView extends Component {
         this.engine = new LocalEngine();
         this.initBoardBackground();
         this.adjustBoardScale(); // ???????????????
-        this.loadWalkSprites().then(() => {
+        this.loadPieceArt().then(() => this.loadWalkSprites()).then(() => {
             this.restartGame();
         });
     }
@@ -589,11 +590,12 @@ export class BoardView extends Component {
         const view = pieceNode.getComponent(PieceView);
         if (view) {
             // 获取对应的动物图片 (注意 AnimalType 1-8，数组下标 0-7)
-            const animalSF = this.animalSprites[p.type - 1];
+            const fullPieceSF = this.getPieceArt(p.camp, p.type);
+            const animalSF = fullPieceSF ?? this.animalSprites[p.type - 1];
             const baseSF = p.camp === Camp.RED ? this.redBaseSF : this.blueBaseSF;
             const walkFrames = this.getWalkFramesForType(p.type);
 
-            view.init(p, animalSF, baseSF, walkFrames);
+            view.init(p, animalSF, baseSF, walkFrames, !!fullPieceSF);
             this.pieceViews.set(p.id, view);
 
             // 监听子节点（Base和Animal）的点击事件，解决最外层节点无渲染组件导致点击穿透的引擎缺陷
@@ -928,6 +930,42 @@ export class BoardView extends Component {
 
     private getWalkFramesForType(type: number): SpriteFrame[] {
         return this.walkFramesByType.get(type) ?? [];
+    }
+
+    private loadPieceArt(): Promise<void> {
+        return new Promise((resolve) => {
+            resources.loadDir('animal_pieces', SpriteFrame, (err, frames) => {
+                if (err) {
+                    console.warn('BoardView: failed to load animal_pieces sprite frames', err);
+                    resolve();
+                    return;
+                }
+
+                const typeMap: Record<string, AnimalType> = {
+                    rat: AnimalType.RAT,
+                    cat: AnimalType.CAT,
+                    dog: AnimalType.DOG,
+                    wolf: AnimalType.WOLF,
+                    leopard: AnimalType.LEOPARD,
+                    tiger: AnimalType.TIGER,
+                    lion: AnimalType.LION,
+                    elephant: AnimalType.ELEPHANT,
+                };
+
+                for (const frame of frames) {
+                    const match = (frame.name || '').match(/^(rat|cat|dog|wolf|leopard|tiger|lion|elephant)-(blue|red)$/);
+                    if (!match) continue;
+                    const camp = match[2] === 'blue' ? Camp.BLUE : Camp.RED;
+                    this.pieceArtByCampAndType.set(`${camp}_${typeMap[match[1]]}`, frame);
+                }
+
+                resolve();
+            });
+        });
+    }
+
+    private getPieceArt(camp: Camp, type: AnimalType): SpriteFrame | null {
+        return this.pieceArtByCampAndType.get(`${camp}_${type}`) ?? null;
     }
 
     private loadWalkSprites(): Promise<void> {

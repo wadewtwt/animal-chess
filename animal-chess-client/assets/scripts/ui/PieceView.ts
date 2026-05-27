@@ -19,6 +19,7 @@ export class PieceView extends Component {
     private walkFrames: SpriteFrame[] = [];
     private walkFrameIndex = 0;
     private isWalking = false;
+    private useFullPieceArt = false;
 
     private shadowNode: Node | null = null;
     private shadowSprite: Sprite | null = null;
@@ -40,12 +41,33 @@ export class PieceView extends Component {
         labelSelectedPos: new Vec3(0, -30, 0),
     };
 
-    public init(data: Piece, animalSF: SpriteFrame, baseSF: SpriteFrame, walkFrames: SpriteFrame[] = []): void {
+    private readonly fullPieceLayout = {
+        shadowPos: new Vec3(0, -34, 0),
+        shadowScale: new Vec3(0.82, 0.28, 1),
+        basePos: new Vec3(0, 0, 0),
+        baseScale: new Vec3(0.01, 0.01, 1),
+        animalPos: new Vec3(0, 0, 0),
+        animalScale: new Vec3(0.92, 0.92, 1),
+        labelPos: new Vec3(0, -34, 0),
+        shadowSelectedPos: new Vec3(0, -40, 0),
+        shadowSelectedScale: new Vec3(0.68, 0.22, 1),
+        baseSelectedScale: new Vec3(0.01, 0.01, 1),
+        animalSelectedPos: new Vec3(0, 6, 0),
+        animalSelectedScale: new Vec3(1.0, 1.0, 1),
+        labelSelectedPos: new Vec3(0, -38, 0),
+    };
+
+    private get currentLayout() {
+        return this.useFullPieceArt ? this.fullPieceLayout : this.layout;
+    }
+
+    public init(data: Piece, animalSF: SpriteFrame, baseSF: SpriteFrame, walkFrames: SpriteFrame[] = [], useFullPieceArt: boolean = false): void {
         this.pieceData = data;
         this.staticAnimalFrame = animalSF ?? null;
         this.walkFrames = walkFrames.filter(frame => !!frame);
         this.walkFrameIndex = 0;
         this.isWalking = false;
+        this.useFullPieceArt = useFullPieceArt;
 
         this.ensureShadowNode();
 
@@ -61,19 +83,19 @@ export class PieceView extends Component {
             if (baseSF) {
                 this.baseSprite.spriteFrame = baseSF;
             }
-            this.baseSprite.color = data.camp === Camp.RED
-                ? new Color(240, 90, 90, 255)
-                : new Color(80, 145, 245, 255);
+            this.baseSprite.color = useFullPieceArt
+                ? new Color(255, 255, 255, 0)
+                : (data.camp === Camp.RED
+                    ? new Color(240, 90, 90, 255)
+                    : new Color(80, 145, 245, 255));
         }
 
         if (this.animalSprite) {
             if (animalSF) {
                 this.animalSprite.spriteFrame = animalSF;
             }
-            this.animalSprite.color = data.camp === Camp.RED
-                ? new Color(255, 220, 220, 255)
-                : new Color(220, 235, 255, 255);
-            this.animalSprite.node.setScale(new Vec3(data.camp === Camp.BLUE ? -1 : 1, 1, 1));
+            this.animalSprite.color = new Color(255, 255, 255, 255);
+            this.animalSprite.node.setScale(new Vec3(1, 1, 1));
         }
 
         if (this.nameLabel) {
@@ -259,10 +281,6 @@ export class PieceView extends Component {
         this.stopAllTweens();
         this.stopWalkAnimation(false);
 
-        if (this.animalSprite) {
-            this.animalSprite.color = new Color(255, 70, 70, 255);
-        }
-
         const originalPos = this.node.position.clone();
         const flyDir = Math.random() > 0.5 ? 1 : -1;
         const targetPos = new Vec3(originalPos.x + 110 * flyDir, originalPos.y - 60, 0);
@@ -327,30 +345,32 @@ export class PieceView extends Component {
     }
 
     private applyDefaultLayout(immediate: boolean): void {
+        const layout = this.currentLayout;
         const duration = immediate ? 0 : 0.14;
         this.applyLayoutTargets(
-            this.layout.shadowPos,
-            this.layout.shadowScale,
-            this.layout.basePos,
-            this.layout.baseScale,
-            this.layout.animalPos,
-            this.layout.animalScale,
-            this.layout.labelPos,
+            layout.shadowPos,
+            layout.shadowScale,
+            layout.basePos,
+            layout.baseScale,
+            layout.animalPos,
+            layout.animalScale,
+            layout.labelPos,
             duration,
             true
         );
     }
 
     private playSelectedLayout(selected: boolean): void {
+        const layout = this.currentLayout;
         if (selected) {
             this.applyLayoutTargets(
-                this.layout.shadowSelectedPos,
-                this.layout.shadowSelectedScale,
-                this.layout.basePos,
-                this.layout.baseSelectedScale,
-                this.layout.animalSelectedPos,
-                this.layout.animalSelectedScale,
-                this.layout.labelSelectedPos,
+                layout.shadowSelectedPos,
+                layout.shadowSelectedScale,
+                layout.basePos,
+                layout.baseSelectedScale,
+                layout.animalSelectedPos,
+                layout.animalSelectedScale,
+                layout.labelSelectedPos,
                 0.15,
                 false
             );
@@ -360,15 +380,16 @@ export class PieceView extends Component {
     }
 
     private playAttackLayout(pressed: boolean): void {
+        const layout = this.currentLayout;
         if (pressed) {
             this.applyLayoutTargets(
-                new Vec3(0, -38, 0),
+                layout.shadowPos,
                 new Vec3(0.72, 0.24, 1),
-                new Vec3(0, -14, 0),
-                new Vec3(0.96, 0.72, 1),
-                new Vec3(0, 24, 0),
+                layout.basePos,
+                layout.baseScale,
+                new Vec3(0, 12, 0),
                 new Vec3(1.04, 0.96, 1),
-                new Vec3(0, -27, 0),
+                layout.labelPos,
                 0.10,
                 false
             );
@@ -378,22 +399,23 @@ export class PieceView extends Component {
     }
 
     private playMoveBounce(): void {
+        const layout = this.currentLayout;
         if (this.shadowNode) {
             tween(this.shadowNode)
                 .to(0.10, { scale: new Vec3(0.70, 0.25, 1) }, { easing: 'sineOut' })
-                .to(0.10, { scale: this.layout.shadowScale }, { easing: 'backOut' })
+                .to(0.10, { scale: layout.shadowScale }, { easing: 'backOut' })
                 .start();
         }
         if (this.baseSprite) {
             tween(this.baseSprite.node)
                 .to(0.10, { scale: new Vec3(1.03, 0.72, 1) }, { easing: 'sineOut' })
-                .to(0.10, { scale: this.layout.baseScale }, { easing: 'backOut' })
+                .to(0.10, { scale: layout.baseScale }, { easing: 'backOut' })
                 .start();
         }
         if (this.animalSprite) {
             tween(this.animalSprite.node)
                 .to(0.10, { position: new Vec3(0, 24, 0) }, { easing: 'sineOut' })
-                .to(0.10, { position: this.layout.animalPos }, { easing: 'backOut' })
+                .to(0.10, { position: layout.animalPos }, { easing: 'backOut' })
                 .start();
         }
     }
