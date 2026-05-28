@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics, Texture2D } from 'cc';
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 
@@ -934,9 +934,9 @@ export class BoardView extends Component {
 
     private loadPieceArt(): Promise<void> {
         return new Promise((resolve) => {
-            resources.loadDir('animal_pieces', SpriteFrame, (err, frames) => {
+            resources.loadDir('animal_pieces', Texture2D, (err, textures) => {
                 if (err) {
-                    console.warn('BoardView: failed to load animal_pieces sprite frames', err);
+                    console.warn('BoardView: failed to load animal_pieces textures', err);
                     resolve();
                     return;
                 }
@@ -952,10 +952,13 @@ export class BoardView extends Component {
                     elephant: AnimalType.ELEPHANT,
                 };
 
-                for (const frame of frames) {
-                    const match = (frame.name || '').match(/^(rat|cat|dog|wolf|leopard|tiger|lion|elephant)-(blue|red)$/);
+                for (const texture of textures) {
+                    const match = (texture.name || '').match(/^(rat|cat|dog|wolf|leopard|tiger|lion|elephant)-(blue|red)$/);
                     if (!match) continue;
                     const camp = match[2] === 'blue' ? Camp.BLUE : Camp.RED;
+                    const frame = new SpriteFrame();
+                    frame.texture = texture;
+                    frame.name = texture.name;
                     this.pieceArtByCampAndType.set(`${camp}_${typeMap[match[1]]}`, frame);
                 }
 

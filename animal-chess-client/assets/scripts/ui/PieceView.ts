@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math } from 'cc';
+﻿import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math } from 'cc';
 import { Piece, Camp } from '../engine/LocalEngine';
 
 const { ccclass, property } = _decorator;
@@ -42,18 +42,18 @@ export class PieceView extends Component {
     };
 
     private readonly fullPieceLayout = {
-        shadowPos: new Vec3(0, -34, 0),
-        shadowScale: new Vec3(0.82, 0.28, 1),
+        shadowPos: new Vec3(0, -36, 0),
+        shadowScale: new Vec3(0.70, 0.20, 1),
         basePos: new Vec3(0, 0, 0),
         baseScale: new Vec3(0.01, 0.01, 1),
         animalPos: new Vec3(0, 0, 0),
-        animalScale: new Vec3(0.92, 0.92, 1),
+        animalScale: new Vec3(1.0, 1.0, 1),
         labelPos: new Vec3(0, -34, 0),
-        shadowSelectedPos: new Vec3(0, -40, 0),
-        shadowSelectedScale: new Vec3(0.68, 0.22, 1),
+        shadowSelectedPos: new Vec3(0, -38, 0),
+        shadowSelectedScale: new Vec3(0.72, 0.20, 1),
         baseSelectedScale: new Vec3(0.01, 0.01, 1),
-        animalSelectedPos: new Vec3(0, 6, 0),
-        animalSelectedScale: new Vec3(1.0, 1.0, 1),
+        animalSelectedPos: new Vec3(0, 0, 0),
+        animalSelectedScale: new Vec3(1.06, 1.06, 1),
         labelSelectedPos: new Vec3(0, -38, 0),
     };
 
@@ -78,29 +78,33 @@ export class PieceView extends Component {
             this.shadowSprite.color = new Color(0, 0, 0, 105);
             this.shadowSprite.sizeMode = Sprite.SizeMode.CUSTOM;
         }
+        if (this.shadowOpacity && useFullPieceArt) {
+            this.shadowOpacity.opacity = 0;
+        }
 
         if (this.baseSprite) {
             if (baseSF) {
                 this.baseSprite.spriteFrame = baseSF;
             }
-            this.baseSprite.color = useFullPieceArt
-                ? new Color(255, 255, 255, 0)
-                : (data.camp === Camp.RED
-                    ? new Color(240, 90, 90, 255)
-                    : new Color(80, 145, 245, 255));
+            this.baseSprite.color = new Color(255, 255, 255, 0);
         }
 
         if (this.animalSprite) {
             if (animalSF) {
                 this.animalSprite.spriteFrame = animalSF;
             }
+            this.animalSprite.sizeMode = Sprite.SizeMode.CUSTOM;
             this.animalSprite.color = new Color(255, 255, 255, 255);
             this.animalSprite.node.setScale(new Vec3(1, 1, 1));
+            const transform = this.animalSprite.node.getComponent(UITransform);
+            if (transform && useFullPieceArt) {
+                transform.setContentSize(new Size(92, 92));
+            }
         }
 
         if (this.nameLabel) {
-            this.nameLabel.string = `${this.getChineseName(data.type)} (${data.type})`;
-            this.nameLabel.color = data.camp === Camp.RED ? new Color(220, 30, 30) : new Color(30, 90, 220);
+            this.nameLabel.string = '';
+            this.nameLabel.node.active = false;
         }
 
         this.applyDefaultLayout(true);
@@ -114,7 +118,9 @@ export class PieceView extends Component {
     public setSelected(selected: boolean): void {
         this.stopAllTweens();
         if (selected) {
-            this.startWalkAnimation();
+            if (!this.useFullPieceArt) {
+                this.startWalkAnimation();
+            }
             this.playSelectedLayout(true);
         } else {
             this.stopWalkAnimation(true);
@@ -129,38 +135,38 @@ export class PieceView extends Component {
         const currentPos = this.node.position.clone();
         const distance = Vec3.distance(currentPos, targetPos);
 
-        // 每个格子大小是 100 像素，跨河跳跃距离至少在 300 像素以上
+        // 姣忎釜鏍煎瓙澶у皬鏄?100 鍍忕礌锛岃法娌宠烦璺冭窛绂昏嚦灏戝湪 300 鍍忕礌浠ヤ笂
         const isJumping = distance > 150;
 
         if (isJumping) {
-            // 初始化布局
+            // 鍒濆鍖栧竷灞€
             this.applyDefaultLayout(true);
+            const layout = this.currentLayout;
 
-            // 1. 主节点在水平面平移，并在落地时增加挤压反弹动效（体现跳落的物理反馈）
+            // 1. 涓昏妭鐐瑰湪姘村钩闈㈠钩绉伙紝骞跺湪钀藉湴鏃跺鍔犳尋鍘嬪弽寮瑰姩鏁堬紙浣撶幇璺宠惤鐨勭墿鐞嗗弽棣堬級
             const jumpDuration = 0.52;
             tween(this.node)
                 .to(jumpDuration, { position: targetPos }, { easing: 'sineInOut' })
-                .to(0.10, { scale: new Vec3(1.06, 0.92, 1) }, { easing: 'quadOut' }) // 落地挤压扁平
-                .to(0.12, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }) // 恢复
+                .to(0.10, { scale: new Vec3(1.06, 0.92, 1) }, { easing: 'quadOut' }) // 钀藉湴鎸ゅ帇鎵佸钩
+                .to(0.12, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }) // 鎭㈠
                 .call(() => callback?.())
                 .start();
 
-            // 2. 子节点（Animal, Base, NameLabel）在垂直方向做抛物线升降，并给动物增加空中倾斜微动
+            // 2. 瀛愯妭鐐癸紙Animal, Base, NameLabel锛夊湪鍨傜洿鏂瑰悜鍋氭姏鐗╃嚎鍗囬檷锛屽苟缁欏姩鐗╁鍔犵┖涓€炬枩寰姩
             if (this.animalSprite) {
                 const animNode = this.animalSprite.node;
-                const startY = this.layout.animalPos.y;
-                const peakY = startY + 130; // 空中腾起高度
+                const startY = layout.animalPos.y;
+                const peakY = startY + 130; // 绌轰腑鑵捐捣楂樺害
                 
-                // 根据阵营（朝向）决定空中倾斜角度，使腾空更有动感
+                // 鏍规嵁闃佃惀锛堟湞鍚戯級鍐冲畾绌轰腑鍊炬枩瑙掑害锛屼娇鑵剧┖鏇存湁鍔ㄦ劅
                 const isBlue = this.pieceData.camp === Camp.BLUE;
                 const tiltAngle = isBlue ? -15 : 15;
 
                 tween(animNode)
                     .parallel(
-                        // 升降抛物线
-                        tween().to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
-                              .to(jumpDuration * 0.5, { position: this.layout.animalPos }, { easing: 'cubicIn' }),
-                        // 空中旋转倾斜
+                        // 鍗囬檷鎶涚墿绾?                        tween().to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
+                              .to(jumpDuration * 0.5, { position: layout.animalPos }, { easing: 'cubicIn' }),
+                        // 绌轰腑鏃嬭浆鍊炬枩
                         tween().to(jumpDuration * 0.3, { angle: tiltAngle })
                               .to(jumpDuration * 0.4, { angle: -tiltAngle * 0.5 })
                               .to(jumpDuration * 0.3, { angle: 0 })
@@ -170,29 +176,29 @@ export class PieceView extends Component {
 
             if (this.baseSprite) {
                 const baseNode = this.baseSprite.node;
-                const startY = this.layout.basePos.y;
+                const startY = layout.basePos.y;
                 const peakY = startY + 110;
 
                 tween(baseNode)
                     .to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
-                    .to(jumpDuration * 0.5, { position: this.layout.basePos }, { easing: 'cubicIn' })
+                    .to(jumpDuration * 0.5, { position: layout.basePos }, { easing: 'cubicIn' })
                     .start();
             }
 
             if (this.nameLabel) {
                 const labelNode = this.nameLabel.node;
-                const startY = this.layout.labelPos.y;
+                const startY = layout.labelPos.y;
                 const peakY = startY + 110;
 
                 tween(labelNode)
                     .to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
-                    .to(jumpDuration * 0.5, { position: this.layout.labelPos }, { easing: 'cubicIn' })
+                    .to(jumpDuration * 0.5, { position: layout.labelPos }, { easing: 'cubicIn' })
                     .start();
             }
 
-            // 3. 阴影节点（Shadow）在跳跃至最高点时，比例缩小、透明度变淡（表现高度变化带来的投影衰减）
+            // 3. 闃村奖鑺傜偣锛圫hadow锛夊湪璺宠穬鑷虫渶楂樼偣鏃讹紝姣斾緥缂╁皬銆侀€忔槑搴﹀彉娣★紙琛ㄧ幇楂樺害鍙樺寲甯︽潵鐨勬姇褰辫“鍑忥級
             if (this.shadowNode) {
-                const startScale = this.layout.shadowScale;
+                const startScale = layout.shadowScale;
                 const peakScale = new Vec3(startScale.x * 0.4, startScale.y * 0.4, 1);
 
                 tween(this.shadowNode)
@@ -202,16 +208,15 @@ export class PieceView extends Component {
             }
 
             if (this.shadowOpacity) {
-                const startOpacity = 105;
-                const peakOpacity = 25; // 最淡时的透明度
-
+                const startOpacity = this.useFullPieceArt ? 0 : 105;
+                const peakOpacity = 25; // 鏈€娣℃椂鐨勯€忔槑搴?
                 tween(this.shadowOpacity)
                     .to(jumpDuration * 0.5, { opacity: peakOpacity }, { easing: 'sineOut' })
                     .to(jumpDuration * 0.5, { opacity: startOpacity }, { easing: 'sineIn' })
                     .start();
             }
         } else {
-            // 普通一格移动（保留原有的挤压和回弹）
+            // 鏅€氫竴鏍肩Щ鍔紙淇濈暀鍘熸湁鐨勬尋鍘嬪拰鍥炲脊锛?
             this.applyDefaultLayout(false);
 
             tween(this.node)
@@ -382,12 +387,13 @@ export class PieceView extends Component {
     private playAttackLayout(pressed: boolean): void {
         const layout = this.currentLayout;
         if (pressed) {
+            const animalPos = this.useFullPieceArt ? layout.animalPos : new Vec3(0, 12, 0);
             this.applyLayoutTargets(
                 layout.shadowPos,
                 new Vec3(0.72, 0.24, 1),
                 layout.basePos,
                 layout.baseScale,
-                new Vec3(0, 12, 0),
+                animalPos,
                 new Vec3(1.04, 0.96, 1),
                 layout.labelPos,
                 0.10,
@@ -400,6 +406,15 @@ export class PieceView extends Component {
 
     private playMoveBounce(): void {
         const layout = this.currentLayout;
+        if (this.useFullPieceArt) {
+            if (this.animalSprite) {
+                tween(this.animalSprite.node)
+                    .to(0.10, { scale: new Vec3(1.02, 0.98, 1) }, { easing: 'sineOut' })
+                    .to(0.10, { position: layout.animalPos, scale: layout.animalScale }, { easing: 'backOut' })
+                    .start();
+            }
+            return;
+        }
         if (this.shadowNode) {
             tween(this.shadowNode)
                 .to(0.10, { scale: new Vec3(0.70, 0.25, 1) }, { easing: 'sineOut' })
@@ -440,7 +455,7 @@ export class PieceView extends Component {
         if (this.shadowOpacity && resetOpacity) {
             tween(this.shadowOpacity).stop();
             tween(this.shadowOpacity)
-                .to(duration, { opacity: 105 }, { easing: 'quadOut' })
+                .to(duration, { opacity: this.useFullPieceArt ? 0 : 105 }, { easing: 'quadOut' })
                 .start();
         }
         if (this.baseSprite) {
@@ -504,14 +519,14 @@ export class PieceView extends Component {
 
     private getChineseName(type: number): string {
         switch (type) {
-            case 1: return '鼠';
-            case 2: return '猫';
-            case 3: return '狗';
-            case 4: return '狼';
-            case 5: return '豹';
-            case 6: return '虎';
-            case 7: return '狮';
-            case 8: return '象';
+            case 1: return '榧?;
+            case 2: return '鐚?;
+            case 3: return '鐙?;
+            case 4: return '鐙?;
+            case 5: return '璞?;
+            case 6: return '铏?;
+            case 7: return '鐙?;
+            case 8: return '璞?;
             default: return '';
         }
     }
