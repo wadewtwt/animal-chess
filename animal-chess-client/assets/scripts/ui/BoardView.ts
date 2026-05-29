@@ -169,87 +169,101 @@ export class BoardView extends Component {
                             // 小河格：底色深水蓝 (更深沉，提供更好的质感)
                             sprite.color = new Color(25, 75, 160, 255);
 
-                            // 1. 高级多粒子流水波光特效（不依赖 Shader，100% 兼容无错）
-                            const rippleCount = 8; // 增加到 8 个高光波光带，形成密集流动质感
-                            for (let i = 0; i < rippleCount; i++) {
-                                const rippleNode = new Node(`RiverRipple_${i}`);
-                                rippleNode.parent = cellNode;
-                                rippleNode.layer = cellNode.layer; // 保持 UI_2D 图层
+                            // 1. 实现局部的、不超出边界的淡入淡出向左漂流波纹，彻底消除格子间的边界割裂感
+                            const waveA = new Node('WaveA');
+                            waveA.parent = cellNode;
+                            waveA.layer = cellNode.layer;
 
-                                const rTransform = rippleNode.addComponent(UITransform);
-                                // 随机化波光尺寸，有的细长（拉伸水纹），有的圆润（反光光斑）
-                                const rWidth = 12 + Math.random() * 25;
-                                const rHeight = 1.5 + Math.random() * 2;
-                                rTransform.setContentSize(rWidth, rHeight);
+                            const transformA = waveA.addComponent(UITransform);
+                            transformA.setContentSize(70, 12); // 宽度70，远离 100 像素的格子边界
 
-                                const rSprite = rippleNode.addComponent(Sprite);
-                                rSprite.sizeMode = 0; // CUSTOM
-                                rSprite.spriteFrame = sprite.spriteFrame; // white_square 贴图
+                            const spriteA = waveA.addComponent(Sprite);
+                            spriteA.sizeMode = 0; // CUSTOM
+                            
+                            const opacityA = waveA.addComponent(UIOpacity);
+                            opacityA.opacity = 0;
 
-                                // 采用淡水蓝到亮白之间的粼粼高光色
-                                rSprite.color = new Color(210, 245, 255, 255);
+                            const waveB = new Node('WaveB');
+                            waveB.parent = cellNode;
+                            waveB.layer = cellNode.layer;
 
-                                // 挂载 2D 透明度控制组件
-                                const rOpacity = rippleNode.addComponent(UIOpacity);
-                                rOpacity.opacity = 0;
+                            const transformB = waveB.addComponent(UITransform);
+                            transformB.setContentSize(55, 10); // 宽度55，远离 100 像素的格子边界
 
-                                // 启动循环的水流波动与漂移运动
-                                this.scheduleOnce(() => {
-                                    if (!rippleNode.isValid || !rOpacity.isValid) return;
+                            const spriteB = waveB.addComponent(Sprite);
+                            spriteB.sizeMode = 0; // CUSTOM
+                            
+                            const opacityB = waveB.addComponent(UIOpacity);
+                            opacityB.opacity = 0;
 
-                                    const startCycle = () => {
-                                        if (!rippleNode.isValid || !rOpacity.isValid) return;
+                            // 定义波纹 A 的淡入淡出向左漂移动画
+                            const startWaveA = () => {
+                                if (!waveA.isValid || !opacityA.isValid) return;
 
-                                        // 流动统一从格子左边缘外开始，向右滑动至右边缘外
-                                        const startX = -55;
-                                        const endX = 55;
-                                        // 垂直分布在不同的高度通道中
-                                        const startY = -42 + (i * 12) + (Math.random() * 4 - 2); 
-                                        
-                                        rippleNode.setPosition(new Vec3(startX, startY, 0));
-                                        rippleNode.setScale(new Vec3(0.5, 1.0, 1.0));
-                                        rippleNode.setRotationFromEuler(0, 0, Math.random() * 10 - 5); // 带有微弱的角度倾斜，更自然
-                                        rOpacity.opacity = 0;
+                                waveA.setPosition(new Vec3(25, 15, 0));
+                                opacityA.opacity = 0;
 
-                                        // 随机流动周期 (1.5秒 ~ 2.8秒)
-                                        const duration = 1.5 + Math.random() * 1.3;
+                                const duration = 3.5 + Math.random() * 1.0;
 
-                                        // 渐入（0.3周期）、持续、渐出（0.3周期）
-                                        tween(rOpacity)
-                                            .to(duration * 0.3, { opacity: 100 + Math.random() * 120 }, { easing: 'sineOut' })
-                                            .to(duration * 0.4, { opacity: 100 + Math.random() * 120 })
-                                            .to(duration * 0.3, { opacity: 0 }, { easing: 'sineIn' })
-                                            .start();
+                                tween(waveA)
+                                    .to(duration, { position: new Vec3(-25, 15, 0) })
+                                    .call(() => {
+                                        this.scheduleOnce(startWaveA, Math.random() * 2.0);
+                                    })
+                                    .start();
 
-                                        // 沿 X 轴平移流动，同时在 Y 轴做微小正弦波上下晃动，模拟水流涟漪
-                                        const segmentCount = 3;
-                                        const segmentTime = duration / segmentCount;
-                                        const stepX = (endX - startX) / segmentCount;
-                                        
-                                        let myTween = tween(rippleNode);
-                                        for (let k = 1; k <= segmentCount; k++) {
-                                            const nextX = startX + k * stepX;
-                                            const waveY = startY + Math.sin(k * Math.PI * 0.6 + i) * 3;
-                                            const targetScaleX = 0.8 + (k / segmentCount) * 1.0 + Math.random() * 0.4;
-                                            const targetAngle = (Math.random() * 10 - 5) + Math.cos(k) * 4; // 角度波动
-                                            
-                                            myTween = myTween.to(segmentTime, {
-                                                position: new Vec3(nextX, waveY, 0),
-                                                scale: new Vec3(targetScaleX, 1.0, 1.0),
-                                                angle: targetAngle as any
-                                            }, { easing: 'sineInOut' });
-                                        }
+                                tween(opacityA)
+                                    .to(duration * 0.4, { opacity: 70 })
+                                    .to(duration * 0.2, { opacity: 70 })
+                                    .to(duration * 0.4, { opacity: 0 })
+                                    .start();
+                            };
 
-                                        myTween.call(() => {
-                                            const nextDelay = Math.random() * 0.6;
-                                            this.scheduleOnce(startCycle, nextDelay);
-                                        }).start();
-                                    };
+                            // 定义波纹 B 的淡入淡出向左漂移动画
+                            const startWaveB = () => {
+                                if (!waveB.isValid || !opacityB.isValid) return;
 
-                                    const initialDelay = Math.random() * 1.6;
-                                    this.scheduleOnce(startCycle, initialDelay);
-                                }, 0.05);
-                            }
+                                waveB.setPosition(new Vec3(20, -15, 0));
+                                opacityB.opacity = 0;
+
+                                const duration = 4.5 + Math.random() * 1.5;
+
+                                tween(waveB)
+                                    .to(duration, { position: new Vec3(-20, -15, 0) })
+                                    .call(() => {
+                                        this.scheduleOnce(startWaveB, Math.random() * 2.5);
+                                    })
+                                    .start();
+
+                                tween(opacityB)
+                                    .to(duration * 0.4, { opacity: 50 })
+                                    .to(duration * 0.2, { opacity: 50 })
+                                    .to(duration * 0.4, { opacity: 0 })
+                                    .start();
+                            };
+
+                            // 首次随机延时启动，避免所有格子动作千篇一律
+                            this.scheduleOnce(startWaveA, Math.random() * 3.0);
+                            this.scheduleOnce(startWaveB, Math.random() * 4.0);
+
+                            // 异步加载矢量风格水面贴图，并应用到所有波纹和底座上
+                            resources.load('textures/river_water/texture', Texture2D, (err, tex) => {
+                                if (!err && cellNode.isValid) {
+                                    const sf = new SpriteFrame();
+                                    sf.texture = tex;
+                                    
+                                    if (sprite.isValid) {
+                                        sprite.spriteFrame = sf;
+                                        sprite.color = new Color(255, 255, 255, 255); // 恢复贴图原色
+                                    }
+                                    if (spriteA.isValid) {
+                                        spriteA.spriteFrame = sf;
+                                    }
+                                    if (spriteB.isValid) {
+                                        spriteB.spriteFrame = sf;
+                                    }
+                                }
+                            });
 
                             // 2. 特色：添加浮萍/荷叶 (Lily Pads) 浮动效果
                             if (Math.random() < 0.35) {
