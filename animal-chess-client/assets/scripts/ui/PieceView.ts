@@ -1,4 +1,4 @@
-﻿import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math } from 'cc';
+import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math } from 'cc';
 import { Piece, Camp } from '../engine/LocalEngine';
 
 const { ccclass, property } = _decorator;
@@ -33,12 +33,12 @@ export class PieceView extends Component {
         animalPos: new Vec3(0, 18, 0),
         animalScale: new Vec3(1, 1, 1),
         labelPos: new Vec3(0, -26, 0),
-        shadowSelectedPos: new Vec3(0, -40, 0),
+        shadowSelectedPos: new Vec3(0, -34, 0),
         shadowSelectedScale: new Vec3(0.68, 0.22, 1),
         baseSelectedScale: new Vec3(1.06, 0.70, 1),
-        animalSelectedPos: new Vec3(0, 30, 0),
+        animalSelectedPos: new Vec3(0, 18, 0),
         animalSelectedScale: new Vec3(1.08, 1.08, 1),
-        labelSelectedPos: new Vec3(0, -30, 0),
+        labelSelectedPos: new Vec3(0, -26, 0),
     };
 
     private readonly fullPieceLayout = {
@@ -49,12 +49,12 @@ export class PieceView extends Component {
         animalPos: new Vec3(0, 0, 0),
         animalScale: new Vec3(1.0, 1.0, 1),
         labelPos: new Vec3(0, -34, 0),
-        shadowSelectedPos: new Vec3(0, -38, 0),
+        shadowSelectedPos: new Vec3(0, -36, 0),
         shadowSelectedScale: new Vec3(0.72, 0.20, 1),
         baseSelectedScale: new Vec3(0.01, 0.01, 1),
         animalSelectedPos: new Vec3(0, 0, 0),
         animalSelectedScale: new Vec3(1.06, 1.06, 1),
-        labelSelectedPos: new Vec3(0, -38, 0),
+        labelSelectedPos: new Vec3(0, -34, 0),
     };
 
     private get currentLayout() {
@@ -117,12 +117,20 @@ export class PieceView extends Component {
 
     public setSelected(selected: boolean): void {
         this.stopAllTweens();
+        this.node.setScale(new Vec3(1, 1, 1)); // 确保重置节点整体缩放
         if (selected) {
-            if (!this.useFullPieceArt) {
-                this.startWalkAnimation();
-            }
+            // 选中的弹起位移
             this.playSelectedLayout(true);
+            
+            // 棋子整体呼吸动画 (忽大忽小)，幅度调大，取消delay让它立刻开始叠加放大
+            tween(this.node)
+                .to(0.6, { scale: new Vec3(1.10, 1.10, 1) }, { easing: 'sineInOut' })
+                .to(0.6, { scale: new Vec3(0.94, 0.94, 1) }, { easing: 'sineInOut' })
+                .union()
+                .repeatForever()
+                .start();
         } else {
+            // 确保如果之前有由于其他逻辑触发的行走动画，也会被重置
             this.stopWalkAnimation(true);
             this.playSelectedLayout(false);
         }
@@ -135,16 +143,18 @@ export class PieceView extends Component {
         const currentPos = this.node.position.clone();
         const distance = Vec3.distance(currentPos, targetPos);
 
-        // 姣忎釜鏍煎瓙澶у皬鏄?100 鍍忕礌锛岃法娌宠烦璺冭窛绂昏嚦灏戝湪 300 鍍忕礌浠ヤ笂
-        const isJumping = distance > 150;
+        // 所有移动都采用跳跃表现
+        const isJumping = true;
 
         if (isJumping) {
+            // 根据距离动态计算跳跃时长和高度
+            const jumpDuration = distance > 150 ? 0.52 : 0.35;
+            const peakOffset = distance > 150 ? 130 : 60; // 跨河大跳 vs 普通小跳
             // 鍒濆鍖栧竷灞€
             this.applyDefaultLayout(true);
             const layout = this.currentLayout;
 
             // 1. 涓昏妭鐐瑰湪姘村钩闈㈠钩绉伙紝骞跺湪钀藉湴鏃跺鍔犳尋鍘嬪弽寮瑰姩鏁堬紙浣撶幇璺宠惤鐨勭墿鐞嗗弽棣堬級
-            const jumpDuration = 0.52;
             tween(this.node)
                 .to(jumpDuration, { position: targetPos }, { easing: 'sineInOut' })
                 .to(0.10, { scale: new Vec3(1.06, 0.92, 1) }, { easing: 'quadOut' }) // 钀藉湴鎸ゅ帇鎵佸钩
@@ -156,7 +166,7 @@ export class PieceView extends Component {
             if (this.animalSprite) {
                 const animNode = this.animalSprite.node;
                 const startY = layout.animalPos.y;
-                const peakY = startY + 130; // 绌轰腑鑵捐捣楂樺害
+                const peakY = startY + peakOffset; // 动态腾空高度
                 
                 // 鏍规嵁闃佃惀锛堟湞鍚戯級鍐冲畾绌轰腑鍊炬枩瑙掑害锛屼娇鑵剧┖鏇存湁鍔ㄦ劅
                 const isBlue = this.pieceData.camp === Camp.BLUE;
@@ -164,7 +174,8 @@ export class PieceView extends Component {
 
                 tween(animNode)
                     .parallel(
-                        // 鍗囬檷鎶涚墿绾?                        tween().to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
+                        // 升降抛物线
+                        tween(animNode).to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
                               .to(jumpDuration * 0.5, { position: layout.animalPos }, { easing: 'cubicIn' }),
                         // 绌轰腑鏃嬭浆鍊炬枩
                         tween().to(jumpDuration * 0.3, { angle: tiltAngle })
@@ -177,7 +188,7 @@ export class PieceView extends Component {
             if (this.baseSprite) {
                 const baseNode = this.baseSprite.node;
                 const startY = layout.basePos.y;
-                const peakY = startY + 110;
+                const peakY = startY + peakOffset * 0.85;
 
                 tween(baseNode)
                     .to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
@@ -188,7 +199,7 @@ export class PieceView extends Component {
             if (this.nameLabel) {
                 const labelNode = this.nameLabel.node;
                 const startY = layout.labelPos.y;
-                const peakY = startY + 110;
+                const peakY = startY + peakOffset * 0.85;
 
                 tween(labelNode)
                     .to(jumpDuration * 0.5, { position: new Vec3(0, peakY, 0) }, { easing: 'cubicOut' })
@@ -519,14 +530,14 @@ export class PieceView extends Component {
 
     private getChineseName(type: number): string {
         switch (type) {
-            case 1: return '榧?;
-            case 2: return '鐚?;
-            case 3: return '鐙?;
-            case 4: return '鐙?;
-            case 5: return '璞?;
-            case 6: return '铏?;
-            case 7: return '鐙?;
-            case 8: return '璞?;
+            case 1: return '鼠';
+            case 2: return '猫';
+            case 3: return '狗';
+            case 4: return '狼';
+            case 5: return '豹';
+            case 6: return '虎';
+            case 7: return '狮';
+            case 8: return '象';
             default: return '';
         }
     }
