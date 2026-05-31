@@ -1,6 +1,8 @@
 import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics, Texture2D, BlendFactor, ImageAsset, Mask, AudioClip, AudioSource } from 'cc';
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
+import { MainMenuUI } from './MainMenuUI';
+import { LoadingScene } from '../LoadingScene';
 
 const { ccclass, property } = _decorator;
 
@@ -80,6 +82,7 @@ export class BoardView extends Component {
 
     start() {
         console.log("BoardView: start() called.");
+        this.showLoadingScene();
         this.engine = new LocalEngine();
         this.initBoardBackground();
         this.adjustBoardScale(); // ???????????????
@@ -88,6 +91,51 @@ export class BoardView extends Component {
             this.initAudioSource();
         });
     }
+
+    private loadingNode: Node | null = null;
+
+    private showLoadingScene() {
+        if (!this.loadingNode) {
+            this.loadingNode = new Node('LoadingContainer');
+            this.loadingNode.layer = 33554432; // UI_2D
+            this.loadingNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
+            this.loadingNode.addComponent(LoadingScene);
+            this.node.parent!.addChild(this.loadingNode); // Add to Canvas directly
+            
+            // Hide the board
+            this.node.active = false;
+            
+            // Listen for loading complete
+            this.loadingNode.on('loading-complete', () => {
+                this.loadingNode!.destroy();
+                this.loadingNode = null;
+                this.showMainMenu();
+            });
+        }
+    }
+
+    private mainMenuNode: Node | null = null;
+
+    private showMainMenu() {
+        if (!this.mainMenuNode) {
+            this.mainMenuNode = new Node('MainMenuContainer');
+            this.mainMenuNode.layer = 33554432; // UI_2D
+            this.mainMenuNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
+            this.mainMenuNode.addComponent(MainMenuUI);
+            this.node.parent!.addChild(this.mainMenuNode); // Add to Canvas directly
+            
+            // Listen for start game event
+            this.mainMenuNode.on('start-game', () => {
+                this.mainMenuNode!.active = false;
+                this.node.active = true;
+            });
+        } else {
+            this.mainMenuNode.active = true;
+            this.node.active = false;
+        }
+    }
+
+
 
     private initAudioSource() {
         // 创建用于播放音效的 AudioSource

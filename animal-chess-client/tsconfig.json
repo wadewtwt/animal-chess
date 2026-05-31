@@ -4,6 +4,16 @@
 
   /* Add your custom configuration here. */
   "compilerOptions": {
-    "strict": false
-  }
+    "strict": false,
+    "ignoreDeprecations": "5.0"
+  },
+  "exclude": [
+    "dev",
+    "node_modules",
+    "library",
+    "local",
+    "temp",
+    "build",
+    "settings"
+  ]
 }
