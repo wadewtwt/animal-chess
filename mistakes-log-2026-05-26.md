@@ -34,7 +34,8 @@
 - 先确认资源导入后的名称、类型、路径，再写加载逻辑。
 - 先用日志确认每种动物实际加载到了多少帧，再判断动画逻辑是否正确。
 
-## 6. 原始图源
+## 7. Cocos 3.x 动态加载 ImageAsset 坑
 
-- 原始生成图路径：`C:\Users\Administrator\.codex\generated_images\019e6220-7878-79b3-8b7b-9ee605c45969\ig_08dbd091aac90ae7016a1507a3c7848197804cd9290a2a10e0.png`
-
+- 尝试通过 `resources.loadDir('animal_pieces', ImageAsset, ...)` 动态加载图集并在代码中使用正则匹配文件名区分阵营时，失败了很久。
+- **原因**：在 Cocos Creator 3.8.7 中，批量加载的 `ImageAsset` 对象的 `name` 属性**返回的是空字符串**！由于名字是空的，基于 `asset.name` 的正则匹配全部直接失败（或者匹配不上任何有效信息）。
+- **解决方案**：不要依赖 `loadDir` 出来的资源名称来动态映射。改为在代码中构建好明确的文件路径（例如 `animal_pieces/cat-red`），然后**逐个文件精准加载**，并且优先直接加载它的子资源 `/spriteFrame`。

@@ -61,7 +61,11 @@ export class BoardView extends Component {
     private pieceViews: Map<string, PieceView> = new Map(); // id -> PieceView
     private highlightNodes: Node[] = []; // 当前高亮节点列表
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
-    private walkFramesByType: Map<number, SpriteFrame[]> = new Map();
+    
+    // 音效与音乐播放器
+    private audioSource: AudioSource | null = null;
+    private bgmSource: AudioSource | null = null;
+    private walkFramesByType: Map<number, SpriteFrame[]> = new Map(); // Removed
     private pieceArtByCampAndType: Map<string, SpriteFrame> = new Map();
     private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
 
@@ -79,17 +83,50 @@ export class BoardView extends Component {
         this.engine = new LocalEngine();
         this.initBoardBackground();
         this.adjustBoardScale(); // ???????????????
-        this.loadPieceArt().then(() => this.loadWalkSprites()).then(() => {
+        this.loadPieceArt().then(() => {
             this.restartGame();
             this.initAudioSource();
         });
     }
 
     private initAudioSource() {
-        this.audioSource = this.node.getComponent(AudioSource);
-        if (!this.audioSource) {
-            this.audioSource = this.node.addComponent(AudioSource);
-        }
+        // 创建用于播放音效的 AudioSource
+        this.audioSource = this.addComponent(AudioSource);
+        
+        // 创建专门用于播放背景音乐的 AudioSource，并尝试播放 BGM
+        this.bgmSource = this.addComponent(AudioSource);
+        this.bgmSource.loop = true;
+        this.bgmSource.volume = 0.5; // 背景音乐音量调小一点
+        this.playBGM();
+    }
+
+    /**
+     * 尝试加载并播放背景音乐
+     */
+    private playBGM() {
+        if (!this.bgmSource) return;
+
+        // 随机选择一首背景音乐
+        const bgmList = ['sounds/bgm-1', 'sounds/bgm-2'];
+        const randomBGM = bgmList[Math.floor(Math.random() * bgmList.length)];
+
+        resources.load(randomBGM, AudioClip, (err, clip) => {
+            if (err) {
+                console.log(`提示：加载背景音乐失败 (${randomBGM})，请确保文件存在。`);
+                return;
+            }
+            if (clip && this.bgmSource) {
+                this.bgmSource.clip = clip;
+                this.bgmSource.play(); // 尝试直接播放
+            }
+        });
+
+        // 监听用户的第一次点击：解决浏览器“必须在用户交互后才能播放音频”的安全限制
+        this.node.once(Node.EventType.TOUCH_END, () => {
+            if (this.bgmSource && this.bgmSource.clip && !this.bgmSource.playing) {
+                this.bgmSource.play();
+            }
+        }, this);
     }
 
     /**
@@ -399,37 +436,21 @@ export class BoardView extends Component {
                                 sprite.color = useGrass1 ? new Color(115, 185, 120, 255) : new Color(125, 195, 130, 255);
                             }
 
-                            // 兽穴格额外增加金色魔力结界光圈
+                            // 兽穴格：使用精美的帐篷大本营图片
                             if (this.engine.isDen(x, y)) {
-                                const shineNode = new Node(`DenShine`);
-                                shineNode.parent = cellNode;
-                                shineNode.layer = cellNode.layer;
-                                const sTransform = shineNode.addComponent(UITransform);
-                                sTransform.setContentSize(this.cellWidth - 10, this.cellHeight - 10);
-                                
-                                const sSprite = shineNode.addComponent(Sprite);
-                                sSprite.sizeMode = 0;
-                                sSprite.spriteFrame = this.gridCellPrefab.data.getComponent(Sprite)?.spriteFrame || sprite.spriteFrame;
-                                sSprite.color = new Color(255, 235, 120, 100);
-
-                                const sOpacity = shineNode.addComponent(UIOpacity);
-                                sOpacity.opacity = 80;
-
-                                // 呼吸脉动动效
-                                tween(sOpacity)
-                                    .to(1.5, { opacity: 160 }, { easing: 'sineInOut' })
-                                    .to(1.5, { opacity: 40 }, { easing: 'sineInOut' })
-                                    .union()
-                                    .repeatForever()
-                                    .start();
-
-                                // 慢速旋转
-                                tween(shineNode)
-                                    .to(10.0, { angle: 360 })
-                                    .call(() => { shineNode.angle = 0; })
-                                    .union()
-                                    .repeatForever()
-                                    .start();
+                                resources.load('textures/den/texture', ImageAsset, (err, imageAsset) => {
+                                    if (err) {
+                                        console.error("Failed to load den image:", err);
+                                        sprite.color = new Color(255, 235, 120, 255); // 降级方案
+                                        return;
+                                    }
+                                    if (cellNode.isValid) {
+                                        const tex = new Texture2D(); tex.image = imageAsset;
+                                        const sf = new SpriteFrame(); sf.texture = tex;
+                                        sprite.spriteFrame = sf;
+                                        sprite.color = new Color(255, 255, 255, 255); // 使用图片原色
+                                    }
+                                });
                             }
 
                             // 1. 特色：动态随风摇曳的草叶 (Grass Blades) 
@@ -703,19 +724,22 @@ export class BoardView extends Component {
 
         const pieceNode = instantiate(this.piecePrefab);
         pieceNode.parent = this.boardContainer;
-        const pos = this.gridToWorldPos(p.x, p.y);
-        pos.y -= 18; // 科学对齐：PieceView 中 animalPos 为 18，故精确下移 18 像素抵消，使得动物图形完美居中
-        pieceNode.setPosition(pos);
 
         const view = pieceNode.getComponent(PieceView);
         if (view) {
             // 获取对应的动物图片 (注意 AnimalType 1-8，数组下标 0-7)
             const fullPieceSF = this.getPieceArt(p.camp, p.type);
+            console.log(`BoardView: spawnPieceNode: ID=${p.id}, type=${p.type}, camp=${p.camp}, x=${p.x}, y=${p.y}, hasCustomArt=${!!fullPieceSF}`);
             const animalSF = fullPieceSF ?? this.animalSprites[p.type - 1];
             const baseSF = p.camp === Camp.RED ? this.redBaseSF : this.blueBaseSF;
-            const walkFrames = this.getWalkFramesForType(p.type);
+            view.init(p, animalSF, baseSF, !!fullPieceSF);
+            
+            const pos = this.gridToWorldPos(p.x, p.y);
+            if (!view.useFullPieceArt) {
+                pos.y -= 18; // 科学对齐：旧版默认图中 animalPos 为 18，故精确下移 18 像素抵消，使得动物图形完美居中
+            }
+            pieceNode.setPosition(pos);
 
-            view.init(p, animalSF, baseSF, walkFrames, !!fullPieceSF);
             this.pieceViews.set(p.id, view);
 
             // 监听子节点（Base和Animal）的点击事件，解决最外层节点无渲染组件导致点击穿透的引擎缺陷
@@ -812,6 +836,22 @@ export class BoardView extends Component {
     }
 
     /**
+     * 播放吃子打败音效
+     */
+    private playDabaiSound() {
+        if (!this.audioSource) return;
+        resources.load('sounds/dabai', AudioClip, (err, clip) => {
+            if (err) {
+                console.warn("未找到打败音效 (sounds/dabai)，请确认已放入音频文件。");
+                return;
+            }
+            if (clip && this.audioSource) {
+                this.audioSource.playOneShot(clip, 1.0);
+            }
+        });
+    }
+
+    /**
      * 选中某个棋子，并高亮其所有合法的落子格
      */
     private selectPiece(piece: Piece): void {
@@ -868,7 +908,9 @@ export class BoardView extends Component {
 
         // 视图层执行移动动画
         const targetWorldPos = this.gridToWorldPos(toX, toY);
-        targetWorldPos.y -= 18; // 科学对齐：精确下移 18 像素
+        if (!activeView.useFullPieceArt) {
+            targetWorldPos.y -= 18; // 科学对齐：精确下移 18 像素
+        }
 
         if (eatenPiece) {
             const eatenView = this.pieceViews.get(eatenPiece.id)!;
@@ -878,6 +920,9 @@ export class BoardView extends Component {
             activeView.playAttackLunge(targetWorldPos, 
                 // 击中瞬间的回调 (Impact)
                 () => {
+                    // 播放吃子（打败）音效
+                    this.playDabaiSound();
+
                     // 播放击中波光与爪击特写特效，并触发棋盘震屏
                     this.playImpactEffect(targetWorldPos);
                     
@@ -1151,102 +1196,81 @@ export class BoardView extends Component {
         return new Vec3(posX, posY, 0);
     }
 
-    private getWalkFramesForType(type: number): SpriteFrame[] {
-        return this.walkFramesByType.get(type) ?? [];
-    }
+
 
     private loadPieceArt(): Promise<void> {
-        return new Promise((resolve) => {
-            resources.loadDir('animal_pieces', Texture2D, (err, textures) => {
-                if (err) {
-                    console.warn('BoardView: failed to load animal_pieces textures', err);
-                    resolve();
-                    return;
-                }
+        const animals: { name: string; type: AnimalType }[] = [
+            { name: 'rat', type: AnimalType.RAT },
+            { name: 'cat', type: AnimalType.CAT },
+            { name: 'dog', type: AnimalType.DOG },
+            { name: 'wolf', type: AnimalType.WOLF },
+            { name: 'leopard', type: AnimalType.LEOPARD },
+            { name: 'tiger', type: AnimalType.TIGER },
+            { name: 'lion', type: AnimalType.LION },
+            { name: 'elephant', type: AnimalType.ELEPHANT },
+        ];
+        const camps: { name: string; camp: Camp }[] = [
+            { name: 'red', camp: Camp.RED },
+            { name: 'blue', camp: Camp.BLUE },
+        ];
 
-                const typeMap: Record<string, AnimalType> = {
-                    rat: AnimalType.RAT,
-                    cat: AnimalType.CAT,
-                    dog: AnimalType.DOG,
-                    wolf: AnimalType.WOLF,
-                    leopard: AnimalType.LEOPARD,
-                    tiger: AnimalType.TIGER,
-                    lion: AnimalType.LION,
-                    elephant: AnimalType.ELEPHANT,
-                };
+        const promises: Promise<void>[] = [];
 
-                for (const texture of textures) {
-                    const match = (texture.name || '').match(/^(rat|cat|dog|wolf|leopard|tiger|lion|elephant)-(blue|red)$/);
-                    if (!match) continue;
-                    const camp = match[2] === 'blue' ? Camp.BLUE : Camp.RED;
-                    const frame = new SpriteFrame();
-                    frame.texture = texture;
-                    frame.name = texture.name;
-                    this.pieceArtByCampAndType.set(`${camp}_${typeMap[match[1]]}`, frame);
-                }
+        for (const animal of animals) {
+            for (const campInfo of camps) {
+                const path = `animal_pieces/${animal.name}-${campInfo.name}`;
+                const key = `${campInfo.camp}_${animal.type}`;
 
-                resolve();
-            });
+                promises.push(new Promise<void>((resolve) => {
+                    // 优先尝试加载 SpriteFrame 子资源
+                    resources.load(`${path}/spriteFrame`, SpriteFrame, (err, frame) => {
+                        if (!err && frame) {
+                            this.pieceArtByCampAndType.set(key, frame);
+                            console.log(`BoardView: registered art (SpriteFrame) for key: ${key} from ${path}/spriteFrame`);
+                            resolve();
+                            return;
+                        }
+                        // 回退：尝试直接作为 SpriteFrame 加载
+                        resources.load(path, SpriteFrame, (err2, frame2) => {
+                            if (!err2 && frame2) {
+                                this.pieceArtByCampAndType.set(key, frame2);
+                                console.log(`BoardView: registered art (SpriteFrame direct) for key: ${key} from ${path}`);
+                                resolve();
+                                return;
+                            }
+                            // 最终回退：加载 ImageAsset 并手动创建 SpriteFrame
+                            resources.load(path, ImageAsset, (err3, imgAsset) => {
+                                if (err3 || !imgAsset) {
+                                    console.warn(`BoardView: failed to load piece art for ${path}:`, err3);
+                                    resolve();
+                                    return;
+                                }
+                                try {
+                                    const sf = SpriteFrame.createWithImage(imgAsset);
+                                    this.pieceArtByCampAndType.set(key, sf);
+                                    console.log(`BoardView: registered art (ImageAsset->SF) for key: ${key} from ${path}`);
+                                } catch (e) {
+                                    console.error(`BoardView: createWithImage failed for ${path}:`, e);
+                                }
+                                resolve();
+                            });
+                        });
+                    });
+                }));
+            }
+        }
+
+        return Promise.all(promises).then(() => {
+            console.log(`BoardView: total registered piece arts: ${this.pieceArtByCampAndType.size}`);
         });
     }
 
     private getPieceArt(camp: Camp, type: AnimalType): SpriteFrame | null {
-        return this.pieceArtByCampAndType.get(`${camp}_${type}`) ?? null;
+        const key = `${camp}_${type}`;
+        const art = this.pieceArtByCampAndType.get(key) ?? null;
+        console.log(`BoardView: getPieceArt query for key ${key} -> ${art ? 'FOUND' : 'NOT FOUND'}`);
+        return art;
     }
 
-    private loadWalkSprites(): Promise<void> {
-        const animals = ['cat', 'dog', 'elephant', 'leopard', 'lion', 'rat', 'tiger', 'wolf'];
-        const typeMap: Record<string, number> = {
-            rat: 1,
-            cat: 2,
-            dog: 3,
-            wolf: 4,
-            leopard: 5,
-            tiger: 6,
-            lion: 7,
-            elephant: 8,
-        };
 
-        return new Promise((resolve) => {
-            resources.loadDir('animals_walk', SpriteFrame, (err, frames) => {
-                if (err) {
-                    console.warn('BoardView: failed to load walk sprite frames from resources/animals_walk', err);
-                    resolve();
-                    return;
-                }
-
-                console.log('BoardView: loaded walk sprite frames count =', frames.length);
-
-                const grouped = new Map<number, SpriteFrame[]>();
-                for (let i = 1; i <= 8; i++) {
-                    grouped.set(i, []);
-                }
-
-                const requiredCount = animals.length * 6;
-                if (frames.length < requiredCount) {
-                    console.warn(`BoardView: walk sprite frame count is ${frames.length}, expected ${requiredCount}`);
-                }
-
-                for (let animalIndex = 0; animalIndex < animals.length; animalIndex++) {
-                    const animal = animals[animalIndex];
-                    const type = typeMap[animal];
-                    for (let frameIndex = 0; frameIndex < 6; frameIndex++) {
-                        const assetIndex = animalIndex * 6 + frameIndex;
-                        const frame = frames[assetIndex] as SpriteFrame | undefined;
-                        if (!frame) continue;
-                        frame.name = `${animal}_walk_${frameIndex + 1}`;
-                        grouped.get(type)?.push(frame);
-                    }
-                }
-
-                for (const [type, frameList] of grouped.entries()) {
-                    console.log(`BoardView: loaded walk frames for type ${type}: ${frameList.length}`);
-                }
-
-                this.walkFramesByType = grouped;
-                console.log('BoardView: walk frame loading finished');
-                resolve();
-            });
-        });
-    }
 }

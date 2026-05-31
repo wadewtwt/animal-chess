@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math } from 'cc';
+import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math, Graphics } from 'cc';
 import { Piece, Camp } from '../engine/LocalEngine';
 
 const { ccclass, property } = _decorator;
@@ -19,7 +19,7 @@ export class PieceView extends Component {
     private walkFrames: SpriteFrame[] = [];
     private walkFrameIndex = 0;
     private isWalking = false;
-    private useFullPieceArt = false;
+    public useFullPieceArt = false;
 
     private shadowNode: Node | null = null;
     private shadowSprite: Sprite | null = null;
@@ -61,12 +61,9 @@ export class PieceView extends Component {
         return this.useFullPieceArt ? this.fullPieceLayout : this.layout;
     }
 
-    public init(data: Piece, animalSF: SpriteFrame, baseSF: SpriteFrame, walkFrames: SpriteFrame[] = [], useFullPieceArt: boolean = false): void {
+    public init(data: Piece, animalSF: SpriteFrame, baseSF: SpriteFrame, useFullPieceArt: boolean = false): void {
         this.pieceData = data;
         this.staticAnimalFrame = animalSF ?? null;
-        this.walkFrames = walkFrames.filter(frame => !!frame);
-        this.walkFrameIndex = 0;
-        this.isWalking = false;
         this.useFullPieceArt = useFullPieceArt;
 
         this.ensureShadowNode();
@@ -130,15 +127,12 @@ export class PieceView extends Component {
                 .repeatForever()
                 .start();
         } else {
-            // 确保如果之前有由于其他逻辑触发的行走动画，也会被重置
-            this.stopWalkAnimation(true);
             this.playSelectedLayout(false);
         }
     }
 
     public smoothMoveTo(targetPos: Vec3, callback?: () => void): void {
         this.stopAllTweens();
-        this.stopWalkAnimation(false);
         
         const currentPos = this.node.position.clone();
         const distance = Vec3.distance(currentPos, targetPos);
@@ -158,8 +152,11 @@ export class PieceView extends Component {
             tween(this.node)
                 .to(jumpDuration, { position: targetPos }, { easing: 'sineInOut' })
                 .to(0.10, { scale: new Vec3(1.06, 0.92, 1) }, { easing: 'quadOut' }) // 钀藉湴鎸ゅ帇鎵佸钩
-                .to(0.12, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }) // 鎭㈠
-                .call(() => callback?.())
+                .to(0.12, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }) // 恢复
+                .call(() => {
+                    this.spawnDustEffect();
+                    callback?.();
+                })
                 .start();
 
             // 2. 瀛愯妭鐐癸紙Animal, Base, NameLabel锛夊湪鍨傜洿鏂瑰悜鍋氭姏鐗╃嚎鍗囬檷锛屽苟缁欏姩鐗╁鍔犵┖涓€炬枩寰姩
@@ -234,16 +231,77 @@ export class PieceView extends Component {
                 .to(0.08, { scale: new Vec3(1.03, 0.98, 1) }, { easing: 'quadOut' })
                 .to(0.28, { position: targetPos }, { easing: 'cubicOut' })
                 .to(0.10, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
-                .call(() => callback?.())
+                .call(() => {
+                    this.spawnDustEffect();
+                    callback?.();
+                })
                 .start();
 
             this.playMoveBounce();
         }
     }
 
+    /**
+     * 生成落地激起的尘土特效
+     */
+    private spawnDustEffect() {
+        if (!this.node.parent) return;
+
+        const dustContainer = new Node('DustContainer');
+        dustContainer.parent = this.node.parent;
+        dustContainer.setPosition(this.node.position);
+        dustContainer.layer = this.node.layer;
+
+        // 生成 5-8 团较大的灰尘，让效果更显眼
+        const dustCount = 5 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < dustCount; i++) {
+            const dustNode = new Node('Dust');
+            dustNode.parent = dustContainer;
+            dustNode.layer = dustContainer.layer;
+            
+            const gTransform = dustNode.addComponent(UITransform);
+            gTransform.setContentSize(20, 20);
+            
+            const graphics = dustNode.addComponent(Graphics);
+            graphics.fillColor = new Color(210, 200, 180, 220); // 更浓厚的泥土色
+            graphics.ellipse(0, 0, 8 + Math.random() * 6, 6 + Math.random() * 4); // 初始体积变得更大
+            graphics.fill();
+
+            const opacity = dustNode.addComponent(UIOpacity);
+            opacity.opacity = 255; // 初始完全不透明
+
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 25 + Math.random() * 25; // 飞溅距离更远
+            const targetX = Math.cos(angle) * distance;
+            const targetY = Math.sin(angle) * distance * 0.4; // 压扁Y轴让灰尘在贴地平面上散开
+
+            dustNode.setPosition(0, 0, 0);
+            dustNode.setScale(0.5, 0.5, 1); // 初始大小也放大
+
+            const duration = 0.35 + Math.random() * 0.25; // 持续时间稍长一点点
+            tween(dustNode)
+                .parallel(
+                    // 向外爆发扩散
+                    tween(dustNode).to(duration, { position: new Vec3(targetX, targetY, 0) }, { easing: 'cubicOut' }),
+                    // 先急剧变大，再慢慢缩小
+                    tween(dustNode).to(duration * 0.4, { scale: new Vec3(2.5, 2.5, 1) }, { easing: 'cubicOut' })
+                                  .to(duration * 0.6, { scale: new Vec3(0.5, 0.5, 1) }, { easing: 'cubicIn' }),
+                    // 逐渐消散透明
+                    tween(opacity).to(duration, { opacity: 0 }, { easing: 'sineIn' })
+                )
+                .start();
+        }
+
+        // 动画结束后销毁容器节点
+        this.scheduleOnce(() => {
+            if (dustContainer.isValid) {
+                dustContainer.destroy();
+            }
+        }, 0.8);
+    }
+
     public playEatenAnimation(callback: () => void): void {
         this.stopAllTweens();
-        this.stopWalkAnimation(false);
 
         if (this.shadowOpacity) {
             tween(this.shadowOpacity)
@@ -267,7 +325,6 @@ export class PieceView extends Component {
 
     public playAttackLunge(targetPos: Vec3, onImpact: () => void, onComplete: () => void): void {
         this.stopAllTweens();
-        this.stopWalkAnimation(false);
 
         const currentPos = this.node.position.clone();
         const dir = targetPos.clone().subtract(currentPos);
@@ -295,7 +352,6 @@ export class PieceView extends Component {
 
     public playBeatenAnimation(callback: () => void): void {
         this.stopAllTweens();
-        this.stopWalkAnimation(false);
 
         const originalPos = this.node.position.clone();
         const flyDir = Math.random() > 0.5 ? 1 : -1;
@@ -498,35 +554,7 @@ export class PieceView extends Component {
         if (this.nameLabel) Tween.stopAllByTarget(this.nameLabel.node);
     }
 
-    private startWalkAnimation(): void {
-        if (!this.animalSprite || this.walkFrames.length === 0 || this.isWalking) {
-            return;
-        }
 
-        this.isWalking = true;
-        this.walkFrameIndex = 0;
-        this.animalSprite.spriteFrame = this.walkFrames[0];
-        this.schedule(this.advanceWalkFrame, 0.12);
-    }
-
-    private stopWalkAnimation(resetToStatic: boolean): void {
-        this.unschedule(this.advanceWalkFrame);
-        this.isWalking = false;
-        this.walkFrameIndex = 0;
-
-        if (resetToStatic && this.animalSprite && this.staticAnimalFrame) {
-            this.animalSprite.spriteFrame = this.staticAnimalFrame;
-        }
-    }
-
-    private advanceWalkFrame = (): void => {
-        if (!this.animalSprite || this.walkFrames.length === 0) {
-            return;
-        }
-
-        this.walkFrameIndex = (this.walkFrameIndex + 1) % this.walkFrames.length;
-        this.animalSprite.spriteFrame = this.walkFrames[this.walkFrameIndex];
-    };
 
     private getChineseName(type: number): string {
         switch (type) {
