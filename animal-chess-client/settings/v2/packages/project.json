@@ -1,1 +1,9 @@
-{"__version__": "1.0.6", "layer": [{"name": "canvas_19", "value": 524288}], "general": {"startScene": "779455ea-ec66-4c66-bb65-830bc5647d64"}}
+{
+  "__version__": "1.0.6",
+  "layer": [
+    {
+      "name": "canvas_19",
+      "value": 524288
+    }
+  ]
+}

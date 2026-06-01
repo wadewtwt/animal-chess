@@ -1,5 +1,5 @@
-import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite } from 'cc';
-const { ccclass } = _decorator;
+import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, director } from 'cc';
+const { ccclass, property } = _decorator;
 
 @ccclass('LoadingScene')
 export class LoadingScene extends Component {
@@ -7,6 +7,14 @@ export class LoadingScene extends Component {
     private _targetProgress: number = 0;
     private _isLoaded: boolean = false;
     private _barTotalWidth: number = 300;
+    private _elapsed: number = 0;
+    private _loadingDuration: number = 3;
+
+    @property
+    public bootMode: boolean = false;
+
+    @property
+    public nextScene: string = 'main';
 
     private progressBarFill: UITransform = null;
     private progressText: Label = null;
@@ -30,13 +38,19 @@ export class LoadingScene extends Component {
                 .start();
         }
 
-        this.schedule(this.simulateLoading, 0.15);
+        this._elapsed = 0;
+        this._progress = 0;
+        this._targetProgress = 0;
+        this._isLoaded = false;
+        this.schedule(this.simulateLoading, 0.05);
     }
 
-    simulateLoading() {
+    simulateLoading(dt: number) {
         if (this._isLoaded) return;
-        this._targetProgress += Math.random() * 0.05; 
-        if (this._targetProgress >= 1) {
+        this._elapsed += dt;
+        this._targetProgress = Math.min(1, this._elapsed / this._loadingDuration);
+
+        if (this._elapsed >= this._loadingDuration) {
             this._targetProgress = 1;
             this._isLoaded = true;
             this.unschedule(this.simulateLoading);
@@ -65,6 +79,11 @@ export class LoadingScene extends Component {
     }
 
     onLoadComplete() {
+        if (this.bootMode) {
+            director.loadScene(this.nextScene);
+            return;
+        }
+
         if (this.bouncyHero) {
             this.bouncyHero.angle = 0;
             const startPos = this.bouncyHero.position.clone();
@@ -93,82 +112,20 @@ export class LoadingScene extends Component {
         const cw = uiTrans.width;
         const ch = uiTrans.height;
 
-        // 1. Background (using jungle_bg)
+        // 1. Background (using loading_bg)
         const bgNode = new Node('Background');
         bgNode.layer = 33554432;
         const bgTrans = bgNode.addComponent(UITransform);
         bgTrans.setContentSize(cw, ch);
         const bgSprite = bgNode.addComponent(Sprite);
-        this.safeLoadSprite('textures/jungle_bg', bgSprite);
-        const bgOverlay = this.createRectNode('BgOverlay', '#ffffff', cw, ch);
-        bgOverlay.getComponent(UITransform).contentSize = bgTrans.contentSize;
-        bgOverlay.getComponent(Graphics).fillColor = new Color(255, 255, 255, 100);
-        bgNode.addChild(bgOverlay);
+        this.safeLoadSprite('textures/loading_bg', bgSprite);
         canvas.addChild(bgNode);
 
-        // 2. Top Bar (from MainMenuUI layout)
-        const topBarHeight = 60;
-        const topBar = this.createRectNode('TopBar', '#f0e6c8', cw, topBarHeight);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2, 0);
-        canvas.addChild(topBar);
-
-        const avatarNode = this.createCircleNode('Avatar', '#333333', 20);
-        avatarNode.setPosition(-cw / 2 + 30, 0, 0);
-        topBar.addChild(avatarNode);
-
-        const nameTxt = this.createLabelNode('Name', '游侠阿提 (Tim)', 18, '#1f2619', true);
-        nameTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        nameTxt.setPosition(-cw / 2 + 60, 10, 0);
-        topBar.addChild(nameTxt);
-
-        const levelTxt = this.createLabelNode('Level', '等级 12 · 黄金段位', 12, '#1ea423', true);
-        levelTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        levelTxt.setPosition(-cw / 2 + 60, -10, 0);
-        topBar.addChild(levelTxt);
-
-        const xpPill = this.createRectNode('XPPill', '#e2d6b3', 120, 36, 18);
-        xpPill.setPosition(cw / 2 - 80, 0, 0);
-        topBar.addChild(xpPill);
-        
-        const xpTxt = this.createLabelNode('XPTxt', '⭐ XP: 1250', 16, '#434133', true);
-        xpPill.addChild(xpTxt);
-
-        // 3. Center Emblem (Circle with image)
-        const emblemRadius = Math.min(cw * 0.4, 150);
-        const emblemY = ch / 2 - topBarHeight - emblemRadius - 20;
-        
-        const emblemRing = this.createCircleNode('EmblemRing', '#fdf441', emblemRadius + 15);
-        emblemRing.setPosition(0, emblemY, 0);
-        canvas.addChild(emblemRing);
-
-        this.bouncyHero = new Node('EmblemImage');
-        this.bouncyHero.layer = 33554432;
-        const emblemImgTrans = this.bouncyHero.addComponent(UITransform);
-        emblemImgTrans.setContentSize(emblemRadius * 2, emblemRadius * 2);
-        const emblemSprite = this.bouncyHero.addComponent(Sprite);
-        this.safeLoadSprite('textures/jungle_logo', emblemSprite);
-        emblemRing.addChild(this.bouncyHero);
-
-        // 4. Texts
-        const titleY = emblemY - emblemRadius - 50;
-        const titleText = this.createLabelNode('Title', '丛林战棋', 42, '#137920', true);
-        titleText.setPosition(0, titleY, 0);
-        canvas.addChild(titleText);
-
-        const underline = this.createRectNode('Underline', '#137920', 160, 4);
-        underline.setPosition(0, titleY - 25, 0);
-        canvas.addChild(underline);
-
-        const subtitleText = this.createLabelNode('Subtitle', '准备好开启你的热带冒险了吗？', 18, '#374632', false);
-        subtitleText.setPosition(0, titleY - 55, 0);
-        canvas.addChild(subtitleText);
-
-        // 5. Loading Progress Bar (in place of Start Game button)
-        const startBtnY = titleY - 140;
+        // 2. Loading Progress Bar
         const bottomContainer = new Node('BottomContainer');
         bottomContainer.layer = 33554432;
         bottomContainer.addComponent(UITransform);
-        bottomContainer.setPosition(0, startBtnY + 20, 0); // Position it around where the start button would be
+        bottomContainer.setPosition(0, -ch / 2 + 120, 0);
         canvas.addChild(bottomContainer);
 
         const statusTxt = this.createLabelNode('StatusTxt', '正在探索丛林中...', 18, '#137920', true);

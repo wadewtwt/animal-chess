@@ -82,10 +82,11 @@ export class BoardView extends Component {
 
     start() {
         console.log("BoardView: start() called.");
-        this.showLoadingScene();
+        this.node.active = false;
         this.engine = new LocalEngine();
         this.initBoardBackground();
         this.adjustBoardScale(); // ???????????????
+        this.showMainMenu();
         this.loadPieceArt().then(() => {
             this.restartGame();
             this.initAudioSource();
