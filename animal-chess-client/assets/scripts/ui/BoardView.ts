@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics, Texture2D, BlendFactor, ImageAsset, Mask, AudioClip, AudioSource } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics, Texture2D, ImageAsset, Mask, AudioClip, AudioSource, sys } from 'cc';
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
 import { LoadingScene } from '../LoadingScene';
+import { ModeSelectionUI } from './ModeSelectionUI';
 
 const { ccclass, property } = _decorator;
 
@@ -128,11 +129,60 @@ export class BoardView extends Component {
             // Listen for start game event
             this.mainMenuNode.on('start-game', () => {
                 this.mainMenuNode!.active = false;
-                this.node.active = true;
+                this.showModeSelection();
+            });
+
+            // Listen for music toggle event
+            this.mainMenuNode.on('music-toggle', (enabled: boolean) => {
+                if (enabled) {
+                    this.playBGM();
+                } else {
+                    if (this.bgmSource) {
+                        this.bgmSource.stop();
+                    }
+                }
             });
         } else {
             this.mainMenuNode.active = true;
             this.node.active = false;
+        }
+    }
+
+    private modeSelectionNode: Node | null = null;
+
+    private showModeSelection() {
+        if (!this.modeSelectionNode) {
+            this.modeSelectionNode = new Node('ModeSelectionContainer');
+            this.modeSelectionNode.layer = 33554432; // UI_2D
+            this.modeSelectionNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
+            this.modeSelectionNode.addComponent(ModeSelectionUI);
+            this.node.parent!.addChild(this.modeSelectionNode); // Add to Canvas directly
+            
+            // Listen for go back event
+            this.modeSelectionNode.on('go-back', () => {
+                this.modeSelectionNode!.active = false;
+                if (this.mainMenuNode) {
+                    this.mainMenuNode.active = true;
+                }
+            });
+
+            // Listen for start local game event
+            this.modeSelectionNode.on('start-local-duo', () => {
+                this.modeSelectionNode!.active = false;
+                this.node.active = true;
+                this.restartGame(); // 开启并重置对局
+            });
+
+            // Listen for AI practice start
+            this.modeSelectionNode.on('start-ai-practice', (difficulty: string) => {
+                sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
+                this.modeSelectionNode!.active = false;
+                this.node.active = true;
+                this.restartGame();
+            });
+        } else {
+            this.modeSelectionNode.getComponent(UITransform)!.setContentSize(view.getVisibleSize());
+            this.modeSelectionNode.active = true;
         }
     }
 
@@ -154,6 +204,14 @@ export class BoardView extends Component {
      */
     private playBGM() {
         if (!this.bgmSource) return;
+
+        const musicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+        if (!musicEnabled) {
+            if (this.bgmSource.playing) {
+                this.bgmSource.stop();
+            }
+            return;
+        }
 
         // 随机选择一首背景音乐
         const bgmList = ['sounds/bgm-1', 'sounds/bgm-2'];
@@ -204,6 +262,10 @@ export class BoardView extends Component {
 
         console.log(`BoardView: adjustScale visibleSize=${screenWidth}x${screenHeight}, targetScale=${targetScale}`);
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
+
+        if (this.turnIndicator) {
+            this.turnIndicator.node.setPosition(new Vec3(0, screenHeight / 2 - 50, 0));
+        }
     }
 
     /**
@@ -859,6 +921,9 @@ export class BoardView extends Component {
     private playAnimalSound(type: AnimalType) {
         if (!this.audioSource) return;
 
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
         const soundMap: Record<AnimalType, string> = {
             [AnimalType.RAT]: "rat",
             [AnimalType.CAT]: "cat",
@@ -889,6 +954,10 @@ export class BoardView extends Component {
      */
     private playDabaiSound() {
         if (!this.audioSource) return;
+
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
         resources.load('sounds/dabai', AudioClip, (err, clip) => {
             if (err) {
                 console.warn("未找到打败音效 (sounds/dabai)，请确认已放入音频文件。");

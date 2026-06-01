@@ -136,7 +136,7 @@
     </div>
 
     <!-- Main Content Canvas -->
-    <main class="relative z-10 flex flex-col items-center justify-between h-full py-xl w-full max-w-md px-container-margin">
+    <main class="relative z-10 flex flex-col items-center justify-between h-full py-xl w-full px-container-margin" style="max-width: 580px;">
         <!-- Header Branding -->
         <div class="text-center pt-lg">
             <h1 class="font-headline-xl text-headline-xl-mobile text-primary text-shadow-soft tracking-tight">
@@ -156,11 +156,11 @@
         </div>
 
         <!-- Bottom Loading Section -->
-        <div class="w-full space-y-md pb-xl">
+        <div class="absolute left-0 right-0 px-container-margin space-y-md flex flex-col items-center" style="bottom: 35%; transform: translateY(50%);">
             <!-- Playful Status Text -->
             <div class="flex items-center justify-center space-x-sm">
-                <span class="material-symbols-outlined text-primary animate-spin" style="font-size: 20px;">explore</span>
-                <p class="font-headline-md text-headline-md text-on-surface text-center">
+                <span class="material-symbols-outlined text-primary animate-spin" style="font-size: 40px;">explore</span>
+                <p class="text-on-surface text-center font-bold" style="font-size: 48px; line-height: 60px;">
                     正在探索丛林中...
                 </p>
             </div>
@@ -168,24 +168,24 @@
             <!-- Progress Container -->
             <div class="relative w-full">
                 <!-- Outer Track (Inset appearance) -->
-                <div class="h-10 w-full bg-surface-container-highest rounded-full p-xs shadow-[inset_0_4px_6px_rgba(0,0,0,0.1)] border-4 border-surface-variant">
+                <div class="h-20 w-full bg-surface-container-highest rounded-full p-xs shadow-[inset_0_4px_6px_rgba(0,0,0,0.1)] border-8 border-surface-variant">
                     <!-- Progress Fill -->
-                    <div class="h-full bg-gradient-to-r from-primary to-primary-container rounded-full relative overflow-hidden transition-all duration-500 ease-out border-b-4 border-primary/30" id="loading-bar" style="width: 0%;">
+                    <div class="h-full bg-gradient-to-r from-primary to-primary-container rounded-full relative overflow-hidden transition-all duration-500 ease-out border-b-8 border-primary/30" id="loading-bar" style="width: 0%;">
                         <!-- Glow and Shine -->
                         <div class="progress-shine"></div>
-                        <div class="absolute top-1 left-2 right-2 h-1 bg-white/20 rounded-full"></div>
+                        <div class="absolute top-2 left-4 right-4 h-2 bg-white/20 rounded-full"></div>
                     </div>
                 </div>
 
                 <!-- Progress Percentage Badge -->
-                <div class="absolute -top-10 left-[0%] -translate-x-1/2 bg-secondary-container text-on-secondary-fixed font-label-bold px-sm py-xs rounded-lg 3d-shadow transition-all duration-500 ease-out" id="progress-badge" style="left: 0%;">
+                <div class="absolute -top-28 left-[0%] -translate-x-1/2 bg-secondary-container text-on-secondary-fixed font-bold rounded-2xl 3d-shadow transition-all duration-500 ease-out" id="progress-badge" style="left: 0%; font-size: 42px; line-height: 52px; padding: 12px 30px;">
                     <span id="progress-text">0%</span>
-                    <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-secondary-container"></div>
+                    <div class="absolute -bottom-5 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[20px] border-t-secondary-container"></div>
                 </div>
             </div>
 
             <!-- Random Tip/Flavor Text -->
-            <p class="text-center font-body-md text-on-surface-variant italic opacity-80 px-lg">
+            <p class="text-center font-body-md text-on-surface-variant italic opacity-80 px-lg" style="font-size: 22px; line-height: 30px;">
                 提示：别忘了给你的英雄装备“香蕉镖”！
             </p>
         </div>

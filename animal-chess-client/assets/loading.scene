@@ -126,8 +126,8 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1280,
-      "height": 720
+      "width": 720,
+      "height": 1280
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -150,6 +150,8 @@
       "__id__": 7
     },
     "_alignCanvasWithScreen": true,
+    "_fitWidth": true,
+    "_fitHeight": false,
     "_id": "93a0b239-6c8d-4ae4-a6c7-0ddc4e4f2f4d"
   },
   {

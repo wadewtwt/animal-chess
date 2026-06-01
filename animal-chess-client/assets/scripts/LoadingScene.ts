@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, director } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, director, Widget } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('LoadingScene')
@@ -118,35 +118,47 @@ export class LoadingScene extends Component {
         const bgTrans = bgNode.addComponent(UITransform);
         bgTrans.setContentSize(cw, ch);
         const bgSprite = bgNode.addComponent(Sprite);
+        bgSprite.sizeMode = Sprite.SizeMode.CUSTOM;
         this.safeLoadSprite('textures/loading_bg', bgSprite);
         canvas.addChild(bgNode);
 
-        // 2. Loading Progress Bar
+        const widget = bgNode.addComponent(Widget);
+        widget.isAlignLeft = true;
+        widget.isAlignRight = true;
+        widget.isAlignTop = true;
+        widget.isAlignBottom = true;
+        widget.left = 0;
+        widget.right = 0;
+        widget.top = 0;
+        widget.bottom = 0;
+        widget.alignMode = 2; // ON_WINDOW_RESIZE
+
+        // 2. Loading Progress Bar (整体拉长并往上移动至底部 35% 处)
         const bottomContainer = new Node('BottomContainer');
         bottomContainer.layer = 33554432;
         bottomContainer.addComponent(UITransform);
-        bottomContainer.setPosition(0, -ch / 2 + 120, 0);
+        bottomContainer.setPosition(0, -ch / 2 + ch * 0.35, 0); // 往上移动至距离底边 35% 像素
         canvas.addChild(bottomContainer);
 
-        const statusTxt = this.createLabelNode('StatusTxt', '正在探索丛林中...', 18, '#137920', true);
-        statusTxt.setPosition(0, 45, 0);
+        const statusTxt = this.createLabelNode('StatusTxt', '正在探索丛林中...', 36, '#137920', true); // 字号放大至 36
+        statusTxt.setPosition(0, 90, 0); // Y坐标上移至 90
         bottomContainer.addChild(statusTxt);
 
-        this._barTotalWidth = Math.min(cw * 0.8, 320);
-        const barBg = this.createRectNode('BarBg', '#e9e2c6', this._barTotalWidth + 8, 36, 18);
+        this._barTotalWidth = Math.min(cw * 0.9, 832); // 进度条总宽度再拉长 30%，最大 832 像素
+        const barBg = this.createRectNode('BarBg', '#e9e2c6', this._barTotalWidth + 16, 72, 36); // 高度放大至 72，圆角 36
         bottomContainer.addChild(barBg);
 
-        const barFillNode = this.createRectNode('BarFill', '#046a17', 0, 28, 14);
+        const barFillNode = this.createRectNode('BarFill', '#046a17', 0, 56, 28); // 填充条高度放大至 56，圆角 28
         barFillNode.getComponent(UITransform).setAnchorPoint(0, 0.5);
         barFillNode.setPosition(-this._barTotalWidth / 2, 0, 0);
         this.progressBarFill = barFillNode.getComponent(UITransform);
         bottomContainer.addChild(barFillNode);
 
-        this.progressBadge = this.createRectNode('ProgressBadge', '#fdf441', 50, 28, 8);
-        this.progressBadge.setPosition(-this._barTotalWidth / 2, 35, 0);
+        this.progressBadge = this.createRectNode('ProgressBadge', '#fdf441', 150, 80, 24); // 气泡大小放大至 150x80，圆角 24
+        this.progressBadge.setPosition(-this._barTotalWidth / 2, 86, 0); // Y坐标上移至 86
         bottomContainer.addChild(this.progressBadge);
 
-        this.progressText = this.createLabelNode('ProgressText', '0%', 14, '#000000', true).getComponent(Label);
+        this.progressText = this.createLabelNode('ProgressText', '0%', 42, '#000000', true).getComponent(Label); // 字号放大至 42
         this.progressBadge.addChild(this.progressText.node);
     }
 
