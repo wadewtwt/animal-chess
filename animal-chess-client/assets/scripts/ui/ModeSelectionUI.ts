@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, assetManager, UIOpacity } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, assetManager, UIOpacity, sys } from 'cc';
 const { ccclass } = _decorator;
 
 type DifficultyKey = 'easy' | 'normal' | 'hard';
@@ -44,7 +44,7 @@ export class ModeSelectionUI extends Component {
         bgTrans.setContentSize(cw, ch);
         const bgSprite = bgNode.addComponent(Sprite);
         bgSprite.sizeMode = 0;
-        this.safeLoadSprite('textures/main_menu_bg', bgSprite);
+        this.safeLoadSprite('textures/main_menu_bg', bgSprite, false);
         canvas.addChild(bgNode);
 
         canvas.addChild(this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36));
@@ -55,20 +55,13 @@ export class ModeSelectionUI extends Component {
         topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
         canvas.addChild(topBar);
 
-        const backBtn = this.createCircleNode('BackBtn', '#f0dd1b', 42 * scaleFactor);
+        const backBtn = this.createUnifiedBackBtn(() => {
+            this.node.emit('go-back');
+        }, scaleFactor);
         backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
         topBar.addChild(backBtn);
-        const backTxt = this.createLabelNode('BackTxt', '←', 34 * scaleFactor, '#3f3600', true);
-        backBtn.addChild(backTxt);
-        backBtn.addComponent(Button);
-        backBtn.on(Node.EventType.TOUCH_END, () => {
-            this.node.emit('go-back');
-        }, this);
 
-        const titleText = this.createLabelNode('Title', '丛林战棋', 30 * scaleFactor, '#006e1c', true);
-        titleText.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        titleText.setPosition(-cw / 2 + 116 * scaleFactor, 0, 0);
-        topBar.addChild(titleText);
+
 
         const xpPill = this.createRectNode('XPPill', '#4caf50', 190 * scaleFactor, 58 * scaleFactor, 29 * scaleFactor);
         xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
@@ -141,49 +134,146 @@ export class ModeSelectionUI extends Component {
     }
 
     private createCardNode(name: string, w: number, h: number, title: string, titleColor: string, btnText: string, btnColor: string, btnShadowColor: string, imgUrl: string, onClick: () => void, scaleFactor: number): Node {
-        const card = this.createRectNode(name, '#ffffff', w, h, 24 * scaleFactor);
+        // 创建整张卡片的基础容器 (空节点)
+        const cardContainer = new Node(name);
+        cardContainer.layer = 33554432;
+        const cTrans = cardContainer.addComponent(UITransform);
+        cTrans.setContentSize(w, h);
 
+        const r = 24 * scaleFactor;
+
+        // 1. 卡片底座投影 (强化：偏移 8 * scaleFactor，透明度提升至 80)
+        const shadow = new Node("CardShadow");
+        shadow.layer = 33554432;
+        shadow.addComponent(UITransform).setContentSize(w, h);
+        const sg = shadow.addComponent(Graphics);
+        sg.fillColor = new Color(30, 25, 10, 80); 
+        sg.roundRect(-w/2, -h/2, w, h, r);
+        sg.fill();
+        shadow.setPosition(0, -8 * scaleFactor, 0);
+        cardContainer.addChild(shadow);
+
+        // 2. 卡片主体底图
+        const cardBg = new Node("CardBg");
+        cardBg.layer = 33554432;
+        cardBg.addComponent(UITransform).setContentSize(w, h);
+        const bgG = cardBg.addComponent(Graphics);
+        
+        // 填充暖象牙米白色底
+        bgG.fillColor = new Color(250, 248, 240, 255); // #faf8f0
+        bgG.roundRect(-w/2, -h/2, w, h, r);
+        bgG.fill();
+
+        // 强化：加粗燕麦色外线描边 (粗度提升至 3.5，色调加深)
+        bgG.lineWidth = 3.5 * scaleFactor;
+        bgG.strokeColor = new Color(215, 205, 185, 255); 
+        bgG.roundRect(-w/2, -h/2, w, h, r);
+        bgG.stroke();
+
+        // 强化：同心叶圆弧不透明度由 12 提到 28，粗度由 10 提到 12
+        bgG.strokeColor = new Color(76, 175, 80, 28); 
+        bgG.lineWidth = 12 * scaleFactor;
+        bgG.circle(-w/2 + 20 * scaleFactor, h/2 - 20 * scaleFactor, 60 * scaleFactor);
+        bgG.stroke();
+        bgG.circle(w/2 - 30 * scaleFactor, -h/2 + 30 * scaleFactor, 45 * scaleFactor);
+        bgG.stroke();
+
+        cardContainer.addChild(cardBg);
+
+        // 3. 插画底下手办式暗投影座 (强化：透明度由 24 提到 64，变为更明显的深褐色投影)
+        const baseShadow = new Node("BaseShadow");
+        baseShadow.layer = 33554432;
+        baseShadow.addComponent(UITransform).setContentSize(160 * scaleFactor, 26 * scaleFactor);
+        const bsg = baseShadow.addComponent(Graphics);
+        bsg.fillColor = new Color(30, 25, 10, 64); 
+        bsg.ellipse(0, 0, 80 * scaleFactor, 13 * scaleFactor);
+        bsg.fill();
+        baseShadow.setPosition(0, h / 2 - 190 * scaleFactor, 0); 
+        cardContainer.addChild(baseShadow);
+
+        // 4. 插画图
         const imgNode = new Node('Illustration');
         imgNode.layer = 33554432;
         const imgTrans = imgNode.addComponent(UITransform);
-        imgTrans.setContentSize(220 * scaleFactor, 220 * scaleFactor);
+        imgTrans.setContentSize(200 * scaleFactor, 200 * scaleFactor);
         const sprite = imgNode.addComponent(Sprite);
         sprite.sizeMode = 0;
-        imgNode.setPosition(0, h / 2 - 120 * scaleFactor, 0);
-        card.addChild(imgNode);
+        imgNode.setPosition(0, h / 2 - 110 * scaleFactor, 0);
+        cardContainer.addChild(imgNode);
         this.safeLoadSprite(imgUrl, sprite);
 
-        const label = this.createLabelNode('Title', title, 30 * scaleFactor, titleColor, true);
-        label.setPosition(0, h / 2 - 250 * scaleFactor, 0);
-        card.addChild(label);
+        // 5. 标题文本
+        const label = this.createLabelNode('Title', title, 32 * scaleFactor, '#3e3012', true); 
+        label.setPosition(0, h / 2 - 245 * scaleFactor, 0);
+        cardContainer.addChild(label);
 
-        const btnW = w - 40 * scaleFactor;
-        const btnH = 84 * scaleFactor;
-        const btnRadius = 42 * scaleFactor;
-        const shadow = this.createRectNode('BtnShadow', btnShadowColor, btnW, btnH, btnRadius);
-        shadow.setPosition(0, -h / 2 + 42 * scaleFactor, 0);
-        card.addChild(shadow);
+        // 6. 立体 ActionBtn 按钮创建
+        const btnW = w - 48 * scaleFactor;
+        const btnH = 80 * scaleFactor;
+        const btnRadius = 40 * scaleFactor;
 
-        const btn = this.createRectNode('ActionBtn', btnColor, btnW, btnH, btnRadius);
+        // 按钮底投影 (偏移 5 * scaleFactor，暗度提升)
+        const btnShadow = new Node("BtnShadow");
+        btnShadow.layer = 33554432;
+        btnShadow.addComponent(UITransform).setContentSize(btnW, btnH);
+        const bShadowG = btnShadow.addComponent(Graphics);
+        const shadowColor = new Color();
+        Color.fromHEX(shadowColor, btnShadowColor);
+        shadowColor.a = 230; 
+        bShadowG.fillColor = shadowColor;
+        bShadowG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
+        bShadowG.fill();
+        btnShadow.setPosition(0, -h / 2 + 41 * scaleFactor, 0);
+        cardContainer.addChild(btnShadow);
+
+        // 按钮主体
+        const btn = new Node("ActionBtn");
+        btn.layer = 33554432;
+        btn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const btnG = btn.addComponent(Graphics);
+        const mainColor = new Color();
+        Color.fromHEX(mainColor, btnColor);
+        
+        btnG.fillColor = mainColor;
+        btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
+        btnG.fill();
+
+        // 按钮上边缘亮色内高光
+        btnG.lineWidth = 2 * scaleFactor;
+        btnG.strokeColor = new Color(255, 255, 255, 120); 
+        btnG.arc(0, 0, btnRadius - 1 * scaleFactor, 0.1 * Math.PI, 0.9 * Math.PI, false);
+        btnG.stroke();
+
         btn.setPosition(0, -h / 2 + 46 * scaleFactor, 0);
-        card.addChild(btn);
+        cardContainer.addChild(btn);
 
         const btnTxt = this.createLabelNode('BtnTxt', btnText, 28 * scaleFactor, '#ffffff', true);
         btn.addChild(btnTxt);
 
+        // 7. 为彩色动作按钮绑定点击与下压微动反馈 (卡片本身没有任何点击效果)
         btn.addComponent(Button);
         btn.on(Node.EventType.TOUCH_START, () => {
-            btn.setScale(new Vec3(0.96, 0.96, 1.0));
-        });
+            // 按钮本身产生超强下压和形变 (缩放至 0.94，并且下移 4 * scaleFactor 像素)
+            btn.setScale(new Vec3(0.94, 0.94, 1.0));
+            btn.setPosition(new Vec3(0, -h / 2 + 42 * scaleFactor, 0));
+        }, this);
+        
         btn.on(Node.EventType.TOUCH_END, () => {
             btn.setScale(new Vec3(1.0, 1.0, 1.0));
+            btn.setPosition(new Vec3(0, -h / 2 + 46 * scaleFactor, 0));
             onClick();
-        });
-        btn.on(Node.EventType.TOUCH_CANCEL, () => {
-            btn.setScale(new Vec3(1.0, 1.0, 1.0));
-        });
+        }, this);
+        
+        cardContainer.on(Node.EventType.TOUCH_CANCEL, () => {
+            // 取消按压时也全部弹回常态初始参数
+            cardContainer.setScale(new Vec3(1.0, 1.0, 1.0));
+            shadow.setPosition(new Vec3(0, -8 * scaleFactor, 0));
+            btn.setPosition(0, -h / 2 + 46 * scaleFactor, 0);
+            imgNode.setPosition(new Vec3(0, h / 2 - 110 * scaleFactor, 0));
+            baseShadow.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
 
-        return card;
+        return cardContainer;
     }
 
     private showDifficultyDialog() {
@@ -221,6 +311,10 @@ export class ModeSelectionUI extends Component {
         this.difficultyDialog.addChild(dialog);
 
         const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 24 * scaleFactor);
+        const closeTrans = closeBtn.getComponent(UITransform);
+        if (closeTrans) {
+            closeTrans.setContentSize(80, 80);
+        }
         closeBtn.setPosition(dialogW / 2 - 32 * scaleFactor, dialogH / 2 - 32 * scaleFactor, 0);
         dialog.addChild(closeBtn);
         const closeTxt = this.createLabelNode('CloseTxt', '×', 32 * scaleFactor, '#ffffff', true);
@@ -491,6 +585,71 @@ export class ModeSelectionUI extends Component {
         return node;
     }
 
+    private createUnifiedBackBtn(onClick: () => void, scaleFactor: number): Node {
+        const btn = new Node("BackButton");
+        btn.layer = 33554432;
+        const trans = btn.addComponent(UITransform);
+        trans.setContentSize(80, 80); // 触控热区宽 80x80
+
+        const g = btn.addComponent(Graphics);
+        const r = 42 * scaleFactor;
+
+        // 1. 绘制阴影 (偏移 2.5 * scaleFactor)
+        const shadowColor = new Color(40, 30, 0, 80); // 深茶色半透明
+        g.fillColor = shadowColor;
+        g.circle(0, -2.5 * scaleFactor, r);
+        g.fill();
+
+        // 2. 绘制主体底色圆 (暖太阳金黄色)
+        g.fillColor = new Color(248, 215, 32, 255);
+        g.circle(0, 0, r);
+        g.fill();
+
+        // 3. 描白框
+        g.lineWidth = 2.5 * scaleFactor;
+        g.strokeColor = new Color(255, 255, 255, 255);
+        g.circle(0, 0, r);
+        g.stroke();
+
+        // 4. 绘制高光月牙 (果冻拟物感)
+        g.fillColor = new Color(255, 255, 255, 36);
+        g.arc(0, 0, r - 1.5 * scaleFactor, 0, Math.PI, false);
+        g.lineTo(-(r - 1.5 * scaleFactor), 0);
+        g.close();
+        g.fill();
+
+        // 5. 绘制极简现代圆角折线箭头 (巧克力茶褐色)
+        g.lineWidth = 6 * scaleFactor;
+        g.strokeColor = new Color(50, 38, 0, 255);
+        g.lineCap = 1; // ROUND
+        g.lineJoin = 1; // ROUND
+
+        const arrowLength = 12 * scaleFactor;
+        const arrowWidth = 9 * scaleFactor;
+        g.moveTo(arrowLength, 0);
+        g.lineTo(-arrowLength + 2 * scaleFactor, 0);
+        g.stroke();
+
+        g.moveTo(-arrowLength + 2 * scaleFactor + arrowWidth * 0.8, arrowWidth * 0.8);
+        g.lineTo(-arrowLength + 2 * scaleFactor, 0);
+        g.lineTo(-arrowLength + 2 * scaleFactor + arrowWidth * 0.8, -arrowWidth * 0.8);
+        g.stroke();
+
+        btn.addComponent(Button);
+        btn.on(Node.EventType.TOUCH_START, () => {
+            btn.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
+        btn.on(Node.EventType.TOUCH_END, () => {
+            btn.setScale(new Vec3(1.0, 1.0, 1.0));
+            onClick();
+        }, this);
+        btn.on(Node.EventType.TOUCH_CANCEL, () => {
+            btn.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        return btn;
+    }
+
     private getScaleFactor(): number {
         const canvas = this.node;
         const uiTrans = canvas.getComponent(UITransform);
@@ -514,19 +673,23 @@ export class ModeSelectionUI extends Component {
         }
     }
 
-    private safeLoadSprite(path: string, sprite: Sprite) {
+    private safeLoadSprite(path: string, sprite: Sprite, adjustSize: boolean = true) {
         resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
             if (!err && sf) {
                 if (sprite && sprite.isValid) {
                     sprite.spriteFrame = sf;
-                    this.adjustSpriteSize(sprite, sf.rect.width, sf.rect.height);
+                    if (adjustSize) {
+                        this.adjustSpriteSize(sprite, sf.rect.width, sf.rect.height);
+                    }
                 }
             } else {
                 resources.load(path, SpriteFrame, (err2, sf2) => {
                     if (!err2 && sf2) {
                         if (sprite && sprite.isValid) {
                             sprite.spriteFrame = sf2;
-                            this.adjustSpriteSize(sprite, sf2.rect.width, sf2.rect.height);
+                            if (adjustSize) {
+                                this.adjustSpriteSize(sprite, sf2.rect.width, sf2.rect.height);
+                            }
                         }
                     } else {
                         resources.load(path, Texture2D, (err3, tex) => {
@@ -535,7 +698,9 @@ export class ModeSelectionUI extends Component {
                                       const newSf = new SpriteFrame();
                                       newSf.texture = tex;
                                       sprite.spriteFrame = newSf;
-                                      this.adjustSpriteSize(sprite, tex.width, tex.height);
+                                      if (adjustSize) {
+                                          this.adjustSpriteSize(sprite, tex.width, tex.height);
+                                      }
                                   }
                             } else {
                                 resources.load(`${path}/texture`, Texture2D, (err4, tex2) => {
@@ -544,7 +709,9 @@ export class ModeSelectionUI extends Component {
                                             const newSf = new SpriteFrame();
                                             newSf.texture = tex2;
                                             sprite.spriteFrame = newSf;
-                                            this.adjustSpriteSize(sprite, tex2.width, tex2.height);
+                                            if (adjustSize) {
+                                                this.adjustSpriteSize(sprite, tex2.width, tex2.height);
+                                            }
                                         }
                                     } else {
                                         resources.load(path, ImageAsset, (err5, imgAsset) => {
@@ -555,7 +722,9 @@ export class ModeSelectionUI extends Component {
                                                     const newSf = new SpriteFrame();
                                                     newSf.texture = text3;
                                                     sprite.spriteFrame = newSf;
-                                                    this.adjustSpriteSize(sprite, imgAsset.width, imgAsset.height);
+                                                    if (adjustSize) {
+                                                        this.adjustSpriteSize(sprite, imgAsset.width, imgAsset.height);
+                                                    }
                                                 }
                                             } else {
                                                 console.warn(`safeLoadSprite warning for ${path}:`, err5);
@@ -598,8 +767,18 @@ export class ModeSelectionUI extends Component {
         this.createRoomDialog.addComponent(UITransform).setContentSize(cw, ch);
         canvas.addChild(this.createRoomDialog);
 
-        // 1. 全屏淡黄色/淡绿色水洗背景
-        const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 255);
+        // 1. 背景图
+        const bgNode = new Node('Background');
+        bgNode.layer = 33554432;
+        const bgTrans = bgNode.addComponent(UITransform);
+        bgTrans.setContentSize(cw, ch);
+        const bgSprite = bgNode.addComponent(Sprite);
+        bgSprite.sizeMode = 0;
+        this.safeLoadSprite('textures/main_menu_bg', bgSprite, false);
+        this.createRoomDialog.addChild(bgNode);
+
+        // 2. 淡绿色水洗层
+        const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36);
         this.createRoomDialog.addChild(bgWash);
 
         // 2. 顶栏 (直接复刻)
@@ -608,20 +787,13 @@ export class ModeSelectionUI extends Component {
         topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
         this.createRoomDialog.addChild(topBar);
 
-        const backBtn = this.createCircleNode('BackBtn', '#f0dd1b', 42 * scaleFactor);
+        const backBtn = this.createUnifiedBackBtn(() => {
+            this.hideCreateRoomDialog();
+        }, scaleFactor);
         backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
         topBar.addChild(backBtn);
-        const backTxt = this.createLabelNode('BackTxt', '←', 34 * scaleFactor, '#3f3600', true);
-        backBtn.addChild(backTxt);
-        backBtn.addComponent(Button);
-        backBtn.on(Node.EventType.TOUCH_END, () => {
-            this.hideCreateRoomDialog();
-        }, this);
 
-        const titleText = this.createLabelNode('Title', '丛林战棋', 30 * scaleFactor, '#006e1c', true);
-        titleText.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        titleText.setPosition(-cw / 2 + 116 * scaleFactor, 0, 0);
-        topBar.addChild(titleText);
+
 
         const xpPill = this.createRectNode('XPPill', '#e5debd', 170 * scaleFactor, 54 * scaleFactor, 27 * scaleFactor);
         xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);

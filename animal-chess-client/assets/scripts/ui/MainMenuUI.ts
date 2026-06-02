@@ -169,16 +169,8 @@ export class MainMenuUI extends Component {
         emblemRing.addChild(emblemImg);
 
         // 4. Title & Subtitle
-        const titleText = this.createLabelNode('Title', '丛林战棋', titleFontSize, '#11751e', true);
-        titleText.setPosition(0, titleY, 0);
-        canvas.addChild(titleText);
-
-        const underline = this.createRectNode('Underline', '#11751e', (isPortrait ? 160 : 120) * scaleFactor, 4 * scaleFactor, 2 * scaleFactor);
-        underline.setPosition(0, titleY - (isPortrait ? 26 : 20) * scaleFactor, 0);
-        canvas.addChild(underline);
-
         const subtitleText = this.createLabelNode('Subtitle', '准备好开启你的热带冒险了吗？', subtitleFontSize, '#3f4d33', false);
-        subtitleText.setPosition(0, titleY - (isPortrait ? 56 : 42) * scaleFactor, 0);
+        subtitleText.setPosition(0, titleY - 10 * scaleFactor, 0);
         canvas.addChild(subtitleText);
 
         // 5. Start Button

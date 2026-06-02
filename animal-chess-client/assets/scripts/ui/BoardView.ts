@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, SpriteFrame, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics, Texture2D, ImageAsset, Mask, AudioClip, AudioSource, sys } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, Button, Prefab, instantiate, Vec3, Color, Label, UITransform, tween, Tween, UIOpacity, view, CCFloat, resources, EffectAsset, Material, Graphics, Texture2D, ImageAsset, Mask, AudioClip, AudioSource, sys } from 'cc';
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
@@ -80,6 +80,11 @@ export class BoardView extends Component {
     private undoButtonNode: Node | null = null;
     private undoRequestPanel: Node | null = null;
     private turnIndicatorBgNode: Node | null = null;
+    private customGameOverPanel: Node | null = null;
+    private gameOverWinner: Camp | null = null;
+    private gameOverReason: GameOverReason | null = null;
+    private bgNode: Node | null = null;
+    private bgWashNode: Node | null = null;
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
@@ -104,6 +109,14 @@ export class BoardView extends Component {
         if (this.undoButtonNode) {
             this.undoButtonNode.destroy();
             this.undoButtonNode = null;
+        }
+        if (this.bgNode) {
+            this.bgNode.destroy();
+            this.bgNode = null;
+        }
+        if (this.bgWashNode) {
+            this.bgWashNode.destroy();
+            this.bgWashNode = null;
         }
     }
 
@@ -145,6 +158,7 @@ export class BoardView extends Component {
     private mainMenuNode: Node | null = null;
 
     private showMainMenu() {
+        this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
         if (this.backButtonNode) this.backButtonNode.active = false;
@@ -182,6 +196,7 @@ export class BoardView extends Component {
     private modeSelectionNode: Node | null = null;
 
     private showModeSelection() {
+        this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
         if (this.backButtonNode) this.backButtonNode.active = false;
@@ -277,12 +292,26 @@ export class BoardView extends Component {
     /**
      * 动态计算并缩放棋盘容器，使其完美适配当前画布视口大小
      */
+    private getScaleFactor(): number {
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        return Math.min(cw / refW, ch / refH);
+    }
+
+    /**
+     * 动态计算并缩放棋盘容器，使其完美适配当前画布视口大小
+     */
     private adjustBoardScale(): void {
         if (!this.boardContainer) return;
 
         const visibleSize = view.getVisibleSize();
         const screenWidth = visibleSize.width;
         const screenHeight = visibleSize.height;
+        const scaleFactor = this.getScaleFactor();
 
         // 强制归零重正当前 BoardView 本身节点的属性，防止坐标偏离视口
         const nodeTrans = this.node.getComponent(UITransform);
@@ -292,6 +321,30 @@ export class BoardView extends Component {
         }
         this.node.setPosition(Vec3.ZERO);
         this.node.setScale(Vec3.ONE);
+
+        // 同步背景及水洗层的大小
+        if (this.bgNode) {
+            const bgTrans = this.bgNode.getComponent(UITransform);
+            if (bgTrans) {
+                bgTrans.setContentSize(screenWidth, screenHeight);
+            }
+        }
+        if (this.bgWashNode) {
+            const washTrans = this.bgWashNode.getComponent(UITransform);
+            if (washTrans) {
+                washTrans.setContentSize(screenWidth, screenHeight);
+            }
+            const g = this.bgWashNode.getComponent(Graphics);
+            if (g) {
+                g.clear();
+                const color = new Color();
+                Color.fromHEX(color, '#f6ffe8');
+                color.a = 36;
+                g.fillColor = color;
+                g.rect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+                g.fill();
+            }
+        }
 
         // 计算棋盘的目标尺寸 (让宽度完美撑满屏幕)
         const boardWidth = LocalEngine.COLS * this.cellWidth;
@@ -303,22 +356,126 @@ export class BoardView extends Component {
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
 
         // 状态栏美化位置绑定 (居中靠上)
-        const posY = screenHeight / 2 - 64;
+        const posY = screenHeight / 2 - 64 * scaleFactor;
         if (this.turnIndicator) {
+            this.turnIndicator.fontSize = Math.round(28 * scaleFactor);
+            this.turnIndicator.lineHeight = Math.round(36 * scaleFactor);
             this.turnIndicator.node.setPosition(new Vec3(0, posY, 0));
         }
         if (this.turnIndicatorBgNode) {
+            const bgTrans = this.turnIndicatorBgNode.getComponent(UITransform);
+            if (bgTrans) {
+                bgTrans.setContentSize(460 * scaleFactor, 68 * scaleFactor);
+            }
+            const bgGraphics = this.turnIndicatorBgNode.getComponent(Graphics);
+            if (bgGraphics) {
+                bgGraphics.clear();
+                bgGraphics.lineWidth = 2.5 * scaleFactor;
+                bgGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
+                bgGraphics.fillColor = new Color(20, 20, 20, 220); // 优雅的深碳黑色
+                const w = 460 * scaleFactor;
+                const h = 68 * scaleFactor;
+                bgGraphics.roundRect(-w/2, -h/2, w, h, 18 * scaleFactor);
+                bgGraphics.fill();
+                bgGraphics.stroke();
+            }
             this.turnIndicatorBgNode.setPosition(new Vec3(0, posY, 0));
         }
 
-        // 返回按钮位置绑定 (左上角安全边界)
+        // 返回按钮位置绑定 (左上角安全边界，与外层返回按钮形状位置完全对齐)
         if (this.backButtonNode) {
-            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 80, screenHeight / 2 - 64, 0));
+            const backTrans = this.backButtonNode.getComponent(UITransform);
+            if (backTrans) {
+                backTrans.setContentSize(80, 80); // 触控热区 80x80 物理像素
+            }
+            const backGraphics = this.backButtonNode.getComponent(Graphics);
+            if (backGraphics) {
+                backGraphics.clear();
+                const r = 42 * scaleFactor;
+                
+                // 1. 绘制阴影 (偏移 2.5 * scaleFactor)
+                const shadowColor = new Color(40, 30, 0, 80); // 深茶色半透明
+                backGraphics.fillColor = shadowColor;
+                backGraphics.circle(0, -2.5 * scaleFactor, r);
+                backGraphics.fill();
+
+                // 2. 绘制主体底色圆 (更高级的暖太阳金黄色)
+                backGraphics.fillColor = new Color(248, 215, 32, 255); 
+                backGraphics.circle(0, 0, r);
+                backGraphics.fill();
+
+                // 3. 描边 (高光白描边)
+                backGraphics.lineWidth = 2.5 * scaleFactor;
+                backGraphics.strokeColor = new Color(255, 255, 255, 255);
+                backGraphics.circle(0, 0, r);
+                backGraphics.stroke();
+
+                // 4. 绘制精致高光月牙 (果冻质感)
+                backGraphics.fillColor = new Color(255, 255, 255, 36); 
+                backGraphics.arc(0, 0, r - 1.5 * scaleFactor, 0, Math.PI, false);
+                backGraphics.lineTo(-(r - 1.5 * scaleFactor), 0);
+                backGraphics.close();
+                backGraphics.fill();
+
+                // 5. 绘制极简现代圆角折线箭头 (巧克力茶褐色)
+                backGraphics.lineWidth = 6 * scaleFactor;
+                backGraphics.strokeColor = new Color(50, 38, 0, 255);
+                backGraphics.lineCap = 1; // ROUND
+                backGraphics.lineJoin = 1; // ROUND
+                
+                const arrowLength = 12 * scaleFactor;
+                const arrowWidth = 9 * scaleFactor;
+                backGraphics.moveTo(arrowLength, 0);
+                backGraphics.lineTo(-arrowLength + 2 * scaleFactor, 0);
+                backGraphics.stroke();
+
+                backGraphics.moveTo(-arrowLength + 2 * scaleFactor + arrowWidth * 0.8, arrowWidth * 0.8);
+                backGraphics.lineTo(-arrowLength + 2 * scaleFactor, 0);
+                backGraphics.lineTo(-arrowLength + 2 * scaleFactor + arrowWidth * 0.8, -arrowWidth * 0.8);
+                backGraphics.stroke();
+            }
+            // 隐藏子 Label 节点以防残留
+            const labelNode = this.backButtonNode.getChildByName("Label");
+            if (labelNode) {
+                labelNode.active = false;
+            }
+            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 56 * scaleFactor, screenHeight / 2 - 54 * scaleFactor, 0));
         }
 
         // 悔棋按钮位置绑定 (底部偏上，避开安全操作栏)
         if (this.undoButtonNode) {
-            this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75, 0));
+            const undoTrans = this.undoButtonNode.getComponent(UITransform);
+            if (undoTrans) {
+                undoTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+            }
+            const undoGraphics = this.undoButtonNode.getComponent(Graphics);
+            if (undoGraphics) {
+                undoGraphics.clear();
+                undoGraphics.lineWidth = 3 * scaleFactor;
+                undoGraphics.strokeColor = new Color(255, 255, 255, 255);
+                undoGraphics.fillColor = new Color(230, 130, 20, 240); // 暖金橙色
+                const w = 190 * scaleFactor;
+                const h = 56 * scaleFactor;
+                undoGraphics.roundRect(-w/2, -h/2, w, h, 16 * scaleFactor);
+                undoGraphics.fill();
+                undoGraphics.stroke();
+            }
+            const undoLabelNode = this.undoButtonNode.getChildByName("Label");
+            if (undoLabelNode) {
+                const undoLabelTrans = undoLabelNode.getComponent(UITransform);
+                if (undoLabelTrans) undoLabelTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+                const undoLabelComp = undoLabelNode.getComponent(Label);
+                if (undoLabelComp) {
+                    undoLabelComp.fontSize = Math.round(22 * scaleFactor);
+                    undoLabelComp.lineHeight = Math.round(26 * scaleFactor);
+                }
+            }
+            this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75 * scaleFactor, 0));
+        }
+
+        // 重新排布结算弹窗 (如果有)
+        if (this.customGameOverPanel && this.customGameOverPanel.active) {
+            this.layoutCustomGameOverPanel();
         }
     }
 
@@ -347,6 +504,7 @@ export class BoardView extends Component {
         if (this.gameOverPanel) {
             this.gameOverPanel.active = false;
         }
+        this.hideCustomGameOverPanel();
 
         // 动态创建并布局游戏内的UI组件 (返回按钮和悔棋按钮)
         this.createInGameUI();
@@ -361,6 +519,35 @@ export class BoardView extends Component {
         console.log("BoardView: initBoardBackground() called. gridCellPrefab =", this.gridCellPrefab);
         if (!this.boardContainer) {
             this.boardContainer = this.node;
+        }
+
+        // 创建全屏背景图
+        if (!this.bgNode) {
+            this.bgNode = new Node('GameBackground');
+            this.bgNode.layer = 33554432; // UI_2D
+            const bgTrans = this.bgNode.addComponent(UITransform);
+            bgTrans.setContentSize(view.getVisibleSize().width, view.getVisibleSize().height);
+            const bgSprite = this.bgNode.addComponent(Sprite);
+            bgSprite.sizeMode = 0;
+            this.safeLoadSprite('textures/main_menu_bg', bgSprite);
+            this.node.addChild(this.bgNode);
+            this.bgNode.setSiblingIndex(0); // 置于最底层
+        }
+
+        if (!this.bgWashNode) {
+            this.bgWashNode = new Node('GameBgWash');
+            this.bgWashNode.layer = 33554432;
+            const washTrans = this.bgWashNode.addComponent(UITransform);
+            washTrans.setContentSize(view.getVisibleSize().width, view.getVisibleSize().height);
+            const g = this.bgWashNode.addComponent(Graphics);
+            const color = new Color();
+            Color.fromHEX(color, '#f6ffe8');
+            color.a = 36;
+            g.fillColor = color;
+            g.rect(-view.getVisibleSize().width / 2, -view.getVisibleSize().height / 2, view.getVisibleSize().width, view.getVisibleSize().height);
+            g.fill();
+            this.node.addChild(this.bgWashNode);
+            this.bgWashNode.setSiblingIndex(1); // 置于背景之上
         }
 
         this.riverSprites = [];
@@ -1363,7 +1550,66 @@ export class BoardView extends Component {
      * 结算并展示游戏结束弹窗
      */
     private showGameOver(winner: Camp | null, reason: GameOverReason | null): void {
-        if (!this.gameOverPanel || !this.gameOverText) return;
+        this.gameOverWinner = winner;
+        this.gameOverReason = reason;
+
+        if (this.customGameOverPanel && this.customGameOverPanel.isValid) {
+            this.customGameOverPanel.destroy();
+            this.customGameOverPanel = null;
+        }
+
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+        const scaleFactor = this.getScaleFactor();
+
+        this.customGameOverPanel = new Node("CustomGameOverPanel");
+        this.customGameOverPanel.layer = 33554432; // UI_2D
+        this.customGameOverPanel.addComponent(UITransform).setContentSize(cw, ch);
+
+        // 1. 全屏淡黑遮罩防止触摸穿透
+        const mask = new Node("Mask");
+        mask.layer = 33554432;
+        mask.addComponent(UITransform).setContentSize(cw, ch);
+        const maskGraphics = mask.addComponent(Graphics);
+        maskGraphics.fillColor = new Color(0, 0, 0, 160);
+        maskGraphics.rect(-cw/2, -ch/2, cw, ch);
+        maskGraphics.fill();
+        mask.addComponent(Button); // 吞噬触摸
+        this.customGameOverPanel.addChild(mask);
+
+        // 2. 结算主体 Dialog 节点 (自适应大小)
+        const dialogW = Math.min(cw * 0.88, 580 * scaleFactor);
+        const dialogH = 460 * scaleFactor;
+        const dialogNode = new Node("DialogNode");
+        dialogNode.layer = 33554432;
+        dialogNode.addComponent(UITransform).setContentSize(dialogW, dialogH);
+        const dialogGraphics = dialogNode.addComponent(Graphics);
+        dialogGraphics.lineWidth = 4 * scaleFactor;
+        dialogGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白描边
+        dialogGraphics.fillColor = new Color(246, 255, 232, 250); // 丛林风淡绿底色
+        dialogGraphics.roundRect(-dialogW/2, -dialogH/2, dialogW, dialogH, 30 * scaleFactor);
+        dialogGraphics.fill();
+        dialogGraphics.stroke();
+        this.customGameOverPanel.addChild(dialogNode);
+
+        // 3. 胜利标志或奖杯图标
+        const emojiNode = new Node("Emoji");
+        emojiNode.layer = 33554432;
+        const emojiLabel = emojiNode.addComponent(Label);
+        emojiLabel.string = winner === null ? "🤝" : "🏆";
+        emojiLabel.fontSize = Math.round(72 * scaleFactor);
+        emojiNode.addComponent(UITransform);
+        emojiNode.setPosition(new Vec3(0, dialogH / 2 - 80 * scaleFactor, 0));
+        dialogNode.addChild(emojiNode);
+
+        // 4. 结算大字标题
+        const titleNode = new Node("Title");
+        titleNode.layer = 33554432;
+        const titleLabel = titleNode.addComponent(Label);
+        titleLabel.isBold = true;
+        titleNode.addComponent(UITransform);
+        titleNode.setPosition(new Vec3(0, dialogH / 2 - 170 * scaleFactor, 0));
 
         let reasonStr = '';
         switch (reason) {
@@ -1382,15 +1628,117 @@ export class BoardView extends Component {
         }
 
         if (winner === null) {
-            this.gameOverText.string = `握手言和！\n${reasonStr}`;
-            this.gameOverText.color = Color.WHITE;
+            titleLabel.string = "握手言和";
+            titleLabel.color = new Color(102, 102, 102, 255); // 灰色
         } else {
-            const winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
-            this.gameOverText.string = `恭喜 ${winnerName} 获胜！\n${reasonStr}`;
-            this.gameOverText.color = winner === Camp.RED ? new Color(255, 60, 60) : new Color(60, 120, 255);
+            const winnerName = winner === Camp.RED ? '红方' : '蓝方';
+            titleLabel.string = `${winnerName} 获得胜利！`;
+            titleLabel.color = winner === Camp.RED ? new Color(214, 48, 49, 255) : new Color(9, 132, 227, 255);
         }
+        titleLabel.fontSize = Math.round(38 * scaleFactor);
+        dialogNode.addChild(titleNode);
 
-        this.gameOverPanel.active = true;
+        // 5. 具体获胜原因
+        const reasonNode = new Node("Reason");
+        reasonNode.layer = 33554432;
+        const reasonLabel = reasonNode.addComponent(Label);
+        reasonLabel.string = reasonStr;
+        reasonLabel.fontSize = Math.round(22 * scaleFactor);
+        reasonLabel.color = new Color(100, 115, 90, 255); // 温和深草绿字
+        reasonNode.addComponent(UITransform);
+        reasonNode.setPosition(new Vec3(0, dialogH / 2 - 236 * scaleFactor, 0));
+        dialogNode.addChild(reasonNode);
+
+        // 6. 并排的两个大按钮
+        const btnW = dialogW * 0.42;
+        const btnH = 80 * scaleFactor;
+        const btnY = -dialogH / 2 + 76 * scaleFactor;
+
+        // (1) 再来一局 ↺
+        const restartBtn = new Node("RestartBtn");
+        restartBtn.layer = 33554432;
+        restartBtn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const restartGraphics = restartBtn.addComponent(Graphics);
+        restartGraphics.lineWidth = 2 * scaleFactor;
+        restartGraphics.strokeColor = new Color(255, 255, 255, 255);
+        restartGraphics.fillColor = new Color(22, 143, 37, 255); // 经典丛林翠绿
+        restartGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 18 * scaleFactor);
+        restartGraphics.fill();
+        restartGraphics.stroke();
+
+        const restartText = new Node("Label");
+        restartText.layer = 33554432;
+        const restartLabel = restartText.addComponent(Label);
+        restartLabel.string = "再来一局 ↺";
+        restartLabel.fontSize = Math.round(24 * scaleFactor);
+        restartLabel.color = Color.WHITE;
+        restartLabel.isBold = true;
+        restartText.addComponent(UITransform);
+        restartBtn.addChild(restartText);
+        restartBtn.setPosition(new Vec3(-dialogW / 4, btnY, 0));
+
+        restartBtn.on(Node.EventType.TOUCH_START, () => { restartBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
+        restartBtn.on(Node.EventType.TOUCH_END, () => {
+            restartBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            this.hideCustomGameOverPanel();
+            this.restartGame();
+        }, this);
+        restartBtn.on(Node.EventType.TOUCH_CANCEL, () => { restartBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
+        dialogNode.addChild(restartBtn);
+
+        // (2) 返回菜单 ↩
+        const exitBtn = new Node("ExitBtn");
+        exitBtn.layer = 33554432;
+        exitBtn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const exitGraphics = exitBtn.addComponent(Graphics);
+        exitGraphics.lineWidth = 2 * scaleFactor;
+        exitGraphics.strokeColor = new Color(255, 255, 255, 255);
+        exitGraphics.fillColor = new Color(214, 129, 24, 255); // 温暖亮橙色
+        exitGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 18 * scaleFactor);
+        exitGraphics.fill();
+        exitGraphics.stroke();
+
+        const exitText = new Node("Label");
+        exitText.layer = 33554432;
+        const exitLabel = exitText.addComponent(Label);
+        exitLabel.string = "返回菜单 ↩";
+        exitLabel.fontSize = Math.round(24 * scaleFactor);
+        exitLabel.color = Color.WHITE;
+        exitLabel.isBold = true;
+        exitText.addComponent(UITransform);
+        exitBtn.addChild(exitText);
+        exitBtn.setPosition(new Vec3(dialogW / 4, btnY, 0));
+
+        exitBtn.on(Node.EventType.TOUCH_START, () => { exitBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
+        exitBtn.on(Node.EventType.TOUCH_END, () => {
+            exitBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            this.hideCustomGameOverPanel();
+            this.onBackButtonClicked();
+        }, this);
+        exitBtn.on(Node.EventType.TOUCH_CANCEL, () => { exitBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
+        dialogNode.addChild(exitBtn);
+
+        // 挂载到父节点
+        this.node.parent!.addChild(this.customGameOverPanel);
+
+        // 弹出缓动效果 (backOut)
+        dialogNode.setScale(new Vec3(0.82, 0.82, 1.0));
+        tween(dialogNode)
+            .to(0.25, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
+    }
+
+    private hideCustomGameOverPanel() {
+        if (this.customGameOverPanel && this.customGameOverPanel.isValid) {
+            this.customGameOverPanel.destroy();
+            this.customGameOverPanel = null;
+        }
+    }
+
+    private layoutCustomGameOverPanel() {
+        if (this.customGameOverPanel) {
+            this.showGameOver(this.gameOverWinner, this.gameOverReason);
+        }
     }
 
     /**
@@ -1485,87 +1833,69 @@ export class BoardView extends Component {
     // ==========================================
 
     private createInGameUI() {
+        const showUI = this.node.active;
+
         // 如果已经创建，则只需将其激活并执行布局更新即可
         if (this.backButtonNode) {
-            this.backButtonNode.active = true;
-            this.undoButtonNode.active = true;
+            this.backButtonNode.active = showUI;
+            this.undoButtonNode.active = showUI;
             if (this.turnIndicatorBgNode) {
-                this.turnIndicatorBgNode.active = true;
+                this.turnIndicatorBgNode.active = showUI;
             }
             if (this.turnIndicator) {
-                this.turnIndicator.node.active = true;
+                this.turnIndicator.node.active = showUI;
             }
             this.decorateTurnIndicator();
             this.adjustBoardScale();
             return;
         }
 
-        const visibleSize = view.getVisibleSize();
-        const screenWidth = visibleSize.width;
-        const screenHeight = visibleSize.height;
-
-        // 1. 创建左上角返回按钮 (◀ 返回) - 调大尺寸以防被挤压
+        // 1. 创建左上角返回按钮 (统一为外侧的黄色圆形样式)
         this.backButtonNode = new Node("BackButton");
         this.backButtonNode.layer = 33554432; // UI_2D
-        const backTrans = this.backButtonNode.addComponent(UITransform);
-        backTrans.setContentSize(130, 50);
-        
-        // 绘制高品质圆角矩形
-        const backGraphics = this.backButtonNode.addComponent(Graphics);
-        backGraphics.lineWidth = 2.5;
-        backGraphics.strokeColor = new Color(255, 255, 255, 255);
-        backGraphics.fillColor = new Color(46, 139, 87, 240); // 翡翠绿
-        backGraphics.roundRect(-65, -25, 130, 50, 14);
-        backGraphics.fill();
-        backGraphics.stroke();
+        this.backButtonNode.addComponent(UITransform);
+        this.backButtonNode.addComponent(Graphics);
 
-        // 返回文字
-        const labelNode = new Node("Label");
-        labelNode.layer = 33554432;
-        const labelTrans = labelNode.addComponent(UITransform);
-        labelTrans.setContentSize(130, 50);
-        const label = labelNode.addComponent(Label);
-        label.string = "◀ 返回";
-        label.fontSize = 22;
-        label.color = Color.WHITE;
-        this.backButtonNode.addChild(labelNode);
-
-        // 绑定返回事件
+        // 绑定返回事件与触摸微动反馈
+        this.backButtonNode.on(Node.EventType.TOUCH_START, () => {
+            this.backButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
         this.backButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.backButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
             this.onBackButtonClicked();
+        }, this);
+        this.backButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            this.backButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
         }, this);
 
         this.node.parent!.addChild(this.backButtonNode);
 
-        // 2. 创建底部悔棋按钮 (↩ 请求悔棋) - 调大尺寸，金黄色醒目风格
+        // 2. 创建底部悔棋按钮 (↩ 请求悔棋)
         this.undoButtonNode = new Node("UndoButton");
         this.undoButtonNode.layer = 33554432;
-        const undoTrans = this.undoButtonNode.addComponent(UITransform);
-        undoTrans.setContentSize(190, 56);
-
-        // 绘制圆角按钮
-        const undoGraphics = this.undoButtonNode.addComponent(Graphics);
-        undoGraphics.lineWidth = 3;
-        undoGraphics.strokeColor = new Color(255, 255, 255, 255);
-        undoGraphics.fillColor = new Color(230, 130, 20, 240); // 暖金橙色
-        undoGraphics.roundRect(-95, -28, 190, 56, 16);
-        undoGraphics.fill();
-        undoGraphics.stroke();
+        this.undoButtonNode.addComponent(UITransform);
+        this.undoButtonNode.addComponent(Graphics);
 
         // 悔棋文字
         const undoLabelNode = new Node("Label");
         undoLabelNode.layer = 33554432;
-        const undoLabelTrans = undoLabelNode.addComponent(UITransform);
-        undoLabelTrans.setContentSize(190, 56);
+        undoLabelNode.addComponent(UITransform);
         const undoLabel = undoLabelNode.addComponent(Label);
         undoLabel.string = "↩ 请求悔棋";
-        undoLabel.fontSize = 22;
         undoLabel.color = Color.WHITE;
+        undoLabel.isBold = true;
         this.undoButtonNode.addChild(undoLabelNode);
 
-        // 绑定悔棋事件
+        // 绑定悔棋事件与触摸微动反馈
+        this.undoButtonNode.on(Node.EventType.TOUCH_START, () => {
+            this.undoButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
         this.undoButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.undoButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
             this.onUndoButtonClicked();
+        }, this);
+        this.undoButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            this.undoButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
         }, this);
 
         this.node.parent!.addChild(this.undoButtonNode);
@@ -1573,15 +1903,26 @@ export class BoardView extends Component {
         // 3. 修饰回合文字组件
         this.decorateTurnIndicator();
 
+        // 绑定当前的 active 状态
+        this.backButtonNode.active = showUI;
+        this.undoButtonNode.active = showUI;
+        if (this.turnIndicatorBgNode) {
+            this.turnIndicatorBgNode.active = showUI;
+        }
+        if (this.turnIndicator) {
+            this.turnIndicator.node.active = showUI;
+        }
+
         // 刷新一次位置布局
         this.adjustBoardScale();
     }
 
     private decorateTurnIndicator() {
         if (!this.turnIndicator) return;
-        this.turnIndicator.node.active = true; // 确保回合提示 Label 激活
+        const showUI = this.node.active;
+        this.turnIndicator.node.active = showUI; // 确保仅在对局激活时显示
         if (this.turnIndicatorBgNode) {
-            this.turnIndicatorBgNode.active = true;
+            this.turnIndicatorBgNode.active = showUI;
             return;
         }
 
@@ -1590,17 +1931,8 @@ export class BoardView extends Component {
         // 创建背景板
         this.turnIndicatorBgNode = new Node("TurnIndicatorBg");
         this.turnIndicatorBgNode.layer = 33554432;
-        const bgTrans = this.turnIndicatorBgNode.addComponent(UITransform);
-        bgTrans.setContentSize(460, 68);
-
-        // 绘制高品质圆角背景框 + 白描边
-        const g = this.turnIndicatorBgNode.addComponent(Graphics);
-        g.lineWidth = 2.5;
-        g.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
-        g.fillColor = new Color(20, 20, 20, 220); // 优雅的深碳黑色
-        g.roundRect(-230, -34, 460, 68, 18);
-        g.fill();
-        g.stroke();
+        this.turnIndicatorBgNode.addComponent(UITransform);
+        this.turnIndicatorBgNode.addComponent(Graphics);
 
         // 插入父节点下
         parentNode.addChild(this.turnIndicatorBgNode);
@@ -1610,10 +1942,8 @@ export class BoardView extends Component {
         
         // 确保 turnIndicator 挂在其之上显示
         this.turnIndicator.node.setSiblingIndex(this.turnIndicatorBgNode.getSiblingIndex() + 1);
-
-        // 调大回合提示文字字号，加粗放大
-        this.turnIndicator.fontSize = 28;
-        this.turnIndicator.lineHeight = 36;
+        
+        this.turnIndicatorBgNode.active = showUI;
     }
 
     private onBackButtonClicked() {
@@ -1629,6 +1959,7 @@ export class BoardView extends Component {
         if (this.gameOverPanel) {
             this.gameOverPanel.active = false;
         }
+        this.hideCustomGameOverPanel();
 
         if (this.modeSelectionNode) {
             this.modeSelectionNode.getComponent(UITransform)!.setContentSize(view.getVisibleSize());
@@ -1749,6 +2080,7 @@ export class BoardView extends Component {
         bgGraphics.fillColor = new Color(0, 0, 0, 160);
         bgGraphics.rect(-cw/2, -ch/2, cw, ch);
         bgGraphics.fill();
+        bgNode.addComponent(Button); // 拦截事件
         this.undoRequestPanel.addChild(bgNode);
 
         const dialogNode = new Node("Dialog");
@@ -1759,8 +2091,8 @@ export class BoardView extends Component {
         const dialogGraphics = dialogNode.addComponent(Graphics);
         dialogGraphics.lineWidth = 3 * scaleFactor;
         dialogGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
-        dialogGraphics.fillColor = new Color(20, 20, 20, 240); // 优雅的深碳黑色
-        dialogGraphics.roundRect(-dialogW/2, -dialogH/2, dialogW, dialogH, 20 * scaleFactor);
+        dialogGraphics.fillColor = new Color(255, 248, 223, 250); // 丛林温馨淡黄色底
+        dialogGraphics.roundRect(-dialogW/2, -dialogH/2, dialogW, dialogH, 24 * scaleFactor);
         dialogGraphics.fill();
         dialogGraphics.stroke();
         this.undoRequestPanel.addChild(dialogNode);
@@ -1770,7 +2102,7 @@ export class BoardView extends Component {
         const titleLabel = titleNode.addComponent(Label);
         titleLabel.string = "悔棋申请";
         titleLabel.fontSize = Math.round(30 * scaleFactor);
-        titleLabel.color = new Color(245, 215, 80, 255); // 靓丽金黄
+        titleLabel.color = new Color(139, 80, 0, 255); // 森林橙黄/深茶色
         titleLabel.isBold = true;
         titleNode.addComponent(UITransform);
         titleNode.setPosition(new Vec3(0, dialogH / 2 - 55 * scaleFactor, 0));
@@ -1785,7 +2117,8 @@ export class BoardView extends Component {
         contentLabel.string = `${appName} 申请悔棋，\n请问 ${respName} 同意吗？`;
         contentLabel.fontSize = Math.round(24 * scaleFactor);
         contentLabel.lineHeight = Math.round(32 * scaleFactor);
-        contentLabel.color = Color.WHITE;
+        contentLabel.color = new Color(102, 87, 45, 255); // 丛林风深木色字
+        contentLabel.isBold = true;
         contentNode.addComponent(UITransform);
         contentNode.setPosition(new Vec3(0, 10 * scaleFactor, 0));
         dialogNode.addChild(contentNode);
@@ -1794,14 +2127,15 @@ export class BoardView extends Component {
         const btnH = 76 * scaleFactor;
         const btnY = -dialogH / 2 + 65 * scaleFactor;
 
+        // (1) 同意按钮
         const agreeBtn = new Node("AgreeBtn");
         agreeBtn.layer = 33554432;
         agreeBtn.addComponent(UITransform).setContentSize(btnW, btnH);
         const agreeGraphics = agreeBtn.addComponent(Graphics);
         agreeGraphics.lineWidth = 1.5 * scaleFactor;
         agreeGraphics.strokeColor = new Color(255, 255, 255, 255);
-        agreeGraphics.fillColor = new Color(46, 139, 87, 255); // 翡翠绿
-        agreeGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 12 * scaleFactor);
+        agreeGraphics.fillColor = new Color(22, 143, 37, 255); // 翠绿
+        agreeGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 16 * scaleFactor);
         agreeGraphics.fill();
         agreeGraphics.stroke();
 
@@ -1816,21 +2150,25 @@ export class BoardView extends Component {
         agreeBtn.addChild(agreeText);
         agreeBtn.setPosition(new Vec3(-dialogW / 4, btnY, 0));
 
+        agreeBtn.on(Node.EventType.TOUCH_START, () => { agreeBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         agreeBtn.on(Node.EventType.TOUCH_END, () => {
+            agreeBtn.setScale(new Vec3(1.0, 1.0, 1.0));
             this.undoRequestPanel?.destroy();
             this.undoRequestPanel = null;
             callback(true);
         }, this);
+        agreeBtn.on(Node.EventType.TOUCH_CANCEL, () => { agreeBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
         dialogNode.addChild(agreeBtn);
 
+        // (2) 拒绝按钮
         const refuseBtn = new Node("RefuseBtn");
         refuseBtn.layer = 33554432;
         refuseBtn.addComponent(UITransform).setContentSize(btnW, btnH);
         const refuseGraphics = refuseBtn.addComponent(Graphics);
         refuseGraphics.lineWidth = 1.5 * scaleFactor;
         refuseGraphics.strokeColor = new Color(255, 255, 255, 255);
-        refuseGraphics.fillColor = new Color(220, 70, 70, 255); // 珊瑚红
-        refuseGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 12 * scaleFactor);
+        refuseGraphics.fillColor = new Color(214, 48, 49, 255); // 珊瑚红
+        refuseGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 16 * scaleFactor);
         refuseGraphics.fill();
         refuseGraphics.stroke();
 
@@ -1845,14 +2183,23 @@ export class BoardView extends Component {
         refuseBtn.addChild(refuseText);
         refuseBtn.setPosition(new Vec3(dialogW / 4, btnY, 0));
 
+        refuseBtn.on(Node.EventType.TOUCH_START, () => { refuseBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         refuseBtn.on(Node.EventType.TOUCH_END, () => {
+            refuseBtn.setScale(new Vec3(1.0, 1.0, 1.0));
             this.undoRequestPanel?.destroy();
             this.undoRequestPanel = null;
             callback(false);
         }, this);
+        refuseBtn.on(Node.EventType.TOUCH_CANCEL, () => { refuseBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
         dialogNode.addChild(refuseBtn);
 
         this.node.parent!.addChild(this.undoRequestPanel);
+
+        // 动画弹出效果
+        dialogNode.setScale(new Vec3(0.82, 0.82, 1.0));
+        tween(dialogNode)
+            .to(0.25, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
     }
 
     private showToast(message: string) {
@@ -1945,15 +2292,61 @@ export class BoardView extends Component {
             return;
         }
 
-        validMoves.sort((a, b) => b.priority - a.priority);
+        // 读取本地存储中的 AI 难度设置 (默认为中等)
+        const difficulty = sys.localStorage.getItem('jungle_ai_difficulty') || 'normal';
+        let optimalChance = 1.0; // 默认困难 (100% 概率最优解)
 
-        const highestPriority = validMoves[0].priority;
-        const candidates = validMoves.filter(m => m.priority === highestPriority);
-        const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+        if (difficulty === 'easy') {
+            optimalChance = 0.35; // 简单：35% 概率最优，65% 概率瞎走
+        } else if (difficulty === 'normal') {
+            optimalChance = 0.70; // 中等：70% 概率最优，30% 概率瞎走
+        }
 
-        console.log(`AI chose move: piece=${chosen.piece.id}, from=(${chosen.fromX},${chosen.fromY}) -> to=(${chosen.toX},${chosen.toY}), priority=${chosen.priority}`);
+        const useOptimal = Math.random() < optimalChance;
+        let chosen: { piece: Piece; fromX: number; fromY: number; toX: number; toY: number; priority: number };
+
+        if (useOptimal) {
+            validMoves.sort((a, b) => b.priority - a.priority);
+            const highestPriority = validMoves[0].priority;
+            const candidates = validMoves.filter(m => m.priority === highestPriority);
+            chosen = candidates[Math.floor(Math.random() * candidates.length)];
+            console.log(`AI optimal move (${difficulty}): piece=${chosen.piece.id}, from=(${chosen.fromX},${chosen.fromY}) -> to=(${chosen.toX},${chosen.toY}), priority=${chosen.priority}`);
+        } else {
+            // 纯随机瞎走一步
+            chosen = validMoves[Math.floor(Math.random() * validMoves.length)];
+            console.log(`AI casual move (${difficulty}): piece=${chosen.piece.id}, from=(${chosen.fromX},${chosen.fromY}) -> to=(${chosen.toX},${chosen.toY}), priority=${chosen.priority}`);
+        }
 
         this.isAIMoving = false;
         this.tryMovePiece(chosen.fromX, chosen.fromY, chosen.toX, chosen.toY);
+    }
+
+    private safeLoadSprite(path: string, sprite: Sprite) {
+        resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
+            if (!err && sf) {
+                if (sprite && sprite.isValid) {
+                    sprite.spriteFrame = sf;
+                }
+            } else {
+                resources.load(path, SpriteFrame, (err2, sf2) => {
+                    if (!err2 && sf2) {
+                        if (sprite && sprite.isValid) {
+                            sprite.spriteFrame = sf2;
+                        }
+                    } else {
+                        resources.load(path, ImageAsset, (err3, imgAsset) => {
+                            if (!err3 && imgAsset) {
+                                if (sprite && sprite.isValid) {
+                                    const sf3 = SpriteFrame.createWithImage(imgAsset);
+                                    sprite.spriteFrame = sf3;
+                                }
+                            } else {
+                                console.warn(`safeLoadSprite warning for ${path}:`, err3);
+                            }
+                        });
+                    }
+                });
+            }
+        });
     }
 }

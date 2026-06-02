@@ -8,7 +8,7 @@ export class LoadingScene extends Component {
     private _isLoaded: boolean = false;
     private _barTotalWidth: number = 300;
     private _elapsed: number = 0;
-    private _loadingDuration: number = 3;
+    private _loadingDuration: number = 2;
 
     @property
     public bootMode: boolean = false;
@@ -169,7 +169,7 @@ export class LoadingScene extends Component {
         bottomContainer.setPosition(0, -ch / 2 + ch * 0.35, 0); // 往上移动至距离底边 35% 像素
         canvas.addChild(bottomContainer);
 
-        const statusTxt = this.createLabelNode('StatusTxt', '正在探索丛林中...', 36, '#137920', true); // 字号放大至 36
+        const statusTxt = this.createLabelNode('StatusTxt', '游戏努力加载中。。。', 36, '#137920', true); // 字号放大至 36
         statusTxt.setPosition(0, 90, 0); // Y坐标上移至 90
         bottomContainer.addChild(statusTxt);
 
