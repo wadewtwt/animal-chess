@@ -255,104 +255,116 @@ export class MainMenuUI extends Component {
         const cw = uiTrans.width;
         const ch = uiTrans.height;
 
-        if (!this.settingsPanel) {
-            // 1. 创建全屏遮罩防穿透
-            this.settingsPanel = new Node('SettingsPanel');
-            this.settingsPanel.layer = 33554432; // UI_2D
-            this.settingsPanel.addComponent(UITransform).setContentSize(cw, ch);
-            canvas.addChild(this.settingsPanel);
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
 
-            // 灰色半透明背景，添加 Button 拦截触摸事件
-            const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
-            mask.name = 'Mask';
-            mask.addComponent(Button); // 吞噬事件
-            this.settingsPanel.addChild(mask);
-
-            // 2. 创建弹窗主体
-            const dialogWidth = Math.min(cw * 0.9, 540);
-            const dialogHeight = Math.min(ch * 0.66, 620);
-            const dialog = this.createRectNode('Dialog', '#efe6c8', dialogWidth, dialogHeight, 32);
-            dialog.name = 'DialogNode';
-            this.settingsPanel.addChild(dialog);
-
-            // 3. 弹窗标题
-            const title = this.createLabelNode('Title', '系统设置', 30, '#11751e', true);
-            title.setPosition(0, dialogHeight / 2 - 48, 0);
-            dialog.addChild(title);
-
-            // 分割线
-            const line = this.createRectNode('Line', '#11751e', dialogWidth - 72, 2, 0, 40);
-            line.setPosition(0, dialogHeight / 2 - 78, 0);
-            dialog.addChild(line);
-
-            // 4. 背景音乐开关按钮
-            const btnWidth = dialogWidth - 56;
-            const btnHeight = 72;
-            const btnGap = 18;
-            const musicBtnY = dialogHeight / 2 - 150;
-            const musicBtn = this.createRectNode('MusicBtn', '#f6ebbf', btnWidth, btnHeight, 22);
-            musicBtn.setPosition(0, musicBtnY, 0);
-            dialog.addChild(musicBtn);
-
-            const musicLabelNode = this.createLabelNode('MusicLabel', '', 22, '#5b4b1c', true);
-            this.musicBtnLabel = musicLabelNode.getComponent(Label);
-            musicBtn.addChild(musicLabelNode);
-
-            musicBtn.addComponent(Button);
-            musicBtn.on(Node.EventType.TOUCH_END, () => {
-                let musicOn = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
-                musicOn = !musicOn;
-                sys.localStorage.setItem('jungle_music_enabled', musicOn ? 'true' : 'false');
-                this.updateSettingsUI();
-                // 触发音乐开关事件
-                this.node.emit('music-toggle', musicOn);
-            }, this);
-
-            // 5. 游戏音效开关按钮
-            const soundBtn = this.createRectNode('SoundBtn', '#f6ebbf', btnWidth, btnHeight, 22);
-            soundBtn.setPosition(0, musicBtnY - btnHeight - btnGap, 0);
-            dialog.addChild(soundBtn);
-
-            const soundLabelNode = this.createLabelNode('SoundLabel', '', 22, '#5b4b1c', true);
-            this.soundBtnLabel = soundLabelNode.getComponent(Label);
-            soundBtn.addChild(soundLabelNode);
-
-            soundBtn.addComponent(Button);
-            soundBtn.on(Node.EventType.TOUCH_END, () => {
-                let soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
-                soundOn = !soundOn;
-                sys.localStorage.setItem('jungle_sound_enabled', soundOn ? 'true' : 'false');
-                this.updateSettingsUI();
-            }, this);
-
-            // 6. 关闭按钮
-            const closeBtn = this.createRectNode('CloseBtn', '#168f25', dialogWidth - 120, 60, 30);
-            closeBtn.setPosition(0, -dialogHeight / 2 + 54, 0);
-            dialog.addChild(closeBtn);
-
-            const closeTxt = this.createLabelNode('CloseTxt', '确 定', 22, '#ffffff', true);
-            closeBtn.addChild(closeTxt);
-
-            closeBtn.addComponent(Button);
-            closeBtn.on(Node.EventType.TOUCH_END, () => {
-                const dialogNode = this.settingsPanel!.getChildByName('DialogNode');
-                if (dialogNode) {
-                    tween(dialogNode)
-                        .to(0.2, { scale: new Vec3(0.78, 0.78, 1.0) }, { easing: 'backIn' })
-                        .call(() => {
-                            this.settingsPanel!.active = false;
-                        })
-                        .start();
-                } else {
-                    this.settingsPanel!.active = false;
-                }
-            }, this);
-        } else {
-            // 同步视口大小以防动态改变分辨率
-            this.settingsPanel.getComponent(UITransform)!.setContentSize(cw, ch);
-            const mask = this.settingsPanel.getChildByName('Mask');
-            if (mask) mask.getComponent(UITransform)!.setContentSize(cw, ch);
+        // 如果存在则销毁重建，确保每次打开都获取最新的自适应大小
+        if (this.settingsPanel) {
+            this.settingsPanel.destroy();
+            this.settingsPanel = null;
         }
+
+        // 1. 创建全屏遮罩防穿透
+        this.settingsPanel = new Node('SettingsPanel');
+        this.settingsPanel.layer = 33554432; // UI_2D
+        this.settingsPanel.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.settingsPanel);
+
+        // 灰色半透明背景，添加 Button 拦截触摸事件
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        mask.name = 'Mask';
+        mask.addComponent(Button); // 吞噬事件
+        this.settingsPanel.addChild(mask);
+
+        // 2. 创建弹窗主体 (自适应放大)
+        const dialogWidth = Math.min(cw * 0.9, 620 * scaleFactor);
+        const dialogHeight = Math.min(ch * 0.8, 760 * scaleFactor);
+        const dialogRadius = 40 * scaleFactor;
+        const dialog = this.createRectNode('Dialog', '#efe6c8', dialogWidth, dialogHeight, dialogRadius);
+        dialog.name = 'DialogNode';
+        this.settingsPanel.addChild(dialog);
+
+        // 3. 弹窗标题 (字号放大至 40)
+        const titleFontSize = 40 * scaleFactor;
+        const title = this.createLabelNode('Title', '系统设置', titleFontSize, '#11751e', true);
+        title.setPosition(0, dialogHeight / 2 - 64 * scaleFactor, 0);
+        dialog.addChild(title);
+
+        // 分割线
+        const line = this.createRectNode('Line', '#11751e', dialogWidth - 96 * scaleFactor, 3 * scaleFactor, 0, 40);
+        line.setPosition(0, dialogHeight / 2 - 100 * scaleFactor, 0);
+        dialog.addChild(line);
+
+        // 4. 背景音乐开关按钮 (高宽及字号放大)
+        const btnWidth = dialogWidth - 80 * scaleFactor;
+        const btnHeight = 96 * scaleFactor;
+        const btnGap = 28 * scaleFactor;
+        const musicBtnY = dialogHeight / 2 - 190 * scaleFactor;
+        const musicBtnRadius = 28 * scaleFactor;
+        const btnFontSize = 30 * scaleFactor;
+
+        const musicBtn = this.createRectNode('MusicBtn', '#f6ebbf', btnWidth, btnHeight, musicBtnRadius);
+        musicBtn.setPosition(0, musicBtnY, 0);
+        dialog.addChild(musicBtn);
+
+        const musicLabelNode = this.createLabelNode('MusicLabel', '', btnFontSize, '#5b4b1c', true);
+        this.musicBtnLabel = musicLabelNode.getComponent(Label);
+        musicBtn.addChild(musicLabelNode);
+
+        musicBtn.addComponent(Button);
+        musicBtn.on(Node.EventType.TOUCH_END, () => {
+            let musicOn = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+            musicOn = !musicOn;
+            sys.localStorage.setItem('jungle_music_enabled', musicOn ? 'true' : 'false');
+            this.updateSettingsUI();
+            // 触发音乐开关事件
+            this.node.emit('music-toggle', musicOn);
+        }, this);
+
+        // 5. 游戏音效开关按钮
+        const soundBtn = this.createRectNode('SoundBtn', '#f6ebbf', btnWidth, btnHeight, musicBtnRadius);
+        soundBtn.setPosition(0, musicBtnY - btnHeight - btnGap, 0);
+        dialog.addChild(soundBtn);
+
+        const soundLabelNode = this.createLabelNode('SoundLabel', '', btnFontSize, '#5b4b1c', true);
+        this.soundBtnLabel = soundLabelNode.getComponent(Label);
+        soundBtn.addChild(soundLabelNode);
+
+        soundBtn.addComponent(Button);
+        soundBtn.on(Node.EventType.TOUCH_END, () => {
+            let soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+            soundOn = !soundOn;
+            sys.localStorage.setItem('jungle_sound_enabled', soundOn ? 'true' : 'false');
+            this.updateSettingsUI();
+        }, this);
+
+        // 6. 关闭按钮 (确定按钮已放大)
+        const closeBtnWidth = dialogWidth - 160 * scaleFactor;
+        const closeBtnHeight = 84 * scaleFactor;
+        const closeBtnRadius = 42 * scaleFactor;
+        const closeBtn = this.createRectNode('CloseBtn', '#168f25', closeBtnWidth, closeBtnHeight, closeBtnRadius);
+        closeBtn.setPosition(0, -dialogHeight / 2 + 76 * scaleFactor, 0);
+        dialog.addChild(closeBtn);
+
+        const closeTxt = this.createLabelNode('CloseTxt', '确 定', btnFontSize, '#ffffff', true);
+        closeBtn.addChild(closeTxt);
+
+        closeBtn.addComponent(Button);
+        closeBtn.on(Node.EventType.TOUCH_END, () => {
+            const dialogNode = this.settingsPanel!.getChildByName('DialogNode');
+            if (dialogNode) {
+                tween(dialogNode)
+                    .to(0.2, { scale: new Vec3(0.78, 0.78, 1.0) }, { easing: 'backIn' })
+                    .call(() => {
+                        this.settingsPanel!.active = false;
+                    })
+                    .start();
+            } else {
+                this.settingsPanel!.active = false;
+            }
+        }, this);
 
         // 显示并执行弹出动画
         this.settingsPanel.active = true;

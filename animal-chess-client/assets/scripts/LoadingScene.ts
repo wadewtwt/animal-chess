@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, director, Widget } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, director, Widget, sys } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('LoadingScene')
@@ -23,6 +23,20 @@ export class LoadingScene extends Component {
 
     onLoad() {
         console.log('=== LoadingScene onLoad ===');
+        if (sys.isBrowser) {
+            try {
+                const style = document.createElement('style');
+                style.innerHTML = `
+                    canvas, #GameCanvas, body, html {
+                        touch-action: none !important;
+                    }
+                `;
+                document.head.appendChild(style);
+                console.log('Successfully injected touch-action styling to prevent browser warnings.');
+            } catch (e) {
+                console.warn('Failed to inject style:', e);
+            }
+        }
         this.buildUI();
     }
 
@@ -66,7 +80,7 @@ export class LoadingScene extends Component {
             }
 
             if (this.progressBarFill) {
-                this.progressBarFill.width = this._barTotalWidth * this._progress;
+                this.updateProgressBarFill(this._barTotalWidth * this._progress);
             }
             if (this.progressText) {
                 this.progressText.string = `${Math.floor(this._progress * 100)}%`;
@@ -74,6 +88,21 @@ export class LoadingScene extends Component {
             if (this.progressBadge) {
                 const currentX = (-this._barTotalWidth / 2) + (this._barTotalWidth * this._progress);
                 this.progressBadge.setPosition(new Vec3(currentX, this.progressBadge.position.y, 0));
+            }
+        }
+    }
+
+    private updateProgressBarFill(w: number) {
+        if (!this.progressBarFill) return;
+        this.progressBarFill.width = w;
+        const g = this.progressBarFill.node.getComponent(Graphics);
+        if (g) {
+            g.clear();
+            if (w > 4) {
+                const h = 56;
+                const radius = Math.min(28, w / 2);
+                g.roundRect(0, -h / 2, w, h, radius);
+                g.fill();
             }
         }
     }

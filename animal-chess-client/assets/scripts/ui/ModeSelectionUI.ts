@@ -20,6 +20,7 @@ export class ModeSelectionUI extends Component {
     private difficultyDialog: Node | null = null;
     private selectedDifficulty: DifficultyKey = 'normal';
     private difficultyStates: Map<DifficultyKey, DifficultyState> = new Map();
+    private createRoomDialog: Node | null = null;
 
     onLoad() {
         this.buildUI();
@@ -32,6 +33,11 @@ export class ModeSelectionUI extends Component {
         const ch = uiTrans.height;
         const isPortrait = ch > cw;
 
+        // 计算 scaleFactor 自适应系数
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
         const bgNode = new Node('Background');
         bgNode.layer = 33554432;
         const bgTrans = bgNode.addComponent(UITransform);
@@ -43,39 +49,41 @@ export class ModeSelectionUI extends Component {
 
         canvas.addChild(this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36));
 
-        const topBarHeight = 92;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24, topBarHeight, 18, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8, 0);
+        // 1. 顶栏 (自适应放大)
+        const topBarHeight = 92 * scaleFactor;
+        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24 * scaleFactor, topBarHeight, 18 * scaleFactor, 232);
+        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
         canvas.addChild(topBar);
 
-        const backBtn = this.createCircleNode('BackBtn', '#f0dd1b', 42);
-        backBtn.setPosition(-cw / 2 + 52, 0, 0);
+        const backBtn = this.createCircleNode('BackBtn', '#f0dd1b', 42 * scaleFactor);
+        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
         topBar.addChild(backBtn);
-        const backTxt = this.createLabelNode('BackTxt', '←', 34, '#3f3600', true);
+        const backTxt = this.createLabelNode('BackTxt', '←', 34 * scaleFactor, '#3f3600', true);
         backBtn.addChild(backTxt);
         backBtn.addComponent(Button);
         backBtn.on(Node.EventType.TOUCH_END, () => {
             this.node.emit('go-back');
         }, this);
 
-        const titleText = this.createLabelNode('Title', '丛林战棋', 30, '#006e1c', true);
+        const titleText = this.createLabelNode('Title', '丛林战棋', 30 * scaleFactor, '#006e1c', true);
         titleText.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        titleText.setPosition(-cw / 2 + 92, 0, 0);
+        titleText.setPosition(-cw / 2 + 116 * scaleFactor, 0, 0);
         topBar.addChild(titleText);
 
-        const xpPill = this.createRectNode('XPPill', '#4caf50', 190, 58, 29);
-        xpPill.setPosition(cw / 2 - 88, 0, 0);
+        const xpPill = this.createRectNode('XPPill', '#4caf50', 190 * scaleFactor, 58 * scaleFactor, 29 * scaleFactor);
+        xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
         topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', '★ XP: 1250', 24, '#ffffff', true);
+        const xpTxt = this.createLabelNode('XPTxt', '★ XP: 1250', 24 * scaleFactor, '#ffffff', true);
         xpPill.addChild(xpTxt);
 
-        const cardW = Math.min(cw * 0.96, 600);
-        const cardH = 360;
-        const cardSpacing = 26;
-        const centerY = -(topBarHeight + 16) / 2;
-        const card1Y = isPortrait ? centerY + cardH + cardSpacing : 60;
-        const card2Y = isPortrait ? centerY : 60 - cardH - cardSpacing;
-        const card3Y = isPortrait ? centerY - cardH - cardSpacing : 60 - (cardH + cardSpacing) * 2;
+        // 2. 卡片自适应尺寸 (高宽及间距放大)
+        const cardW = Math.min(cw * 0.96, 620 * scaleFactor);
+        const cardH = 380 * scaleFactor;
+        const cardSpacing = 26 * scaleFactor;
+        const centerY = -(topBarHeight + 16 * scaleFactor) / 2;
+        const card1Y = isPortrait ? centerY + cardH + cardSpacing : 60 * scaleFactor;
+        const card2Y = isPortrait ? centerY : (60 - cardH - cardSpacing) * scaleFactor;
+        const card3Y = isPortrait ? centerY - cardH - cardSpacing : (60 - (cardH + cardSpacing) * 2) * scaleFactor;
 
         const localCard = this.createCardNode(
             'LocalDuoCard',
@@ -86,10 +94,11 @@ export class ModeSelectionUI extends Component {
             '开始',
             '#006e1c',
             '#003c0b',
-            'https://lh3.googleusercontent.com/aida-public/AB6AXuCoeEhEZaC_DfUgAXt1ab-i9zRiU-DvfOgHKy3aLc8Zs4V0IbYuiqD35YImv4A4E4OsC3xRbHBreYAYRrfD7MJoFBxuOWO-E8AQT3RW3vOhEdtR5dIH_EwtinFLcBFkUeYTABc0O_HB90i9CKs787onGK8E8FB__ekbbBBIu5-Xsq6QlnfuUEuSqkr-W6VO30-dinFJBxNNK2YzJgOWQ_tMsfCjeF-kFFtbhniYjt6aHm-0A_ZVejrCW5_LA9FUO6NYsaY-kJFaYj0q',
+            'textures/mode_local_duo',
             () => {
                 this.node.emit('start-local-duo');
-            }
+            },
+            scaleFactor
         );
         localCard.setPosition(0, card1Y, 0);
         canvas.addChild(localCard);
@@ -103,10 +112,11 @@ export class ModeSelectionUI extends Component {
             '练习 >',
             '#8b5000',
             '#4d2b00',
-            'https://lh3.googleusercontent.com/aida-public/AB6AXuANuDlw9HOKO7qbK4FeWshclBuxOpWziVWodNFu7PqI4t6wyAt2QGrGfYIQ7rAzLOZbxUc3MaB6XU5XkbD3HIFjTibd9pghs5ZBGw3rGNRXxWXJf3oZ0xwovpIlMvjOkUwWCtAxHhAEGf4hUK-fTRdjYbVc0Yd0v1n4nzjNug6HXxw1y7EzfwmHoq_ID72sx-uomDJd2GbOrjXvkWns8WRcUSGu48FSGpMLt7BLvBoblE6Po6Po44xlDEW_wvP3fdrSu2--3v48TZiA',
+            'textures/mode_ai_practice',
             () => {
                 this.showDifficultyDialog();
-            }
+            },
+            scaleFactor
         );
         aiCard.setPosition(0, card2Y, 0);
         canvas.addChild(aiCard);
@@ -120,43 +130,45 @@ export class ModeSelectionUI extends Component {
             '进入 >',
             '#695f00',
             '#4f4800',
-            'https://lh3.googleusercontent.com/aida-public/AB6AXuDoqf3HzVTw4mkBDJ1pjYsgQ9khFAweITEL_ko4JVNeHnhACu7luiAjWijBSBiOXzO9tT4wgyAxYhZVGJ8cbcjlMQ7o0HeRxkFpLah7QOD6u_yxWUsVALKDAx4EG-z6iCLcY2H2Mvht4RbSk4_Zl4RAQ3gUQQQckOUu7Jgq-YVVfTOh48difTwKf3MM_YR8VDcPstOaIs6Zwpaungz8eOtmzJozV9QjL1IE5MTJUJVbjeOA_zAGHMPhTdPg0ojKCRAfof5PtP3rnhYn',
+            'textures/mode_online_battle',
             () => {
-                this.showToast('房间对局暂未开放，敬请期待！');
-            }
+                this.showCreateRoomDialog();
+            },
+            scaleFactor
         );
         roomCard.setPosition(0, card3Y, 0);
         canvas.addChild(roomCard);
     }
 
-    private createCardNode(name: string, w: number, h: number, title: string, titleColor: string, btnText: string, btnColor: string, btnShadowColor: string, imgUrl: string, onClick: () => void): Node {
-        const card = this.createRectNode(name, '#ffffff', w, h, 24);
+    private createCardNode(name: string, w: number, h: number, title: string, titleColor: string, btnText: string, btnColor: string, btnShadowColor: string, imgUrl: string, onClick: () => void, scaleFactor: number): Node {
+        const card = this.createRectNode(name, '#ffffff', w, h, 24 * scaleFactor);
 
         const imgNode = new Node('Illustration');
         imgNode.layer = 33554432;
         const imgTrans = imgNode.addComponent(UITransform);
-        imgTrans.setContentSize(200, 200);
+        imgTrans.setContentSize(220 * scaleFactor, 220 * scaleFactor);
         const sprite = imgNode.addComponent(Sprite);
         sprite.sizeMode = 0;
-        imgNode.setPosition(0, h / 2 - 106, 0);
+        imgNode.setPosition(0, h / 2 - 120 * scaleFactor, 0);
         card.addChild(imgNode);
-        this.loadRemoteImage(imgUrl, sprite);
+        this.safeLoadSprite(imgUrl, sprite);
 
-        const label = this.createLabelNode('Title', title, 30, titleColor, true);
-        label.setPosition(0, h / 2 - 230, 0);
+        const label = this.createLabelNode('Title', title, 30 * scaleFactor, titleColor, true);
+        label.setPosition(0, h / 2 - 250 * scaleFactor, 0);
         card.addChild(label);
 
-        const btnW = w - 24;
-        const btnH = 102;
-        const shadow = this.createRectNode('BtnShadow', btnShadowColor, btnW, btnH, 44);
-        shadow.setPosition(0, -h / 2 + 50, 0);
+        const btnW = w - 40 * scaleFactor;
+        const btnH = 84 * scaleFactor;
+        const btnRadius = 42 * scaleFactor;
+        const shadow = this.createRectNode('BtnShadow', btnShadowColor, btnW, btnH, btnRadius);
+        shadow.setPosition(0, -h / 2 + 42 * scaleFactor, 0);
         card.addChild(shadow);
 
-        const btn = this.createRectNode('ActionBtn', btnColor, btnW, btnH, 44);
-        btn.setPosition(0, -h / 2 + 54, 0);
+        const btn = this.createRectNode('ActionBtn', btnColor, btnW, btnH, btnRadius);
+        btn.setPosition(0, -h / 2 + 46 * scaleFactor, 0);
         card.addChild(btn);
 
-        const btnTxt = this.createLabelNode('BtnTxt', btnText, 30, '#ffffff', true);
+        const btnTxt = this.createLabelNode('BtnTxt', btnText, 28 * scaleFactor, '#ffffff', true);
         btn.addChild(btnTxt);
 
         btn.addComponent(Button);
@@ -179,85 +191,87 @@ export class ModeSelectionUI extends Component {
         const uiTrans = canvas.getComponent(UITransform);
         const cw = uiTrans.width;
         const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
 
-        if (!this.difficultyDialog) {
-            this.difficultyStates.clear();
-
-            this.difficultyDialog = new Node('DifficultyDialog');
-            this.difficultyDialog.layer = 33554432;
-            this.difficultyDialog.addComponent(UITransform).setContentSize(cw, ch);
-            canvas.addChild(this.difficultyDialog);
-
-            const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
-            mask.addComponent(Button);
-            mask.on(Node.EventType.TOUCH_END, () => this.hideDifficultyDialog(), this);
-            this.difficultyDialog.addChild(mask);
-
-            const dialogW = Math.min(cw * 0.88, 520);
-            const dialogH = Math.min(ch * 0.76, 680);
-            const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 34);
-            dialog.name = 'DialogNode';
-            this.difficultyDialog.addChild(dialog);
-
-            const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 20);
-            closeBtn.setPosition(dialogW / 2 - 24, dialogH / 2 - 24, 0);
-            dialog.addChild(closeBtn);
-            const closeTxt = this.createLabelNode('CloseTxt', '×', 32, '#ffffff', true);
-            closeBtn.addChild(closeTxt);
-            closeBtn.addComponent(Button);
-            closeBtn.on(Node.EventType.TOUCH_END, () => this.hideDifficultyDialog(), this);
-
-            const title = this.createLabelNode('Title', '选择难度', 34, '#148437', true);
-            title.setPosition(0, dialogH / 2 - 52, 0);
-            dialog.addChild(title);
-
-            const subtitle = this.createLabelNode('Subtitle', '请选择合适的对手强度开始挑战', 15, '#9a8d5d', false);
-            subtitle.setPosition(0, dialogH / 2 - 84, 0);
-            dialog.addChild(subtitle);
-
-            const optionW = dialogW - 44;
-            const optionH = 82;
-            const optionGap = 14;
-            const firstY = dialogH / 2 - 156;
-
-            const easyNode = this.createDifficultyOption(optionW, optionH, '简单', '适合新手', '#5bc16f');
-            easyNode.setPosition(0, firstY, 0);
-            dialog.addChild(easyNode);
-
-            const normalNode = this.createDifficultyOption(optionW, optionH, '中等', '推荐默认', '#e0a13a');
-            normalNode.setPosition(0, firstY - optionH - optionGap, 0);
-            dialog.addChild(normalNode);
-
-            const hardNode = this.createDifficultyOption(optionW, optionH, '困难', '更强的挑战', '#ef6666');
-            hardNode.setPosition(0, firstY - (optionH + optionGap) * 2, 0);
-            dialog.addChild(hardNode);
-
-            const startBtn = this.createRectNode('StartBtn', '#0f7f34', dialogW - 64, 68, 30);
-            startBtn.setPosition(0, -dialogH / 2 + 102, 0);
-            dialog.addChild(startBtn);
-            const startTxt = this.createLabelNode('StartTxt', '开始挑战', 26, '#ffffff', true);
-            startBtn.addChild(startTxt);
-            startBtn.addComponent(Button);
-            startBtn.on(Node.EventType.TOUCH_END, () => {
-                const difficulty = this.selectedDifficulty;
-                this.hideDifficultyDialog();
-                this.node.emit('start-ai-practice', difficulty);
-            }, this);
-
-            const cancelTxt = this.createLabelNode('CancelTxt', '取消', 16, '#8f8a76', false);
-            cancelTxt.setPosition(0, -dialogH / 2 + 32, 0);
-            dialog.addChild(cancelTxt);
-
-            this.registerDifficultyState(easyNode, 'easy', '#5bc16f');
-            this.registerDifficultyState(normalNode, 'normal', '#e0a13a');
-            this.registerDifficultyState(hardNode, 'hard', '#ef6666');
-        } else {
-            this.difficultyDialog.getComponent(UITransform)!.setContentSize(cw, ch);
-            const mask = this.difficultyDialog.getChildByName('Mask');
-            if (mask) {
-                mask.getComponent(UITransform)!.setContentSize(cw, ch);
-            }
+        // 如果存在则先销毁，确保自适应参数永远最新
+        if (this.difficultyDialog) {
+            this.difficultyDialog.destroy();
+            this.difficultyDialog = null;
         }
+
+        this.difficultyStates.clear();
+
+        this.difficultyDialog = new Node('DifficultyDialog');
+        this.difficultyDialog.layer = 33554432;
+        this.difficultyDialog.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.difficultyDialog);
+
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        mask.addComponent(Button);
+        mask.on(Node.EventType.TOUCH_END, () => this.hideDifficultyDialog(), this);
+        this.difficultyDialog.addChild(mask);
+
+        const dialogW = Math.min(cw * 0.88, 580 * scaleFactor);
+        const dialogH = Math.min(ch * 0.8, 760 * scaleFactor);
+        const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 34 * scaleFactor);
+        dialog.name = 'DialogNode';
+        this.difficultyDialog.addChild(dialog);
+
+        const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 24 * scaleFactor);
+        closeBtn.setPosition(dialogW / 2 - 32 * scaleFactor, dialogH / 2 - 32 * scaleFactor, 0);
+        dialog.addChild(closeBtn);
+        const closeTxt = this.createLabelNode('CloseTxt', '×', 32 * scaleFactor, '#ffffff', true);
+        closeBtn.addChild(closeTxt);
+        closeBtn.addComponent(Button);
+        closeBtn.on(Node.EventType.TOUCH_END, () => this.hideDifficultyDialog(), this);
+
+        const title = this.createLabelNode('Title', '选择难度', 36 * scaleFactor, '#148437', true);
+        title.setPosition(0, dialogH / 2 - 60 * scaleFactor, 0);
+        dialog.addChild(title);
+
+        const subtitle = this.createLabelNode('Subtitle', '请选择合适的对手强度开始挑战', 18 * scaleFactor, '#9a8d5d', false);
+        subtitle.setPosition(0, dialogH / 2 - 96 * scaleFactor, 0);
+        dialog.addChild(subtitle);
+
+        const optionW = dialogW - 48 * scaleFactor;
+        const optionH = 96 * scaleFactor;
+        const optionGap = 16 * scaleFactor;
+        const firstY = dialogH / 2 - 176 * scaleFactor;
+
+        const easyNode = this.createDifficultyOption(optionW, optionH, '简单', '适合新手', '#5bc16f', scaleFactor);
+        easyNode.setPosition(0, firstY, 0);
+        dialog.addChild(easyNode);
+
+        const normalNode = this.createDifficultyOption(optionW, optionH, '中等', '推荐默认', '#e0a13a', scaleFactor);
+        normalNode.setPosition(0, firstY - optionH - optionGap, 0);
+        dialog.addChild(normalNode);
+
+        const hardNode = this.createDifficultyOption(optionW, optionH, '困难', '更强的挑战', '#ef6666', scaleFactor);
+        hardNode.setPosition(0, firstY - (optionH + optionGap) * 2, 0);
+        dialog.addChild(hardNode);
+
+        const startBtn = this.createRectNode('StartBtn', '#0f7f34', dialogW - 80 * scaleFactor, 80 * scaleFactor, 40 * scaleFactor);
+        startBtn.setPosition(0, -dialogH / 2 + 116 * scaleFactor, 0);
+        dialog.addChild(startBtn);
+        const startTxt = this.createLabelNode('StartTxt', '开始挑战', 28 * scaleFactor, '#ffffff', true);
+        startBtn.addChild(startTxt);
+        startBtn.addComponent(Button);
+        startBtn.on(Node.EventType.TOUCH_END, () => {
+            const difficulty = this.selectedDifficulty;
+            this.hideDifficultyDialog();
+            this.node.emit('start-ai-practice', difficulty);
+        }, this);
+
+        const cancelTxt = this.createLabelNode('CancelTxt', '取消', 20 * scaleFactor, '#8f8a76', false);
+        cancelTxt.setPosition(0, -dialogH / 2 + 42 * scaleFactor, 0);
+        dialog.addChild(cancelTxt);
+
+        this.registerDifficultyState(easyNode, 'easy', '#5bc16f');
+        this.registerDifficultyState(normalNode, 'normal', '#e0a13a');
+        this.registerDifficultyState(hardNode, 'hard', '#ef6666');
 
         this.difficultyDialog.active = true;
         const dialogNode = this.difficultyDialog.getChildByName('DialogNode');
@@ -287,47 +301,47 @@ export class ModeSelectionUI extends Component {
         }
     }
 
-    private createDifficultyOption(w: number, h: number, mainText: string, subText: string, accentHex: string): Node {
+    private createDifficultyOption(w: number, h: number, mainText: string, subText: string, accentHex: string, scaleFactor: number): Node {
         const option = new Node('DifficultyOption');
         option.layer = 33554432;
         const trans = option.addComponent(UITransform);
         trans.setContentSize(w, h);
 
-        const shadow = this.createRectNode('Shadow', '#7f622a', w - 2, h - 2, 20, 36);
-        shadow.setPosition(0, -2, 0);
+        const shadow = this.createRectNode('Shadow', '#7f622a', w - 2 * scaleFactor, h - 2 * scaleFactor, 20 * scaleFactor, 36);
+        shadow.setPosition(0, -2 * scaleFactor, 0);
         option.addChild(shadow);
 
-        const bg = this.createRectNode('Bg', '#ffffff', w, h, 20, 248);
+        const bg = this.createRectNode('Bg', '#ffffff', w, h, 20 * scaleFactor, 248);
         option.addChild(bg);
 
-        const accentBar = this.createRectNode('Accent', accentHex, 8, h - 20, 4, 210);
-        accentBar.setPosition(-w / 2 + 18, 0, 0);
+        const accentBar = this.createRectNode('Accent', accentHex, 8 * scaleFactor, h - 24 * scaleFactor, 4 * scaleFactor, 210);
+        accentBar.setPosition(-w / 2 + 20 * scaleFactor, 0, 0);
         option.addChild(accentBar);
 
-        const badge = this.createCircleNode('Badge', accentHex, 18, 220);
-        badge.setPosition(-w / 2 + 54, 0, 0);
+        const badge = this.createCircleNode('Badge', accentHex, 22 * scaleFactor, 220);
+        badge.setPosition(-w / 2 + 64 * scaleFactor, 0, 0);
         option.addChild(badge);
-        const badgeText = this.createLabelNode('BadgeText', mainText.charAt(0), 20, '#ffffff', true);
+        const badgeText = this.createLabelNode('BadgeText', mainText.charAt(0), 24 * scaleFactor, '#ffffff', true);
         badge.addChild(badgeText);
 
-        const mainLabel = this.createLabelNode('MainLabel', mainText, 22, '#66572d', true);
+        const mainLabel = this.createLabelNode('MainLabel', mainText, 26 * scaleFactor, '#66572d', true);
         mainLabel.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        mainLabel.setPosition(-w / 2 + 82, 12, 0);
+        mainLabel.setPosition(-w / 2 + 98 * scaleFactor, 16 * scaleFactor, 0);
         option.addChild(mainLabel);
 
-        const subLabel = this.createLabelNode('SubLabel', subText, 14, '#9f9276', false);
+        const subLabel = this.createLabelNode('SubLabel', subText, 16 * scaleFactor, '#9f9276', false);
         subLabel.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        subLabel.setPosition(-w / 2 + 82, -18, 0);
+        subLabel.setPosition(-w / 2 + 98 * scaleFactor, -20 * scaleFactor, 0);
         option.addChild(subLabel);
 
-        const dotOuter = this.createCircleNode('Dot', accentHex, 14);
-        dotOuter.setPosition(w / 2 - 34, 0, 0);
+        const dotOuter = this.createCircleNode('Dot', accentHex, 16 * scaleFactor);
+        dotOuter.setPosition(w / 2 - 36 * scaleFactor, 0, 0);
         option.addChild(dotOuter);
 
-        const dotCover = this.createCircleNode('DotCover', '#fff8df', 10);
+        const dotCover = this.createCircleNode('DotCover', '#fff8df', 11 * scaleFactor);
         dotOuter.addChild(dotCover);
 
-        const dotInner = this.createCircleNode('DotInner', accentHex, 6);
+        const dotInner = this.createCircleNode('DotInner', accentHex, 7 * scaleFactor);
         dotInner.active = false;
         dotCover.addChild(dotInner);
 
@@ -381,20 +395,28 @@ export class ModeSelectionUI extends Component {
         }
 
         const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
         this.toastNode = new Node('Toast');
         this.toastNode.layer = 33554432;
         const trans = this.toastNode.addComponent(UITransform);
-        trans.setContentSize(260, 48);
-        this.toastNode.setPosition(0, -100, 0);
+        trans.setContentSize(280 * scaleFactor, 60 * scaleFactor);
+        this.toastNode.setPosition(0, -100 * scaleFactor, 0);
         canvas.addChild(this.toastNode);
 
         const opacity = this.toastNode.addComponent(UIOpacity);
         opacity.opacity = 0;
 
-        const bg = this.createRectNode('Bg', '#000000', 260, 48, 12, 190);
+        const bg = this.createRectNode('Bg', '#000000', 280 * scaleFactor, 60 * scaleFactor, 15 * scaleFactor, 190);
         this.toastNode.addChild(bg);
 
-        const txt = this.createLabelNode('Label', text, 14, '#ffffff', true);
+        const txt = this.createLabelNode('Label', text, 18 * scaleFactor, '#ffffff', true);
         this.toastNode.addChild(txt);
 
         tween(opacity)
@@ -410,7 +432,7 @@ export class ModeSelectionUI extends Component {
             .start();
 
         tween(this.toastNode)
-            .by(1.65, { position: new Vec3(0, 50, 0) })
+            .by(1.65, { position: new Vec3(0, 50 * scaleFactor, 0) })
             .start();
     }
 
@@ -469,26 +491,52 @@ export class ModeSelectionUI extends Component {
         return node;
     }
 
+    private getScaleFactor(): number {
+        const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        return Math.min(cw / refW, ch / refH);
+    }
+
+    private adjustSpriteSize(sprite: Sprite, origW: number, origH: number) {
+        if (!sprite || !sprite.isValid) return;
+        const uiTrans = sprite.getComponent(UITransform);
+        if (uiTrans) {
+            const scaleFactor = this.getScaleFactor();
+            const maxW = 320 * scaleFactor;
+            const maxH = 180 * scaleFactor;
+            const scale = Math.min(maxW / origW, maxH / origH);
+            uiTrans.setContentSize(origW * scale, origH * scale);
+        }
+    }
+
     private safeLoadSprite(path: string, sprite: Sprite) {
         resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
             if (!err && sf) {
                 if (sprite && sprite.isValid) {
                     sprite.spriteFrame = sf;
+                    this.adjustSpriteSize(sprite, sf.rect.width, sf.rect.height);
                 }
             } else {
                 resources.load(path, SpriteFrame, (err2, sf2) => {
                     if (!err2 && sf2) {
                         if (sprite && sprite.isValid) {
                             sprite.spriteFrame = sf2;
+                            this.adjustSpriteSize(sprite, sf2.rect.width, sf2.rect.height);
                         }
                     } else {
                         resources.load(path, Texture2D, (err3, tex) => {
                             if (!err3 && tex) {
-                                if (sprite && sprite.isValid) {
-                                    const newSf = new SpriteFrame();
-                                    newSf.texture = tex;
-                                    sprite.spriteFrame = newSf;
-                                }
+                                  if (sprite && sprite.isValid) {
+                                      const newSf = new SpriteFrame();
+                                      newSf.texture = tex;
+                                      sprite.spriteFrame = newSf;
+                                      this.adjustSpriteSize(sprite, tex.width, tex.height);
+                                  }
                             } else {
                                 resources.load(`${path}/texture`, Texture2D, (err4, tex2) => {
                                     if (!err4 && tex2) {
@@ -496,16 +544,18 @@ export class ModeSelectionUI extends Component {
                                             const newSf = new SpriteFrame();
                                             newSf.texture = tex2;
                                             sprite.spriteFrame = newSf;
+                                            this.adjustSpriteSize(sprite, tex2.width, tex2.height);
                                         }
                                     } else {
                                         resources.load(path, ImageAsset, (err5, imgAsset) => {
                                             if (!err5 && imgAsset) {
                                                 if (sprite && sprite.isValid) {
-                                                    const tex3 = new Texture2D();
-                                                    tex3.image = imgAsset;
+                                                    const text3 = new Texture2D();
+                                                    text3.image = imgAsset;
                                                     const newSf = new SpriteFrame();
-                                                    newSf.texture = tex3;
+                                                    newSf.texture = text3;
                                                     sprite.spriteFrame = newSf;
+                                                    this.adjustSpriteSize(sprite, imgAsset.width, imgAsset.height);
                                                 }
                                             } else {
                                                 console.warn(`safeLoadSprite warning for ${path}:`, err5);
@@ -520,4 +570,314 @@ export class ModeSelectionUI extends Component {
             }
         });
     }
+
+    onDestroy() {
+        if (this.createRoomDialog && this.createRoomDialog.isValid) {
+            this.createRoomDialog.destroy();
+            this.createRoomDialog = null;
+        }
+    }
+
+    private showCreateRoomDialog() {
+        const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
+        if (this.createRoomDialog && this.createRoomDialog.isValid) {
+            this.createRoomDialog.destroy();
+            this.createRoomDialog = null;
+        }
+
+        this.createRoomDialog = new Node('CreateRoomDialog');
+        this.createRoomDialog.layer = 33554432; // UI_2D
+        this.createRoomDialog.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.createRoomDialog);
+
+        // 1. 全屏淡黄色/淡绿色水洗背景
+        const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 255);
+        this.createRoomDialog.addChild(bgWash);
+
+        // 2. 顶栏 (直接复刻)
+        const topBarHeight = 92 * scaleFactor;
+        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24 * scaleFactor, topBarHeight, 18 * scaleFactor, 232);
+        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
+        this.createRoomDialog.addChild(topBar);
+
+        const backBtn = this.createCircleNode('BackBtn', '#f0dd1b', 42 * scaleFactor);
+        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
+        topBar.addChild(backBtn);
+        const backTxt = this.createLabelNode('BackTxt', '←', 34 * scaleFactor, '#3f3600', true);
+        backBtn.addChild(backTxt);
+        backBtn.addComponent(Button);
+        backBtn.on(Node.EventType.TOUCH_END, () => {
+            this.hideCreateRoomDialog();
+        }, this);
+
+        const titleText = this.createLabelNode('Title', '丛林战棋', 30 * scaleFactor, '#006e1c', true);
+        titleText.getComponent(UITransform).setAnchorPoint(0, 0.5);
+        titleText.setPosition(-cw / 2 + 116 * scaleFactor, 0, 0);
+        topBar.addChild(titleText);
+
+        const xpPill = this.createRectNode('XPPill', '#e5debd', 170 * scaleFactor, 54 * scaleFactor, 27 * scaleFactor);
+        xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
+        topBar.addChild(xpPill);
+        const xpTxt = this.createLabelNode('XPTxt', '1,250 🔷', 22 * scaleFactor, '#3f3600', true);
+        xpPill.addChild(xpTxt);
+
+        // 房间代码 (产生 6 位数字)
+        const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        if (isPortrait) {
+            // ================== 竖屏自适应排版 ==================
+            // (1) 成功绿色对勾图标
+            const checkIcon = new Node('CheckIcon');
+            checkIcon.layer = 33554432;
+            checkIcon.setPosition(0, ch / 2 - topBarHeight - 130 * scaleFactor, 0);
+            this.createRoomDialog.addChild(checkIcon);
+            const outerCircle = this.createCircleNode('Outer', '#e3f3e6', 70 * scaleFactor);
+            checkIcon.addChild(outerCircle);
+            const innerCircle = this.createCircleNode('Inner', '#5bc16f', 55 * scaleFactor);
+            checkIcon.addChild(innerCircle);
+            const checkMark = this.createLabelNode('CheckMark', '✓', 54 * scaleFactor, '#ffffff', true);
+            innerCircle.addChild(checkMark);
+
+            // (2) 成功标题
+            const successTitle = this.createLabelNode('SuccessTitle', '创建房间成功！', 38 * scaleFactor, '#006e1c', true);
+            successTitle.setPosition(0, checkIcon.position.y - 120 * scaleFactor, 0);
+            this.createRoomDialog.addChild(successTitle);
+
+            const successSubtitle = this.createLabelNode('SuccessSubtitle', '快叫上你的小伙伴一起来战斗吧', 20 * scaleFactor, '#66755c', false);
+            successSubtitle.setPosition(0, successTitle.position.y - 46 * scaleFactor, 0);
+            this.createRoomDialog.addChild(successSubtitle);
+
+            // (3) 白色大代码卡片
+            const cardW = 520 * scaleFactor;
+            const cardH = 290 * scaleFactor;
+            const cardY = successSubtitle.position.y - 180 * scaleFactor;
+
+            const cardShadow = this.createRectNode('CardShadow', '#e0dfd5', cardW, cardH, 36 * scaleFactor);
+            cardShadow.setPosition(0, cardY - 4 * scaleFactor, 0);
+            this.createRoomDialog.addChild(cardShadow);
+
+            const codeCard = this.createRectNode('CodeCard', '#ffffff', cardW, cardH, 36 * scaleFactor);
+            codeCard.setPosition(0, cardY, 0);
+            this.createRoomDialog.addChild(codeCard);
+
+            const tagNode = this.createRectNode('Tag', '#f5eba9', 160 * scaleFactor, 46 * scaleFactor, 23 * scaleFactor);
+            tagNode.setPosition(0, cardH / 2 - 40 * scaleFactor, 0);
+            codeCard.addChild(tagNode);
+            const tagText = this.createLabelNode('TagText', '房间代码', 20 * scaleFactor, '#7f6f26', true);
+            tagNode.addChild(tagText);
+
+            const codeBg = this.createRectNode('CodeBg', '#f1f6f2', cardW - 70 * scaleFactor, 88 * scaleFactor, 26 * scaleFactor);
+            codeBg.setPosition(0, 10 * scaleFactor, 0);
+            codeCard.addChild(codeBg);
+            const codeLabel = this.createLabelNode('CodeText', randomCode, 48 * scaleFactor, '#006e1c', true);
+            codeBg.addChild(codeLabel);
+
+            const expireText = this.createLabelNode('ExpireText', '此代码在 15 分钟内有效', 18 * scaleFactor, '#9ca597', false);
+            expireText.setPosition(0, -cardH / 2 + 40 * scaleFactor, 0);
+            codeCard.addChild(expireText);
+
+            // (4) 两个按钮
+            const btnW = 540 * scaleFactor;
+            const btnH = 88 * scaleFactor;
+            const btnRadius = btnH / 2;
+            const btn1Y = cardY - cardH / 2 - 80 * scaleFactor;
+            const btn2Y = btn1Y - btnH - 24 * scaleFactor;
+
+            // 复制分享
+            const shareShadow = this.createRectNode('ShareShadow', '#7f4400', btnW, btnH, btnRadius, 120);
+            shareShadow.setPosition(0, btn1Y - 4 * scaleFactor, 0);
+            this.createRoomDialog.addChild(shareShadow);
+
+            const shareBtn = this.createRectNode('ShareBtn', '#d68118', btnW, btnH, btnRadius);
+            shareBtn.setPosition(0, btn1Y, 0);
+            this.createRoomDialog.addChild(shareBtn);
+            const shareTxt = this.createLabelNode('ShareTxt', '☍ 复制并分享', 26 * scaleFactor, '#ffffff', true);
+            shareBtn.addChild(shareTxt);
+
+            shareBtn.addComponent(Button);
+            shareBtn.on(Node.EventType.TOUCH_START, () => { shareBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
+            shareBtn.on(Node.EventType.TOUCH_END, () => {
+                shareBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+                sys.copyText(randomCode);
+                this.showToast(`复制成功！房间代码: ${randomCode}`);
+            });
+            shareBtn.on(Node.EventType.TOUCH_CANCEL, () => { shareBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
+
+            // 进入房间
+            const enterShadow = this.createRectNode('EnterShadow', '#074f14', btnW, btnH, btnRadius, 120);
+            enterShadow.setPosition(0, btn2Y - 4 * scaleFactor, 0);
+            this.createRoomDialog.addChild(enterShadow);
+
+            const enterBtn = this.createRectNode('EnterBtn', '#48b85c', btnW, btnH, btnRadius);
+            enterBtn.setPosition(0, btn2Y, 0);
+            this.createRoomDialog.addChild(enterBtn);
+            const enterTxt = this.createLabelNode('EnterTxt', '➜] 进入房间', 26 * scaleFactor, '#ffffff', true);
+            enterBtn.addChild(enterTxt);
+
+            enterBtn.addComponent(Button);
+            enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
+            enterBtn.on(Node.EventType.TOUCH_END, () => {
+                enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+                this.showToast("正在连接网络房间对局...");
+            });
+            enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
+
+            // (5) 底部小牛蛙
+            const frogY = btn2Y - btnH / 2 - 80 * scaleFactor;
+            const frogNode = new Node('FrogNode');
+            frogNode.layer = 33554432;
+            const frogTrans = frogNode.addComponent(UITransform);
+            frogTrans.setContentSize(120 * scaleFactor, 120 * scaleFactor);
+            const frogSprite = frogNode.addComponent(Sprite);
+            frogSprite.sizeMode = 0;
+            frogSprite.color = new Color(200, 200, 200, 255);
+            frogNode.setPosition(0, frogY, 0);
+            this.createRoomDialog.addChild(frogNode);
+            this.safeLoadSprite('textures/mode_online_battle', frogSprite);
+            
+        } else {
+            // ================== 横屏左右布局 ==================
+            const leftX = -cw / 4;
+            const rightX = cw / 4;
+            const startY = (ch / 2 - topBarHeight) - 60 * scaleFactor;
+
+            // (1) 左侧：成功绿色对勾图标
+            const checkIcon = new Node('CheckIcon');
+            checkIcon.layer = 33554432;
+            checkIcon.setPosition(leftX, startY - 40 * scaleFactor, 0);
+            this.createRoomDialog.addChild(checkIcon);
+            const outerCircle = this.createCircleNode('Outer', '#e3f3e6', 56 * scaleFactor);
+            checkIcon.addChild(outerCircle);
+            const innerCircle = this.createCircleNode('Inner', '#5bc16f', 44 * scaleFactor);
+            checkIcon.addChild(innerCircle);
+            const checkMark = this.createLabelNode('CheckMark', '✓', 42 * scaleFactor, '#ffffff', true);
+            innerCircle.addChild(checkMark);
+
+            // (2) 左侧：成功标题和副标题
+            const successTitle = this.createLabelNode('SuccessTitle', '创建房间成功！', 32 * scaleFactor, '#006e1c', true);
+            successTitle.setPosition(leftX, checkIcon.position.y - 86 * scaleFactor, 0);
+            this.createRoomDialog.addChild(successTitle);
+
+            const successSubtitle = this.createLabelNode('SuccessSubtitle', '快叫上你的小伙伴一起来战斗吧', 16 * scaleFactor, '#66755c', false);
+            successSubtitle.setPosition(leftX, successTitle.position.y - 36 * scaleFactor, 0);
+            this.createRoomDialog.addChild(successSubtitle);
+
+            // (3) 左侧：底部小牛蛙
+            const frogNode = new Node('FrogNode');
+            frogNode.layer = 33554432;
+            const frogTrans = frogNode.addComponent(UITransform);
+            frogTrans.setContentSize(96 * scaleFactor, 96 * scaleFactor);
+            const frogSprite = frogNode.addComponent(Sprite);
+            frogSprite.sizeMode = 0;
+            frogSprite.color = new Color(200, 200, 200, 255);
+            frogNode.setPosition(leftX, successSubtitle.position.y - 86 * scaleFactor, 0);
+            this.createRoomDialog.addChild(frogNode);
+            this.safeLoadSprite('textures/mode_online_battle', frogSprite);
+
+            // 右侧布局
+            // (4) 右侧：白色卡片
+            const cardW = 460 * scaleFactor;
+            const cardH = 220 * scaleFactor;
+            const cardY = startY - 20 * scaleFactor;
+
+            const cardShadow = this.createRectNode('CardShadow', '#e0dfd5', cardW, cardH, 24 * scaleFactor);
+            cardShadow.setPosition(rightX, cardY - 3 * scaleFactor, 0);
+            this.createRoomDialog.addChild(cardShadow);
+
+            const codeCard = this.createRectNode('CodeCard', '#ffffff', cardW, cardH, 24 * scaleFactor);
+            codeCard.setPosition(rightX, cardY, 0);
+            this.createRoomDialog.addChild(codeCard);
+
+            const tagNode = this.createRectNode('Tag', '#f5eba9', 140 * scaleFactor, 36 * scaleFactor, 18 * scaleFactor);
+            tagNode.setPosition(0, cardH / 2 - 28 * scaleFactor, 0);
+            codeCard.addChild(tagNode);
+            const tagText = this.createLabelNode('TagText', '房间代码', 16 * scaleFactor, '#7f6f26', true);
+            tagNode.addChild(tagText);
+
+            const codeBg = this.createRectNode('CodeBg', '#f1f6f2', cardW - 60 * scaleFactor, 72 * scaleFactor, 20 * scaleFactor);
+            codeBg.setPosition(0, 4 * scaleFactor, 0);
+            codeCard.addChild(codeBg);
+            const codeLabel = this.createLabelNode('CodeText', randomCode, 38 * scaleFactor, '#006e1c', true);
+            codeBg.addChild(codeLabel);
+
+            const expireText = this.createLabelNode('ExpireText', '此代码在 15 分钟内有效', 14 * scaleFactor, '#9ca597', false);
+            expireText.setPosition(0, -cardH / 2 + 28 * scaleFactor, 0);
+            codeCard.addChild(expireText);
+
+            // (5) 右侧：下方并排的两个按钮（横屏下并排以节约高度）
+            const btnW = cardW / 2 - 12 * scaleFactor;
+            const btnH = 76 * scaleFactor;
+            const btnRadius = btnH / 2;
+            const btnY = cardY - cardH / 2 - 60 * scaleFactor;
+
+            // 复制分享
+            const shareShadow = this.createRectNode('ShareShadow', '#7f4400', btnW, btnH, btnRadius, 120);
+            shareShadow.setPosition(rightX - btnW / 2 - 12 * scaleFactor, btnY - 3 * scaleFactor, 0);
+            this.createRoomDialog.addChild(shareShadow);
+
+            const shareBtn = this.createRectNode('ShareBtn', '#d68118', btnW, btnH, btnRadius);
+            shareBtn.setPosition(rightX - btnW / 2 - 12 * scaleFactor, btnY, 0);
+            this.createRoomDialog.addChild(shareBtn);
+            const shareTxt = this.createLabelNode('ShareTxt', '☍ 复制并分享', 18 * scaleFactor, '#ffffff', true);
+            shareBtn.addChild(shareTxt);
+
+            shareBtn.addComponent(Button);
+            shareBtn.on(Node.EventType.TOUCH_START, () => { shareBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
+            shareBtn.on(Node.EventType.TOUCH_END, () => {
+                shareBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+                sys.copyText(randomCode);
+                this.showToast(`复制成功！房间代码: ${randomCode}`);
+            });
+            shareBtn.on(Node.EventType.TOUCH_CANCEL, () => { shareBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
+
+            // 进入房间
+            const enterShadow = this.createRectNode('EnterShadow', '#074f14', btnW, btnH, btnRadius, 120);
+            enterShadow.setPosition(rightX + btnW / 2 + 12 * scaleFactor, btnY - 3 * scaleFactor, 0);
+            this.createRoomDialog.addChild(enterShadow);
+
+            const enterBtn = this.createRectNode('EnterBtn', '#48b85c', btnW, btnH, btnRadius);
+            enterBtn.setPosition(rightX + btnW / 2 + 12 * scaleFactor, btnY, 0);
+            this.createRoomDialog.addChild(enterBtn);
+            const enterTxt = this.createLabelNode('EnterTxt', '➜] 进入房间', 18 * scaleFactor, '#ffffff', true);
+            enterBtn.addChild(enterTxt);
+
+            enterBtn.addComponent(Button);
+            enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
+            enterBtn.on(Node.EventType.TOUCH_END, () => {
+                enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+                this.showToast("正在连接网络房间对局...");
+            });
+            enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
+        }
+
+        // 动画弹出效果
+        this.createRoomDialog.active = true;
+        this.createRoomDialog.setScale(new Vec3(0.9, 0.9, 1.0));
+        tween(this.createRoomDialog)
+            .to(0.2, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
+    }
+
+    private hideCreateRoomDialog() {
+        if (!this.createRoomDialog) return;
+        const dialogNode = this.createRoomDialog;
+        tween(dialogNode)
+            .to(0.15, { scale: new Vec3(0.9, 0.9, 1.0) }, { easing: 'backIn' })
+            .call(() => {
+                if (this.createRoomDialog && this.createRoomDialog.isValid) {
+                    this.createRoomDialog.destroy();
+                    this.createRoomDialog = null;
+                }
+            })
+            .start();
+    }
+
 }

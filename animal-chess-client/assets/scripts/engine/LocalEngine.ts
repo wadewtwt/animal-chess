@@ -44,7 +44,16 @@ export interface GameOverStatus {
     reason: GameOverReason | null;
 }
 
+export interface GameStateMemento {
+    board: (Piece | null)[][];
+    pieces: Piece[];
+    currentTurn: Camp;
+    historyStates: Map<string, number>;
+}
+
 export class LocalEngine {
+    private historyStack: GameStateMemento[] = [];
+
     // 棋盘大小
     public static readonly COLS = 7;
     public static readonly ROWS = 9;
@@ -76,6 +85,7 @@ export class LocalEngine {
         this.pieces = [];
         this.currentTurn = Camp.RED;
         this.historyStates.clear();
+        this.historyStack = [];
 
         // 初始化红方 (下方，y=0..2)
         this.addPiece(AnimalType.RAT, Camp.RED, 0, 0);
@@ -297,6 +307,7 @@ export class LocalEngine {
      * @returns 返回被吃掉的棋子 (若有)
      */
     public makeMove(fromX: number, fromY: number, toX: number, toY: number): Piece | null {
+        this.saveState();
         const piece = this.board[fromX][fromY];
         if (!piece) return null;
 
@@ -414,5 +425,25 @@ export class LocalEngine {
         const hash = this.serializeBoardState();
         const count = this.historyStates.get(hash) || 0;
         this.historyStates.set(hash, count + 1);
+    }
+
+    private saveState(): void {
+        const memento: GameStateMemento = {
+            board: this.board.map(col => col.map(p => p ? { ...p } : null)),
+            pieces: this.pieces.map(p => ({ ...p })),
+            currentTurn: this.currentTurn,
+            historyStates: new Map(this.historyStates)
+        };
+        this.historyStack.push(memento);
+    }
+
+    public undo(): boolean {
+        if (this.historyStack.length === 0) return false;
+        const memento = this.historyStack.pop()!;
+        this.board = memento.board;
+        this.pieces = memento.pieces;
+        this.currentTurn = memento.currentTurn;
+        this.historyStates = memento.historyStates;
+        return true;
     }
 }

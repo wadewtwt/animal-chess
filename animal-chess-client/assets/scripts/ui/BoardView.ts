@@ -71,6 +71,15 @@ export class BoardView extends Component {
     private walkFramesByType: Map<number, SpriteFrame[]> = new Map(); // Removed
     private pieceArtByCampAndType: Map<string, SpriteFrame> = new Map();
     private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
+    
+    // === 悔棋、返回、倒计时与人机AI 运行时状态 ===
+    private isAIMode: boolean = false;
+    private remainingTime: number = 30;
+    private isAIMoving: boolean = false;
+    private backButtonNode: Node | null = null;
+    private undoButtonNode: Node | null = null;
+    private undoRequestPanel: Node | null = null;
+    private turnIndicatorBgNode: Node | null = null;
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
@@ -79,6 +88,23 @@ export class BoardView extends Component {
 
     onDestroy() {
         view.off('canvas-resize', this.adjustBoardScale, this);
+        this.stopTurnTimer();
+        if (this.undoRequestPanel) {
+            this.undoRequestPanel.destroy();
+            this.undoRequestPanel = null;
+        }
+        if (this.turnIndicatorBgNode) {
+            this.turnIndicatorBgNode.destroy();
+            this.turnIndicatorBgNode = null;
+        }
+        if (this.backButtonNode) {
+            this.backButtonNode.destroy();
+            this.backButtonNode = null;
+        }
+        if (this.undoButtonNode) {
+            this.undoButtonNode.destroy();
+            this.undoButtonNode = null;
+        }
     }
 
     start() {
@@ -119,6 +145,11 @@ export class BoardView extends Component {
     private mainMenuNode: Node | null = null;
 
     private showMainMenu() {
+        if (this.turnIndicator) this.turnIndicator.node.active = false;
+        if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.backButtonNode) this.backButtonNode.active = false;
+        if (this.undoButtonNode) this.undoButtonNode.active = false;
+
         if (!this.mainMenuNode) {
             this.mainMenuNode = new Node('MainMenuContainer');
             this.mainMenuNode.layer = 33554432; // UI_2D
@@ -151,6 +182,11 @@ export class BoardView extends Component {
     private modeSelectionNode: Node | null = null;
 
     private showModeSelection() {
+        if (this.turnIndicator) this.turnIndicator.node.active = false;
+        if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.backButtonNode) this.backButtonNode.active = false;
+        if (this.undoButtonNode) this.undoButtonNode.active = false;
+
         if (!this.modeSelectionNode) {
             this.modeSelectionNode = new Node('ModeSelectionContainer');
             this.modeSelectionNode.layer = 33554432; // UI_2D
@@ -170,6 +206,7 @@ export class BoardView extends Component {
             this.modeSelectionNode.on('start-local-duo', () => {
                 this.modeSelectionNode!.active = false;
                 this.node.active = true;
+                this.isAIMode = false;
                 this.restartGame(); // 开启并重置对局
             });
 
@@ -178,6 +215,7 @@ export class BoardView extends Component {
                 sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
                 this.modeSelectionNode!.active = false;
                 this.node.active = true;
+                this.isAIMode = true;
                 this.restartGame();
             });
         } else {
@@ -246,25 +284,41 @@ export class BoardView extends Component {
         const screenWidth = visibleSize.width;
         const screenHeight = visibleSize.height;
 
-        // 计算棋盘加上安全边距的目标尺寸 (左右边距+60，上下留足高空+140以便显示提示词和弹窗)
-        const boardWidth = LocalEngine.COLS * this.cellWidth + 60;
-        const boardHeight = LocalEngine.ROWS * this.cellHeight + 140;
-
-        // 宽高缩放比
-        const scaleX = screenWidth / boardWidth;
-        const scaleY = screenHeight / boardHeight;
-
-        // 选择较小值来确保全屏均完整包含
-        let targetScale = Math.min(scaleX, scaleY);
-        if (targetScale > 1.0) {
-            targetScale = 1.0; // 不放大超过原始100%大小，防止图片拉伸模糊
+        // 强制归零重正当前 BoardView 本身节点的属性，防止坐标偏离视口
+        const nodeTrans = this.node.getComponent(UITransform);
+        if (nodeTrans) {
+            nodeTrans.setAnchorPoint(0.5, 0.5);
+            nodeTrans.setContentSize(screenWidth, screenHeight);
         }
+        this.node.setPosition(Vec3.ZERO);
+        this.node.setScale(Vec3.ONE);
+
+        // 计算棋盘的目标尺寸 (让宽度完美撑满屏幕)
+        const boardWidth = LocalEngine.COLS * this.cellWidth;
+
+        // 缩放比完全由宽度决定，以实现宽度撑满屏幕，高度自适应
+        let targetScale = screenWidth / boardWidth;
 
         console.log(`BoardView: adjustScale visibleSize=${screenWidth}x${screenHeight}, targetScale=${targetScale}`);
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
 
+        // 状态栏美化位置绑定 (居中靠上)
+        const posY = screenHeight / 2 - 64;
         if (this.turnIndicator) {
-            this.turnIndicator.node.setPosition(new Vec3(0, screenHeight / 2 - 50, 0));
+            this.turnIndicator.node.setPosition(new Vec3(0, posY, 0));
+        }
+        if (this.turnIndicatorBgNode) {
+            this.turnIndicatorBgNode.setPosition(new Vec3(0, posY, 0));
+        }
+
+        // 返回按钮位置绑定 (左上角安全边界)
+        if (this.backButtonNode) {
+            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 80, screenHeight / 2 - 64, 0));
+        }
+
+        // 悔棋按钮位置绑定 (底部偏上，避开安全操作栏)
+        if (this.undoButtonNode) {
+            this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75, 0));
         }
     }
 
@@ -272,6 +326,9 @@ export class BoardView extends Component {
      * 重启游戏
      */
     public restartGame(): void {
+        this.stopTurnTimer();
+        this.isAIMoving = false;
+
         // 1. 清理棋子
         this.pieceViews.forEach(pv => {
             if (pv.node) pv.node.destroy();
@@ -291,7 +348,10 @@ export class BoardView extends Component {
             this.gameOverPanel.active = false;
         }
 
-        this.updateTurnUI();
+        // 动态创建并布局游戏内的UI组件 (返回按钮和悔棋按钮)
+        this.createInGameUI();
+
+        this.startTurnTimer();
     }
 
     /**
@@ -874,9 +934,20 @@ export class BoardView extends Component {
      */
     private updateTurnUI(): void {
         if (this.turnIndicator) {
-            const turnStr = this.engine.getCurrentTurn() === Camp.RED ? '红方回合 (下方)' : '蓝方回合 (上方)';
-            this.turnIndicator.string = turnStr;
-            this.turnIndicator.color = this.engine.getCurrentTurn() === Camp.RED ? new Color(255, 60, 60) : new Color(60, 120, 255);
+            const turnCamp = this.engine.getCurrentTurn();
+            const turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+            this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
+            
+            // 亮眼对比度色彩
+            this.turnIndicator.color = turnCamp === Camp.RED ? new Color(255, 90, 90) : new Color(100, 160, 255);
+
+            // 每次数字更新，做一个微型呼吸脉动动效，体现 Motion 动效美学
+            if (this.turnIndicatorBgNode) {
+                tween(this.turnIndicatorBgNode)
+                    .to(0.1, { scale: new Vec3(1.05, 1.05, 1.0) })
+                    .to(0.1, { scale: new Vec3(1.0, 1.0, 1.0) })
+                    .start();
+            }
         }
     }
 
@@ -884,9 +955,12 @@ export class BoardView extends Component {
      * 棋子被点击的响应
      */
     private onPieceClicked(piece: Piece): void {
+        if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
+            return; // AI 正在思考或行动阶段，玩家不可操作
+        }
         console.log("BoardView: onPieceClicked called for piece:", piece.id, "camp:", piece.camp);
         const turn = this.engine.getCurrentTurn();
-
+        
         if (!piece) return;
 
         this.playAnimalSound(piece.type);
@@ -910,6 +984,9 @@ export class BoardView extends Component {
      * 空白格子被点击的响应
      */
     private onCellClicked(x: number, y: number): void {
+        if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
+            return; // AI 正在思考或行动阶段，玩家不可操作
+        }
         if (this.selectedPiece) {
             this.tryMovePiece(this.selectedPiece.x, this.selectedPiece.y, x, y);
         }
@@ -1171,6 +1248,19 @@ export class BoardView extends Component {
         const status = this.engine.checkGameOver();
         if (status.isGameOver) {
             this.showGameOver(status.winner, status.reason);
+            this.stopTurnTimer();
+            return;
+        }
+
+        // 重启倒计时
+        this.startTurnTimer();
+
+        // 如果是人机模式且轮到蓝方回合，则触发人机自动走子
+        if (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE) {
+            this.isAIMoving = true;
+            this.scheduleOnce(() => {
+                this.makeAIMove();
+            }, 1.2);
         }
     }
 
@@ -1390,5 +1480,480 @@ export class BoardView extends Component {
         return art;
     }
 
+    // ==========================================
+    //    返回、悔棋、倒计时与人机AI辅助实现
+    // ==========================================
 
+    private createInGameUI() {
+        // 如果已经创建，则只需将其激活并执行布局更新即可
+        if (this.backButtonNode) {
+            this.backButtonNode.active = true;
+            this.undoButtonNode.active = true;
+            if (this.turnIndicatorBgNode) {
+                this.turnIndicatorBgNode.active = true;
+            }
+            if (this.turnIndicator) {
+                this.turnIndicator.node.active = true;
+            }
+            this.decorateTurnIndicator();
+            this.adjustBoardScale();
+            return;
+        }
+
+        const visibleSize = view.getVisibleSize();
+        const screenWidth = visibleSize.width;
+        const screenHeight = visibleSize.height;
+
+        // 1. 创建左上角返回按钮 (◀ 返回) - 调大尺寸以防被挤压
+        this.backButtonNode = new Node("BackButton");
+        this.backButtonNode.layer = 33554432; // UI_2D
+        const backTrans = this.backButtonNode.addComponent(UITransform);
+        backTrans.setContentSize(130, 50);
+        
+        // 绘制高品质圆角矩形
+        const backGraphics = this.backButtonNode.addComponent(Graphics);
+        backGraphics.lineWidth = 2.5;
+        backGraphics.strokeColor = new Color(255, 255, 255, 255);
+        backGraphics.fillColor = new Color(46, 139, 87, 240); // 翡翠绿
+        backGraphics.roundRect(-65, -25, 130, 50, 14);
+        backGraphics.fill();
+        backGraphics.stroke();
+
+        // 返回文字
+        const labelNode = new Node("Label");
+        labelNode.layer = 33554432;
+        const labelTrans = labelNode.addComponent(UITransform);
+        labelTrans.setContentSize(130, 50);
+        const label = labelNode.addComponent(Label);
+        label.string = "◀ 返回";
+        label.fontSize = 22;
+        label.color = Color.WHITE;
+        this.backButtonNode.addChild(labelNode);
+
+        // 绑定返回事件
+        this.backButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.onBackButtonClicked();
+        }, this);
+
+        this.node.parent!.addChild(this.backButtonNode);
+
+        // 2. 创建底部悔棋按钮 (↩ 请求悔棋) - 调大尺寸，金黄色醒目风格
+        this.undoButtonNode = new Node("UndoButton");
+        this.undoButtonNode.layer = 33554432;
+        const undoTrans = this.undoButtonNode.addComponent(UITransform);
+        undoTrans.setContentSize(190, 56);
+
+        // 绘制圆角按钮
+        const undoGraphics = this.undoButtonNode.addComponent(Graphics);
+        undoGraphics.lineWidth = 3;
+        undoGraphics.strokeColor = new Color(255, 255, 255, 255);
+        undoGraphics.fillColor = new Color(230, 130, 20, 240); // 暖金橙色
+        undoGraphics.roundRect(-95, -28, 190, 56, 16);
+        undoGraphics.fill();
+        undoGraphics.stroke();
+
+        // 悔棋文字
+        const undoLabelNode = new Node("Label");
+        undoLabelNode.layer = 33554432;
+        const undoLabelTrans = undoLabelNode.addComponent(UITransform);
+        undoLabelTrans.setContentSize(190, 56);
+        const undoLabel = undoLabelNode.addComponent(Label);
+        undoLabel.string = "↩ 请求悔棋";
+        undoLabel.fontSize = 22;
+        undoLabel.color = Color.WHITE;
+        this.undoButtonNode.addChild(undoLabelNode);
+
+        // 绑定悔棋事件
+        this.undoButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.onUndoButtonClicked();
+        }, this);
+
+        this.node.parent!.addChild(this.undoButtonNode);
+
+        // 3. 修饰回合文字组件
+        this.decorateTurnIndicator();
+
+        // 刷新一次位置布局
+        this.adjustBoardScale();
+    }
+
+    private decorateTurnIndicator() {
+        if (!this.turnIndicator) return;
+        this.turnIndicator.node.active = true; // 确保回合提示 Label 激活
+        if (this.turnIndicatorBgNode) {
+            this.turnIndicatorBgNode.active = true;
+            return;
+        }
+
+        const parentNode = this.turnIndicator.node.parent!;
+        
+        // 创建背景板
+        this.turnIndicatorBgNode = new Node("TurnIndicatorBg");
+        this.turnIndicatorBgNode.layer = 33554432;
+        const bgTrans = this.turnIndicatorBgNode.addComponent(UITransform);
+        bgTrans.setContentSize(460, 68);
+
+        // 绘制高品质圆角背景框 + 白描边
+        const g = this.turnIndicatorBgNode.addComponent(Graphics);
+        g.lineWidth = 2.5;
+        g.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
+        g.fillColor = new Color(20, 20, 20, 220); // 优雅的深碳黑色
+        g.roundRect(-230, -34, 460, 68, 18);
+        g.fill();
+        g.stroke();
+
+        // 插入父节点下
+        parentNode.addChild(this.turnIndicatorBgNode);
+        
+        // 绑定位置：它的初始位置应该和 turnIndicator 保持完全一致
+        this.turnIndicatorBgNode.setPosition(this.turnIndicator.node.position);
+        
+        // 确保 turnIndicator 挂在其之上显示
+        this.turnIndicator.node.setSiblingIndex(this.turnIndicatorBgNode.getSiblingIndex() + 1);
+
+        // 调大回合提示文字字号，加粗放大
+        this.turnIndicator.fontSize = 28;
+        this.turnIndicator.lineHeight = 36;
+    }
+
+    private onBackButtonClicked() {
+        this.stopTurnTimer();
+        this.node.active = false;
+
+        // 手动关闭动态 UI 节点以防残留
+        if (this.backButtonNode) this.backButtonNode.active = false;
+        if (this.undoButtonNode) this.undoButtonNode.active = false;
+        if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.turnIndicator) this.turnIndicator.node.active = false;
+
+        if (this.gameOverPanel) {
+            this.gameOverPanel.active = false;
+        }
+
+        if (this.modeSelectionNode) {
+            this.modeSelectionNode.getComponent(UITransform)!.setContentSize(view.getVisibleSize());
+            this.modeSelectionNode.active = true;
+        }
+    }
+
+    private startTurnTimer() {
+        this.stopTurnTimer();
+        this.remainingTime = 30;
+        this.updateTurnUI();
+        this.schedule(this.onTimerTick, 1.0);
+    }
+
+    private stopTurnTimer() {
+        this.unschedule(this.onTimerTick);
+    }
+
+    private onTimerTick() {
+        if (!this.node.active) {
+            this.stopTurnTimer();
+            return;
+        }
+
+        this.remainingTime--;
+        this.updateTurnUI();
+
+        if (this.remainingTime <= 0) {
+            this.stopTurnTimer();
+            const currentTurn = this.engine.getCurrentTurn();
+            const winner = currentTurn === Camp.RED ? Camp.BLUE : Camp.RED;
+            this.showGameOver(winner, null);
+            const winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
+            if (this.gameOverText) {
+                this.gameOverText.string = `时间到！恭喜 ${winnerName} 获胜！\n当前回合方走棋超时。`;
+            }
+        }
+    }
+
+    private onUndoButtonClicked() {
+        if (this.isAIMoving) {
+            this.showToast("正在行棋中，请稍后...");
+            return;
+        }
+
+        const currentTurn = this.engine.getCurrentTurn();
+        
+        if (this.isAIMode) {
+            if (currentTurn !== Camp.RED) {
+                this.showToast("当前不是您的回合，无法悔棋");
+                return;
+            }
+
+            this.showToast("请求人机悔棋中...");
+            this.scheduleOnce(() => {
+                const undone1 = this.engine.undo();
+                const undone2 = this.engine.undo();
+                if (undone1 || undone2) {
+                    this.showToast("人机同意了您的悔棋！");
+                    this.refreshBoardAfterUndo();
+                } else {
+                    this.showToast("没有历史记录，无法悔棋");
+                }
+            }, 0.5);
+        } else {
+            const applicant = currentTurn === Camp.RED ? Camp.BLUE : Camp.RED;
+            const respondent = currentTurn;
+
+            this.showUndoRequestDialog(applicant, respondent, (agree) => {
+                if (agree) {
+                    const undone = this.engine.undo();
+                    if (undone) {
+                        this.showToast("对方已同意悔棋！");
+                        this.refreshBoardAfterUndo();
+                    } else {
+                        this.showToast("没有历史记录，无法悔棋");
+                    }
+                } else {
+                    this.showToast("对方拒绝了您的悔棋请求");
+                }
+            });
+        }
+    }
+
+    private refreshBoardAfterUndo() {
+        this.clearSelection();
+        this.pieceViews.forEach(pv => {
+            if (pv.node) pv.node.destroy();
+        });
+        this.pieceViews.clear();
+        this.renderPieces();
+        this.startTurnTimer();
+    }
+
+    private showUndoRequestDialog(applicant: Camp, respondent: Camp, callback: (agree: boolean) => void) {
+        if (this.undoRequestPanel) {
+            this.undoRequestPanel.destroy();
+        }
+
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.max(0.6, Math.min(cw / refW, ch / refH));
+
+        this.undoRequestPanel = new Node("UndoRequestPanel");
+        this.undoRequestPanel.layer = 33554432;
+        const panelTrans = this.undoRequestPanel.addComponent(UITransform);
+        panelTrans.setContentSize(cw, ch);
+
+        const bgNode = new Node("BlackBg");
+        bgNode.layer = 33554432;
+        bgNode.addComponent(UITransform).setContentSize(cw, ch);
+        const bgGraphics = bgNode.addComponent(Graphics);
+        bgGraphics.fillColor = new Color(0, 0, 0, 160);
+        bgGraphics.rect(-cw/2, -ch/2, cw, ch);
+        bgGraphics.fill();
+        this.undoRequestPanel.addChild(bgNode);
+
+        const dialogNode = new Node("Dialog");
+        dialogNode.layer = 33554432;
+        const dialogW = Math.min(cw * 0.86, 540 * scaleFactor);
+        const dialogH = 340 * scaleFactor;
+        dialogNode.addComponent(UITransform).setContentSize(dialogW, dialogH);
+        const dialogGraphics = dialogNode.addComponent(Graphics);
+        dialogGraphics.lineWidth = 3 * scaleFactor;
+        dialogGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
+        dialogGraphics.fillColor = new Color(20, 20, 20, 240); // 优雅的深碳黑色
+        dialogGraphics.roundRect(-dialogW/2, -dialogH/2, dialogW, dialogH, 20 * scaleFactor);
+        dialogGraphics.fill();
+        dialogGraphics.stroke();
+        this.undoRequestPanel.addChild(dialogNode);
+
+        const titleNode = new Node("Title");
+        titleNode.layer = 33554432;
+        const titleLabel = titleNode.addComponent(Label);
+        titleLabel.string = "悔棋申请";
+        titleLabel.fontSize = Math.round(30 * scaleFactor);
+        titleLabel.color = new Color(245, 215, 80, 255); // 靓丽金黄
+        titleLabel.isBold = true;
+        titleNode.addComponent(UITransform);
+        titleNode.setPosition(new Vec3(0, dialogH / 2 - 55 * scaleFactor, 0));
+        dialogNode.addChild(titleNode);
+
+        const appName = applicant === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
+        const respName = respondent === Camp.RED ? '红方' : '蓝方';
+
+        const contentNode = new Node("Content");
+        contentNode.layer = 33554432;
+        const contentLabel = contentNode.addComponent(Label);
+        contentLabel.string = `${appName} 申请悔棋，\n请问 ${respName} 同意吗？`;
+        contentLabel.fontSize = Math.round(24 * scaleFactor);
+        contentLabel.lineHeight = Math.round(32 * scaleFactor);
+        contentLabel.color = Color.WHITE;
+        contentNode.addComponent(UITransform);
+        contentNode.setPosition(new Vec3(0, 10 * scaleFactor, 0));
+        dialogNode.addChild(contentNode);
+
+        const btnW = dialogW * 0.4;
+        const btnH = 76 * scaleFactor;
+        const btnY = -dialogH / 2 + 65 * scaleFactor;
+
+        const agreeBtn = new Node("AgreeBtn");
+        agreeBtn.layer = 33554432;
+        agreeBtn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const agreeGraphics = agreeBtn.addComponent(Graphics);
+        agreeGraphics.lineWidth = 1.5 * scaleFactor;
+        agreeGraphics.strokeColor = new Color(255, 255, 255, 255);
+        agreeGraphics.fillColor = new Color(46, 139, 87, 255); // 翡翠绿
+        agreeGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 12 * scaleFactor);
+        agreeGraphics.fill();
+        agreeGraphics.stroke();
+
+        const agreeText = new Node("Label");
+        agreeText.layer = 33554432;
+        const agreeLabel = agreeText.addComponent(Label);
+        agreeLabel.string = "同意";
+        agreeLabel.fontSize = Math.round(24 * scaleFactor);
+        agreeLabel.color = Color.WHITE;
+        agreeLabel.isBold = true;
+        agreeText.addComponent(UITransform);
+        agreeBtn.addChild(agreeText);
+        agreeBtn.setPosition(new Vec3(-dialogW / 4, btnY, 0));
+
+        agreeBtn.on(Node.EventType.TOUCH_END, () => {
+            this.undoRequestPanel?.destroy();
+            this.undoRequestPanel = null;
+            callback(true);
+        }, this);
+        dialogNode.addChild(agreeBtn);
+
+        const refuseBtn = new Node("RefuseBtn");
+        refuseBtn.layer = 33554432;
+        refuseBtn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const refuseGraphics = refuseBtn.addComponent(Graphics);
+        refuseGraphics.lineWidth = 1.5 * scaleFactor;
+        refuseGraphics.strokeColor = new Color(255, 255, 255, 255);
+        refuseGraphics.fillColor = new Color(220, 70, 70, 255); // 珊瑚红
+        refuseGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 12 * scaleFactor);
+        refuseGraphics.fill();
+        refuseGraphics.stroke();
+
+        const refuseText = new Node("Label");
+        refuseText.layer = 33554432;
+        const refuseLabel = refuseText.addComponent(Label);
+        refuseLabel.string = "拒绝";
+        refuseLabel.fontSize = Math.round(24 * scaleFactor);
+        refuseLabel.color = Color.WHITE;
+        refuseLabel.isBold = true;
+        refuseText.addComponent(UITransform);
+        refuseBtn.addChild(refuseText);
+        refuseBtn.setPosition(new Vec3(dialogW / 4, btnY, 0));
+
+        refuseBtn.on(Node.EventType.TOUCH_END, () => {
+            this.undoRequestPanel?.destroy();
+            this.undoRequestPanel = null;
+            callback(false);
+        }, this);
+        dialogNode.addChild(refuseBtn);
+
+        this.node.parent!.addChild(this.undoRequestPanel);
+    }
+
+    private showToast(message: string) {
+        const toast = new Node("Toast");
+        toast.layer = 33554432;
+        const transform = toast.addComponent(UITransform);
+        transform.setContentSize(400, 50);
+
+        const graphics = toast.addComponent(Graphics);
+        graphics.fillColor = new Color(0, 0, 0, 200);
+        graphics.roundRect(-200, -25, 400, 50, 10);
+        graphics.fill();
+
+        const textNode = new Node("Text");
+        textNode.layer = 33554432;
+        const label = textNode.addComponent(Label);
+        label.string = message;
+        label.fontSize = 18;
+        label.color = Color.WHITE;
+        textNode.addComponent(UITransform);
+        toast.addChild(textNode);
+
+        const opacity = toast.addComponent(UIOpacity);
+        opacity.opacity = 255;
+
+        this.node.parent!.addChild(toast);
+
+        tween(toast)
+            .by(1.5, { position: new Vec3(0, 50, 0) })
+            .start();
+
+        tween(opacity)
+            .delay(1.0)
+            .to(0.5, { opacity: 0 })
+            .call(() => {
+                toast.destroy();
+            })
+            .start();
+    }
+
+    private makeAIMove(): void {
+        if (!this.node.active || !this.isAIMode) {
+            this.isAIMoving = false;
+            return;
+        }
+
+        const pieces = this.engine.getPieces().filter(p => p.camp === Camp.BLUE);
+        const validMoves: { piece: Piece; fromX: number; fromY: number; toX: number; toY: number; priority: number }[] = [];
+
+        for (const piece of pieces) {
+            const range = (piece.type === AnimalType.LION || piece.type === AnimalType.TIGER) ? 4 : 1;
+            for (let dx = -range; dx <= range; dx++) {
+                for (let dy = -range; dy <= range; dy++) {
+                    if (dx === 0 && dy === 0) continue;
+                    if (dx !== 0 && dy !== 0) continue;
+
+                    const tx = piece.x + dx;
+                    const ty = piece.y + dy;
+
+                    if (this.engine.validateMove(piece.x, piece.y, tx, ty)) {
+                        const targetPiece = this.engine.getPieceAt(tx, ty);
+                        let priority = 0;
+
+                        if (targetPiece) {
+                            priority = targetPiece.type * 10 + (9 - piece.type);
+                        } else {
+                            const prevDist = Math.abs(piece.x - 3) + Math.abs(piece.y - 0);
+                            const nextDist = Math.abs(tx - 3) + Math.abs(ty - 0);
+                            if (nextDist < prevDist) {
+                                priority = 1;
+                            }
+                        }
+
+                        validMoves.push({
+                            piece,
+                            fromX: piece.x,
+                            fromY: piece.y,
+                            toX: tx,
+                            toY: ty,
+                            priority
+                        });
+                    }
+                }
+            }
+        }
+
+        if (validMoves.length === 0) {
+            console.log("AI has no valid moves!");
+            this.isAIMoving = false;
+            return;
+        }
+
+        validMoves.sort((a, b) => b.priority - a.priority);
+
+        const highestPriority = validMoves[0].priority;
+        const candidates = validMoves.filter(m => m.priority === highestPriority);
+        const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+
+        console.log(`AI chose move: piece=${chosen.piece.id}, from=(${chosen.fromX},${chosen.fromY}) -> to=(${chosen.toX},${chosen.toY}), priority=${chosen.priority}`);
+
+        this.isAIMoving = false;
+        this.tryMovePiece(chosen.fromX, chosen.fromY, chosen.toX, chosen.toY);
+    }
 }

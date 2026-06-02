@@ -1,242 +1,389 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="notranslate" translate="no">
 <head>
     <meta charset="utf-8">
-    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta name="google" content="notranslate">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' data: blob:; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'">
     <title>Jungle Strategy - Loading</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "tertiary-fixed": "#ffdcbe",
-                        "on-error-container": "#93000a",
-                        "background": "#fffadf",
-                        "on-primary-fixed-variant": "#005313",
-                        "on-surface": "#1e1c00",
-                        "primary-fixed": "#94f990",
-                        "tertiary": "#8b5000",
-                        "on-primary-container": "#003c0b",
-                        "inverse-on-surface": "#f8f3be",
-                        "tertiary-container": "#e18500",
-                        "on-primary": "#ffffff",
-                        "secondary": "#695f00",
-                        "surface-variant": "#eae4b1",
-                        "secondary-fixed-dim": "#dbc90a",
-                        "on-tertiary-container": "#4d2b00",
-                        "primary-fixed-dim": "#78dc77",
-                        "on-background": "#1e1c00",
-                        "surface-bright": "#fffadf",
-                        "error": "#ba1a1a",
-                        "secondary-fixed": "#f9e534",
-                        "on-tertiary-fixed": "#2c1600",
-                        "on-error": "#ffffff",
-                        "surface-dim": "#e1dca9",
-                        "on-tertiary": "#ffffff",
-                        "outline-variant": "#becab9",
-                        "inverse-surface": "#34310d",
-                        "surface-tint": "#006e1c",
-                        "inverse-primary": "#78dc77",
-                        "surface-container-highest": "#eae4b1",
-                        "primary": "#006e1c",
-                        "tertiary-fixed-dim": "#ffb870",
-                        "outline": "#6f7a6b",
-                        "on-secondary-container": "#706500",
-                        "on-tertiary-fixed-variant": "#693c00",
-                        "on-secondary-fixed": "#201c00",
-                        "error-container": "#ffdad6",
-                        "surface-container": "#f6f0bb",
-                        "on-surface-variant": "#3f4a3c",
-                        "surface-container-high": "#f0eab6",
-                        "surface-container-low": "#fbf5c1",
-                        "on-secondary": "#ffffff",
-                        "primary-container": "#4caf50",
-                        "surface-container-lowest": "#ffffff",
-                        "surface": "#fffadf",
-                        "secondary-container": "#f9e534",
-                        "on-primary-fixed": "#002204",
-                        "on-secondary-fixed-variant": "#4f4800"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "1rem",
-                        "lg": "2rem",
-                        "xl": "3rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "xs": "4px",
-                        "base": "8px",
-                        "xl": "48px",
-                        "gutter": "12px",
-                        "lg": "32px",
-                        "md": "20px",
-                        "sm": "12px",
-                        "container-margin": "16px"
-                    },
-                    "fontFamily": {
-                        "headline-md": ["Quicksand"],
-                        "body-md": ["Quicksand"],
-                        "body-lg": ["Quicksand"],
-                        "label-bold": ["Quicksand"],
-                        "headline-xl": ["Quicksand"],
-                        "headline-lg": ["Quicksand"],
-                        "headline-lg-mobile": ["Quicksand"]
-                    },
-                    "fontSize": {
-                        "headline-md": ["24px", {"lineHeight": "30px", "fontWeight": "700"}],
-                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
-                        "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}],
-                        "label-bold": ["14px", {"lineHeight": "18px", "fontWeight": "700"}],
-                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                        "headline-lg": ["32px", {"lineHeight": "38px", "fontWeight": "700"}],
-                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}]
-                    }
-                },
-            },
-        }
-    </script>
     <style>
-        @keyframes float {
-            0% { transform: translateY(0px) rotate(0deg); }
-            50% { transform: translateY(-15px) rotate(2deg); }
-            100% { transform: translateY(0px) rotate(0deg); }
+        :root {
+            --bg: #fffadf;
+            --panel: #f6f0bb;
+            --panel-strong: #e9df8a;
+            --primary: #006e1c;
+            --primary-2: #4caf50;
+            --accent: #f9e534;
+            --text: #1e1c00;
+            --subtext: #3f4a3c;
+            --shadow: rgba(0, 0, 0, 0.14);
         }
-        @keyframes shine {
-            0% { left: -100%; }
-            100% { left: 100%; }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
         }
-        .bouncy-hero {
+
+        body {
+            overflow: hidden;
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.75), transparent 24%),
+                radial-gradient(circle at 80% 10%, rgba(255, 234, 135, 0.55), transparent 22%),
+                url('./assets/resources/textures/loading_bg.png') no-repeat center center;
+            background-size: cover;
+        }
+
+        .scene {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+        }
+
+        .scene::before,
+        .scene::after {
+            content: "";
+            position: absolute;
+            inset: auto;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(76, 175, 80, 0.18), rgba(76, 175, 80, 0) 70%);
+            filter: blur(4px);
+            pointer-events: none;
+        }
+
+        .scene::before {
+            width: 420px;
+            height: 420px;
+            top: -110px;
+            left: -120px;
+        }
+
+        .scene::after {
+            width: 520px;
+            height: 520px;
+            bottom: -180px;
+            right: -140px;
+        }
+
+        .card {
+            position: relative;
+            width: min(620px, 100%);
+            min-height: min(860px, 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 28px 24px 30px;
+            border: 1px solid rgba(255, 255, 255, 0.68);
+            border-radius: 32px;
+            background: rgba(255, 251, 228, 0.72);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 28px 80px rgba(76, 96, 24, 0.16);
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.55), transparent 22%),
+                linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 42%);
+            pointer-events: none;
+        }
+
+        .header {
+            position: relative;
+            text-align: center;
+            padding-top: 8px;
+        }
+
+        .title {
+            margin: 0;
+            font-size: clamp(34px, 6vw, 44px);
+            line-height: 1.08;
+            letter-spacing: -0.03em;
+            color: var(--primary);
+            text-shadow: 0 2px 0 rgba(255, 255, 255, 0.65);
+        }
+
+        .subtitle {
+            margin: 10px 0 0;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: rgba(63, 74, 60, 0.82);
+        }
+
+        .hero-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            min-height: 320px;
+        }
+
+        .hero-float {
             animation: float 4s ease-in-out infinite;
         }
+
+        .hero-badge {
+            width: min(270px, 54vw);
+            aspect-ratio: 1;
+            border-radius: 34px;
+            border: 4px solid rgba(255, 255, 255, 0.85);
+            background:
+                radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.8), transparent 22%),
+                linear-gradient(180deg, #ffde7a 0%, #f2b740 100%);
+            box-shadow: 0 12px 0 rgba(0, 0, 0, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: clamp(72px, 14vw, 104px);
+            user-select: none;
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 120ms ease;
+        }
+
+        .hero-badge:active {
+            transform: translateY(4px);
+            box-shadow: 0 6px 0 rgba(0, 0, 0, 0.12);
+        }
+
+        .loading-block {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+            align-items: center;
+            justify-content: center;
+            padding-bottom: 6px;
+        }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            text-align: center;
+            color: var(--text);
+        }
+
+        .spinner {
+            width: 38px;
+            height: 38px;
+            border-radius: 999px;
+            border: 4px solid rgba(0, 110, 28, 0.12);
+            border-top-color: var(--primary);
+            animation: spin 1s linear infinite;
+            flex: none;
+        }
+
+        .status-text {
+            margin: 0;
+            font-size: clamp(24px, 4.2vw, 38px);
+            line-height: 1.25;
+            font-weight: 800;
+        }
+
+        .progress-shell {
+            position: relative;
+            width: 100%;
+        }
+
+        .progress-track {
+            position: relative;
+            width: 100%;
+            height: 72px;
+            padding: 8px;
+            border-radius: 999px;
+            border: 8px solid rgba(63, 74, 60, 0.14);
+            background: var(--panel);
+            box-shadow: inset 0 4px 6px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            position: relative;
+            width: 0%;
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--primary), var(--primary-2));
+            overflow: hidden;
+            transition: width 500ms ease;
+        }
+
         .progress-shine {
             position: absolute;
-            top: 0;
+            inset: 0;
             width: 50%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
             animation: shine 2s infinite;
         }
-        .3d-shadow {
-            box-shadow: 0 8px 0 0 rgba(0,0,0,0.1);
+
+        .progress-badge {
+            position: absolute;
+            top: -104px;
+            left: 0%;
+            transform: translateX(-50%);
+            padding: 12px 28px 16px;
+            border-radius: 24px;
+            background: var(--accent);
+            box-shadow: 0 8px 0 var(--shadow);
+            font-size: 38px;
+            line-height: 1;
+            font-weight: 800;
+            color: #201c00;
+            transition: left 500ms ease;
         }
-        .text-shadow-soft {
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+
+        .progress-badge::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -18px;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 12px solid transparent;
+            border-right: 12px solid transparent;
+            border-top: 20px solid var(--accent);
+        }
+
+        .tip {
+            margin: 0;
+            text-align: center;
+            color: rgba(63, 74, 60, 0.86);
+            font-size: clamp(16px, 2.8vw, 22px);
+            line-height: 1.5;
+            font-style: italic;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-14px) rotate(2deg); }
+            100% { transform: translateY(0) rotate(0deg); }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes shine {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(240%); }
+        }
+
+        @media (max-width: 520px) {
+            .card {
+                min-height: auto;
+                padding: 22px 18px 22px;
+                border-radius: 26px;
+            }
+
+            .scene {
+                padding: 14px;
+            }
+
+            .hero-wrap {
+                min-height: 240px;
+            }
+
+            .progress-track {
+                height: 64px;
+            }
+
+            .progress-badge {
+                top: -92px;
+                padding: 10px 22px 14px;
+                font-size: 32px;
+            }
         }
     </style>
 </head>
-<body class="bg-background text-on-background font-body-md overflow-hidden h-screen w-screen flex flex-col items-center justify-center">
+<body>
+    <main class="scene">
+        <section class="card" aria-label="Loading screen">
+            <header class="header">
+                <h1 class="title">Jungle Strategy</h1>
+                <p class="subtitle">Adventure Awaits</p>
+            </header>
 
-    <!-- Lush Jungle Background Wrapper -->
-    <div class="fixed inset-0 z-0">
-        <img alt="Lush Jungle Background" class="w-full h-full object-cover scale-110" data-alt="A lush, vibrant jungle landscape in a soft-focus modern cartoon style. The scene is filled with oversized tropical leaves in varying shades of emerald and lime green, with golden sunlight filtering through the canopy. The atmosphere is warm, friendly, and magical, using the brand's signature cream and green palette. Every element feels soft and tactile, like a high-quality 3D animation background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAWsEh-HSWJ74Net4BcN8baDxmlTaowMurcXMFpfQBFQV2kmL86b9vIae_-XbMfwh8x9roKcJ3hdhxHVf04ffh6SGn937v_a6Zv0j2agDQh7jimTmGU-Uft0ppYpwLDLdP_rHvNYx7fmbgOyBabADm8ACkfNPnfffeUqq3u364tr7S6Z6x9udQGoIRE_IWJgHItiQgxB281HO9pQe3JDpjTYuIWZHqpue5WEtLgXvKpIRdDAyMXZ9KnPLMhInteECiBFtAVhwlFcyr8">
-    </div>
-
-    <!-- Main Content Canvas -->
-    <main class="relative z-10 flex flex-col items-center justify-between h-full py-xl w-full px-container-margin" style="max-width: 580px;">
-        <!-- Header Branding -->
-        <div class="text-center pt-lg">
-            <h1 class="font-headline-xl text-headline-xl-mobile text-primary text-shadow-soft tracking-tight">
-                Jungle Strategy
-            </h1>
-            <p class="font-label-bold text-label-bold text-on-surface-variant uppercase tracking-widest mt-base">
-                Adventure Awaits
-            </p>
-        </div>
-
-        <!-- Central Character Illustration -->
-        <div class="relative flex flex-col items-center justify-center flex-grow w-full bouncy-hero">
-            <!-- Added missing character/unit badge based on the JavaScript references -->
-            <div class="bg-tertiary-container w-32 h-32 rounded-3xl 3d-shadow flex items-center justify-center border-4 border-surface-bright cursor-pointer transition-transform duration-100 ease-in-out">
-                <span class="material-symbols-outlined text-white" style="font-size: 80px; text-shadow: 0 4px 0 rgba(0,0,0,0.1);">pets</span>
-            </div>
-        </div>
-
-        <!-- Bottom Loading Section -->
-        <div class="absolute left-0 right-0 px-container-margin space-y-md flex flex-col items-center" style="bottom: 35%; transform: translateY(50%);">
-            <!-- Playful Status Text -->
-            <div class="flex items-center justify-center space-x-sm">
-                <span class="material-symbols-outlined text-primary animate-spin" style="font-size: 40px;">explore</span>
-                <p class="text-on-surface text-center font-bold" style="font-size: 48px; line-height: 60px;">
-                    正在探索丛林中...
-                </p>
+            <div class="hero-wrap">
+                <div class="hero-float">
+                    <div class="hero-badge" id="hero-badge" aria-hidden="true">🐾</div>
+                </div>
             </div>
 
-            <!-- Progress Container -->
-            <div class="relative w-full">
-                <!-- Outer Track (Inset appearance) -->
-                <div class="h-20 w-full bg-surface-container-highest rounded-full p-xs shadow-[inset_0_4px_6px_rgba(0,0,0,0.1)] border-8 border-surface-variant">
-                    <!-- Progress Fill -->
-                    <div class="h-full bg-gradient-to-r from-primary to-primary-container rounded-full relative overflow-hidden transition-all duration-500 ease-out border-b-8 border-primary/30" id="loading-bar" style="width: 0%;">
-                        <!-- Glow and Shine -->
-                        <div class="progress-shine"></div>
-                        <div class="absolute top-2 left-4 right-4 h-2 bg-white/20 rounded-full"></div>
+            <section class="loading-block" aria-live="polite">
+                <div class="status-line">
+                    <div class="spinner" aria-hidden="true"></div>
+                    <p class="status-text">正在探索丛林中...</p>
+                </div>
+
+                <div class="progress-shell">
+                    <div class="progress-track">
+                        <div class="progress-fill" id="loading-bar">
+                            <div class="progress-shine"></div>
+                        </div>
+                    </div>
+
+                    <div class="progress-badge" id="progress-badge">
+                        <span id="progress-text">0%</span>
                     </div>
                 </div>
 
-                <!-- Progress Percentage Badge -->
-                <div class="absolute -top-28 left-[0%] -translate-x-1/2 bg-secondary-container text-on-secondary-fixed font-bold rounded-2xl 3d-shadow transition-all duration-500 ease-out" id="progress-badge" style="left: 0%; font-size: 42px; line-height: 52px; padding: 12px 30px;">
-                    <span id="progress-text">0%</span>
-                    <div class="absolute -bottom-5 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[20px] border-t-secondary-container"></div>
-                </div>
-            </div>
-
-            <!-- Random Tip/Flavor Text -->
-            <p class="text-center font-body-md text-on-surface-variant italic opacity-80 px-lg" style="font-size: 22px; line-height: 30px;">
-                提示：别忘了给你的英雄装备“香蕉镖”！
-            </p>
-        </div>
+                <p class="tip">提示：别忘了给你的英雄装备“香蕉镖”！</p>
+            </section>
+        </section>
     </main>
 
     <script>
-        // Simple progress simulation
         const progressBar = document.getElementById('loading-bar');
         const progressText = document.getElementById('progress-text');
-        const progressBadge = document.getElementById('progress-badge'); // Fix: giving the badge an id for simpler targetting
+        const progressBadge = document.getElementById('progress-badge');
+        const heroBadge = document.getElementById('hero-badge');
         let progress = 0;
 
         const updateLoading = () => {
             if (progress < 100) {
                 progress += Math.random() * 2;
                 if (progress > 100) progress = 100;
-                
+
                 progressBar.style.width = `${progress}%`;
                 progressText.innerText = `${Math.floor(progress)}%`;
                 progressBadge.style.left = `${progress}%`;
             } else {
-                // Shake character when done
-                document.querySelector('.bouncy-hero').style.animation = 'none';
-                document.querySelector('.bouncy-hero').classList.add('animate-bounce');
+                heroBadge.style.animation = 'none';
+                heroBadge.animate(
+                    [
+                        { transform: 'translateY(0) scale(1)' },
+                        { transform: 'translateY(-10px) scale(1.04)' },
+                        { transform: 'translateY(0) scale(1)' }
+                    ],
+                    { duration: 550, iterations: 2 }
+                );
                 setTimeout(() => {
-                    progress = 0; // Loop for demo
-                    document.querySelector('.bouncy-hero').classList.remove('animate-bounce');
-                    document.querySelector('.bouncy-hero').style.animation = 'float 4s ease-in-out infinite';
-                }, 2000);
+                    progress = 0;
+                    progressBar.style.width = '0%';
+                    progressText.innerText = '0%';
+                    progressBadge.style.left = '0%';
+                    heroBadge.style.animation = 'float 4s ease-in-out infinite';
+                }, 1800);
             }
         };
 
         setInterval(updateLoading, 150);
-
-        // Add "active" press effect for the unit portrait to show interaction feedback 
-        // even though it's a loading screen
-        const badge = document.querySelector('.bg-tertiary-container');
-        if (badge) {
-            badge.addEventListener('mousedown', () => {
-                badge.style.transform = 'translateY(4px)';
-                badge.style.boxShadow = 'none';
-            });
-            badge.addEventListener('mouseup', () => {
-                badge.style.transform = 'translateY(0px)';
-                badge.style.boxShadow = '0 8px 0 0 rgba(0,0,0,0.1)';
-            });
-            badge.addEventListener('mouseleave', () => {
-                badge.style.transform = 'translateY(0px)';
-                badge.style.boxShadow = '0 8px 0 0 rgba(0,0,0,0.1)';
-            });
-        }
     </script>
 </body>
 </html>
