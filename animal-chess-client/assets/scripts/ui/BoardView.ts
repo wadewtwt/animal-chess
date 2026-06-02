@@ -158,6 +158,7 @@ export class BoardView extends Component {
     private mainMenuNode: Node | null = null;
 
     private showMainMenu() {
+        this.unschedule(this.makeAIMove);
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
@@ -196,6 +197,7 @@ export class BoardView extends Component {
     private modeSelectionNode: Node | null = null;
 
     private showModeSelection() {
+        this.unschedule(this.makeAIMove);
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
@@ -483,6 +485,7 @@ export class BoardView extends Component {
      * 重启游戏
      */
     public restartGame(): void {
+        this.unschedule(this.makeAIMove);
         this.stopTurnTimer();
         this.isAIMoving = false;
 
@@ -550,6 +553,12 @@ export class BoardView extends Component {
             this.bgWashNode.setSiblingIndex(1); // 置于背景之上
         }
 
+        // 森林微光特效粒子层 (加在背景 wash 层之上，对局元素及 UI 之下)
+        if (!this.node.getChildByName('ForestFirefliesLayer')) {
+            const scaleFactor = Math.min(view.getVisibleSize().width / 750, view.getVisibleSize().height / 1334);
+            this.createForestFireflies(this.node, scaleFactor);
+        }
+
         this.riverSprites = [];
 
         // 如果提供了 gridCellPrefab，则自动铺满 7x9 = 63 个格子
@@ -569,203 +578,13 @@ export class BoardView extends Component {
                     const sprite = cellNode.getComponent(Sprite);
                     if (sprite) {
                         if (this.engine.isRiver(x, y)) {
-                            // 小河格：保持底层预设的贴图，染成纯水蓝色，作为固定不动的河底
-                            sprite.color = new Color(30, 144, 255, 255); // 明亮的卡通水蓝色 DodgerBlue
-
-                            // 为了防止水流、鱼儿等溢出到草地，创建一个专用的遮罩层
-                            const riverMaskNode = new Node('RiverMask');
-                            riverMaskNode.parent = cellNode;
-                            riverMaskNode.layer = cellNode.layer;
-                            const maskTransform = riverMaskNode.addComponent(UITransform);
-                            maskTransform.setContentSize(this.cellWidth, this.cellHeight);
-                            riverMaskNode.addComponent(Mask);
-
-                            // 1. 创建流动的波纹 (Flowing Ripples)
-                            // 真正的无缝滚动：使用两个波纹节点首尾相连，永不消失
-                            const rippleContainer = new Node('RippleContainer');
-                            rippleContainer.parent = riverMaskNode;
-                            rippleContainer.layer = cellNode.layer;
-                            
-                            const ripple1 = new Node('FlowRipple1');
-                            ripple1.parent = rippleContainer;
-                            ripple1.layer = cellNode.layer;
-                            const rTransform1 = ripple1.addComponent(UITransform);
-                            rTransform1.setContentSize(100, 100); 
-                            
-                            const rSprite1 = ripple1.addComponent(Sprite);
-                            rSprite1.sizeMode = 0;
-                            // 恢复完全不透明，确保波纹清晰可见
-                            rSprite1.color = new Color(255, 255, 255, 255);
-
-                            const ripple2 = instantiate(ripple1);
-                            ripple2.name = 'FlowRipple2';
-                            ripple2.parent = rippleContainer;
-                            ripple2.setPosition(new Vec3(100, 0, 0));
-                            const rSprite2 = ripple2.getComponent(Sprite);
-
-                            // 无缝滚动动画
-                            // 容器向左移动 100 像素后瞬间归位
-                            const duration = 4.0 + Math.random() * 2.0; // 每个格子稍微随机速度
-                            
-                            tween(rippleContainer)
-                                .by(duration, { position: new Vec3(-100, 0, 0) })
-                                .call(() => {
-                                    rippleContainer.setPosition(Vec3.ZERO);
-                                })
-                                .union()
-                                .repeatForever()
-                                .start();
-
-                            // 加载流动水面素材并赋值给波纹层
-                            resources.load('textures/river_water/texture', ImageAsset, (err, imageAsset) => {
-                                if (err) { console.error("Failed to load river_water:", err); return; }
-                                if (cellNode.isValid) {
-                                    const tex = new Texture2D();
-                                    tex.image = imageAsset;
-                                    const sf = new SpriteFrame();
-                                    sf.texture = tex;
-                                    
-                                    if (rSprite1.isValid) rSprite1.spriteFrame = sf;
-                                    if (rSprite2.isValid) rSprite2.spriteFrame = sf;
-                                }
-                            });
-
-                            // 1.5 特色：添加波光粼粼的闪烁动效 (Sparkling Water)
-                            // 遵循动画原理：有机体的随机交错与舒缓的 sineInOut 缓动
-                            const sparkleCount = 3 + Math.floor(Math.random() * 4);
-                            for (let i = 0; i < sparkleCount; i++) {
-                                const sparkle = new Node(`Sparkle_${i}`);
-                                sparkle.parent = riverMaskNode;
-                                sparkle.layer = cellNode.layer;
-                                
-                                const sTransform = sparkle.addComponent(UITransform);
-                                const sSize = 4 + Math.random() * 6;
-                                sTransform.setContentSize(sSize, sSize * 0.4); // 扁长的波光
-                                
-                                const sSprite = sparkle.addComponent(Sprite);
-                                sSprite.sizeMode = 0;
-                                sSprite.spriteFrame = sprite.spriteFrame;
-                                sSprite.color = new Color(255, 255, 255, 255);
-                                
-                                const sOpacity = sparkle.addComponent(UIOpacity);
-                                sOpacity.opacity = 0;
-                                
-                                const sX = -40 + Math.random() * 80;
-                                const sY = -40 + Math.random() * 80;
-                                sparkle.setPosition(new Vec3(sX, sY, 0));
-                                sparkle.setRotationFromEuler(0, 0, -5 + Math.random() * 10);
-                                
-                                // 波光脉动动画
-                                const duration = 1.5 + Math.random() * 2.0;
-                                const delay = Math.random() * 3.0;
-                                
-                                tween(sOpacity)
-                                    .delay(delay)
-                                    .to(duration, { opacity: 100 + Math.random() * 100 }, { easing: 'sineInOut' })
-                                    .to(duration, { opacity: 0 }, { easing: 'sineInOut' })
-                                    .delay(Math.random() * 2.0)
-                                    .union()
-                                    .repeatForever()
-                                    .start();
-                                    
-                                tween(sparkle)
-                                    .delay(delay)
-                                    .to(duration, { scale: new Vec3(1.5, 1.0, 1.0) }, { easing: 'sineInOut' })
-                                    .to(duration, { scale: new Vec3(0.8, 1.0, 1.0) }, { easing: 'sineInOut' })
-                                    .delay(Math.random() * 2.0)
-                                    .union()
-                                    .repeatForever()
-                                    .start();
+                            // 小河格：保持底层预设的贴图，染成卡通水蓝色
+                            sprite.color = new Color(30, 144, 255, 255); // DodgerBlue
+                            // 将格子稍微扩大 2 像素（102x102），使相邻河道产生微小重叠以遮挡草地缝隙，同时完美保留贴图纹理
+                            const trans = cellNode.getComponent(UITransform);
+                            if (trans) {
+                                trans.setContentSize(this.cellWidth + 2, this.cellHeight + 2);
                             }
-
-                            // 1.6 特色：河底静谧的小石头 (River Stones)
-                            // 石头数量减少约三分之一 (平均每格约 1 个或没有)
-                            let stoneCount = 1;
-                            const sr = Math.random();
-                            if (sr < 0.33) stoneCount = 0;
-                            else if (sr > 0.8) stoneCount = 2;
-                            
-                            for (let i = 0; i < stoneCount; i++) {
-                                const stone = new Node(`Stone_${i}`);
-                                stone.parent = riverMaskNode;
-                                stone.layer = cellNode.layer;
-                                stone.setSiblingIndex(0); // 置于水纹底层
-                                
-                                const stTransform = stone.addComponent(UITransform);
-                                const stW = 12 + Math.random() * 10;
-                                const stH = 8 + Math.random() * 6;
-                                stTransform.setContentSize(stW, stH);
-                                
-                                const stSprite = stone.addComponent(Sprite);
-                                stSprite.sizeMode = 0;
-                                stSprite.spriteFrame = sprite.spriteFrame;
-                                stSprite.color = new Color(20, 45, 75, 180); // 暗青蓝色
-                                
-                                resources.load('textures/river_stone/texture', ImageAsset, (err, imageAsset) => {
-                                    if (err) { console.error("Failed to load river_stone:", err); return; }
-                                    if (stone.isValid && stSprite.isValid) {
-                                        const tex = new Texture2D();
-                                        tex.image = imageAsset;
-                                        const sf = new SpriteFrame();
-                                        sf.texture = tex;
-                                        stSprite.spriteFrame = sf;
-                                        stSprite.color = new Color(255, 255, 255, 255);
-                                        // 加大体积以突出素材
-                                        stTransform.setContentSize(24, 18);
-                                    }
-                                });
-                                
-                                const stX = -35 + Math.random() * 70;
-                                const stY = -35 + Math.random() * 70;
-                                stone.setPosition(new Vec3(stX, stY, 0));
-                                stone.setRotationFromEuler(0, 0, Math.random() * 360);
-                            }
-
-                            // 2. 特色：添加浮萍/荷叶 (Lily Pads) 浮动效果
-                            if (Math.random() < 0.35) {
-                                const lilyPad = new Node(`LilyPad`);
-                                lilyPad.parent = riverMaskNode;
-                                lilyPad.layer = cellNode.layer;
-
-                                const lpTransform = lilyPad.addComponent(UITransform);
-                                const size = 12 + Math.random() * 8;
-                                lpTransform.setContentSize(size, size);
-                                lpTransform.setAnchorPoint(0.5, 0.5);
-
-                                const lpGraphic = lilyPad.addComponent(Graphics);
-                                lpGraphic.fillColor = new Color(46, 139, 87, 240); // 浮萍绿 (SeaGreen)
-                                // 画一个稍微扁平的椭圆更像荷叶
-                                lpGraphic.ellipse(0, 0, size / 2, (size / 2) * 0.8);
-                                lpGraphic.fill();
-
-                                const lpOpacity = lilyPad.addComponent(UIOpacity);
-                                lpOpacity.opacity = 160 + Math.random() * 60;
-
-                                // 随机位置与旋转
-                                const padX = -35 + Math.random() * 70;
-                                const padY = -35 + Math.random() * 70;
-                                lilyPad.setPosition(new Vec3(padX, padY, 0));
-                                lilyPad.setRotationFromEuler(0, 0, Math.random() * 360);
-
-                                // 浮萍上下漂浮与微幅旋转动画 (体现Motion技能的轻微缓动)
-                                const floatDuration = 2.0 + Math.random() * 1.5;
-                                tween(lilyPad)
-                                    .by(floatDuration, { position: new Vec3(0, 2 + Math.random() * 2, 0) }, { easing: 'sineInOut' })
-                                    .by(floatDuration, { position: new Vec3(0, -(2 + Math.random() * 2), 0) }, { easing: 'sineInOut' })
-                                    .union()
-                                    .repeatForever()
-                                    .start();
-
-                                const rotateDuration = 3.0 + Math.random() * 2.0;
-                                tween(lilyPad)
-                                    .by(rotateDuration, { angle: 10 + Math.random() * 10 }, { easing: 'sineInOut' })
-                                    .by(rotateDuration, { angle: -(10 + Math.random() * 10) }, { easing: 'sineInOut' })
-                                    .union()
-                                    .repeatForever()
-                                    .start();
-                            }
-
-                            // (小鱼的生成逻辑已重构为全局跨格游动，见 createGlobalFishes)
                         } else if (this.engine.getTrapCamp(x, y) !== null) {
                             // 陷阱格：使用用户上传的精美陷阱图片
                             resources.load('textures/trap/texture', ImageAsset, (err, imageAsset) => {
@@ -953,12 +772,200 @@ export class BoardView extends Component {
             transform.setContentSize(width, height);
             areaNode.addComponent(Mask);
             
-            // 在这片开阔河域内生成 2-4 条鱼
+            // 1. 双层差速无缝滚动大水体背景 (Parallax Water Sliding)
+            // 第一层：慢速基底水流
+            const waterContainer1 = new Node('WaterContainer1');
+            waterContainer1.parent = areaNode;
+            waterContainer1.layer = areaNode.layer;
+            waterContainer1.setSiblingIndex(0);
+
+            const water1_1 = new Node('Water1_1');
+            water1_1.parent = waterContainer1;
+            water1_1.layer = areaNode.layer;
+            const wTrans1_1 = water1_1.addComponent(UITransform);
+            wTrans1_1.setContentSize(width, height);
+            const wSprite1_1 = water1_1.addComponent(Sprite);
+            wSprite1_1.sizeMode = 0;
+            wSprite1_1.color = new Color(255, 255, 255, 110); // 略淡的不透明度，衬托深蓝色河床
+
+            const water1_2 = new Node('Water1_2');
+            water1_2.parent = waterContainer1;
+            water1_2.layer = areaNode.layer;
+            const wTrans1_2 = water1_2.addComponent(UITransform);
+            wTrans1_2.setContentSize(width, height);
+            water1_2.setPosition(new Vec3(0, height, 0));
+            const wSprite1_2 = water1_2.addComponent(Sprite);
+            wSprite1_2.sizeMode = 0;
+            wSprite1_2.color = new Color(255, 255, 255, 110);
+
+            // 缓动向下流动（慢速）
+            tween(waterContainer1)
+                .to(16.0, { position: new Vec3(0, -height, 0) })
+                .call(() => {
+                    waterContainer1.setPosition(Vec3.ZERO);
+                })
+                .union()
+                .repeatForever()
+                .start();
+
+            // 横向微幅正弦起伏，模拟溪流在流动中的左右扭动
+            tween(waterContainer1)
+                .by(4.5, { position: new Vec3(6, 0, 0) }, { easing: 'sineInOut' })
+                .by(4.5, { position: new Vec3(-6, 0, 0) }, { easing: 'sineInOut' })
+                .union()
+                .repeatForever()
+                .start();
+
+            // 第二层：快速表层波光干涉纹理
+            const waterContainer2 = new Node('WaterContainer2');
+            waterContainer2.parent = areaNode;
+            waterContainer2.layer = areaNode.layer;
+            waterContainer2.setSiblingIndex(1);
+            // 微微放大第二层，避免完全等比例重叠，消除拼贴感
+            waterContainer2.setScale(new Vec3(1.15, 1.15, 1.0));
+
+            const water2_1 = new Node('Water2_1');
+            water2_1.parent = waterContainer2;
+            water2_1.layer = areaNode.layer;
+            const wTrans2_1 = water2_1.addComponent(UITransform);
+            wTrans2_1.setContentSize(width, height);
+            const wSprite2_1 = water2_1.addComponent(Sprite);
+            wSprite2_1.sizeMode = 0;
+            wSprite2_1.color = new Color(255, 255, 255, 75); // 较淡透明度，作为动态纹理干涉层
+
+            const water2_2 = new Node('Water2_2');
+            water2_2.parent = waterContainer2;
+            water2_2.layer = areaNode.layer;
+            const wTrans2_2 = water2_2.addComponent(UITransform);
+            wTrans2_2.setContentSize(width, height);
+            water2_2.setPosition(new Vec3(0, height, 0));
+            const wSprite2_2 = water2_2.addComponent(Sprite);
+            wSprite2_2.sizeMode = 0;
+            wSprite2_2.color = new Color(255, 255, 255, 75);
+
+            // 缓动向下流动（快速）
+            tween(waterContainer2)
+                .to(10.0, { position: new Vec3(0, -height, 0) })
+                .call(() => {
+                    waterContainer2.setPosition(Vec3.ZERO);
+                })
+                .union()
+                .repeatForever()
+                .start();
+
+            // 横向采用不同的周期与幅值进行正弦摆动，创造多重动态质感
+            tween(waterContainer2)
+                .by(3.2, { position: new Vec3(-8, 0, 0) }, { easing: 'sineInOut' })
+                .by(3.2, { position: new Vec3(8, 0, 0) }, { easing: 'sineInOut' })
+                .union()
+                .repeatForever()
+                .start();
+
+            // 载入水纹贴图应用到双层 4 张 Sprite 纹理上
+            resources.load('textures/river_water/texture', ImageAsset, (err, imageAsset) => {
+                if (err) { console.error("Failed to load river_water:", err); return; }
+                if (areaNode.isValid) {
+                    const tex = new Texture2D();
+                    tex.image = imageAsset;
+                    const sf = new SpriteFrame();
+                    sf.texture = tex;
+
+                    if (wSprite1_1.isValid) wSprite1_1.spriteFrame = sf;
+                    if (wSprite1_2.isValid) wSprite1_2.spriteFrame = sf;
+                    if (wSprite2_1.isValid) wSprite2_1.spriteFrame = sf;
+                    if (wSprite2_2.isValid) wSprite2_2.spriteFrame = sf;
+                }
+            });
+
+            // 2. 河底静谧石头 (3-5颗)
+            const stoneCount = 3 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < stoneCount; i++) {
+                const stone = new Node(`RiverStone_${i}`);
+                stone.parent = areaNode;
+                stone.layer = areaNode.layer;
+                stone.setSiblingIndex(2); // 贴近河底，位于双层水流上方，鱼和浮萍下方
+
+                const stTrans = stone.addComponent(UITransform);
+                const stW = 16 + Math.random() * 12;
+                const stH = 12 + Math.random() * 8;
+                stTrans.setContentSize(stW, stH);
+
+                const stSprite = stone.addComponent(Sprite);
+                stSprite.sizeMode = 0;
+                stSprite.color = new Color(255, 255, 255, 255);
+
+                resources.load('textures/river_stone/texture', ImageAsset, (err, imageAsset) => {
+                    if (err) { console.error("Failed to load river_stone:", err); return; }
+                    if (stone.isValid && stSprite.isValid) {
+                        const tex = new Texture2D();
+                        tex.image = imageAsset;
+                        const sf = new SpriteFrame();
+                        sf.texture = tex;
+                        stSprite.spriteFrame = sf;
+                    }
+                });
+
+                // 随机撒在大河域内，留足 20 像素边距避免撞墙
+                const stX = -width / 2 + 20 + Math.random() * (width - 40);
+                const stY = -height / 2 + 20 + Math.random() * (height - 40);
+                stone.setPosition(new Vec3(stX, stY, 0));
+                stone.setRotationFromEuler(0, 0, Math.random() * 360);
+            }
+
+            // 3. 漂流浮萍/荷叶 (2个)
+            const lilyPadCount = 2;
+            for (let i = 0; i < lilyPadCount; i++) {
+                const lilyPad = new Node(`LilyPad_${i}`);
+                lilyPad.parent = areaNode;
+                lilyPad.layer = areaNode.layer;
+                lilyPad.setSiblingIndex(3); // 浮于水面 (鱼儿从下方穿过)
+
+                const lpTrans = lilyPad.addComponent(UITransform);
+                const size = 20 + Math.random() * 10;
+                lpTrans.setContentSize(size, size);
+                lpTrans.setAnchorPoint(0.5, 0.5);
+
+                const lpGraphic = lilyPad.addComponent(Graphics);
+                lpGraphic.fillColor = new Color(46, 139, 87, 220); // 浮萍绿 (SeaGreen)
+                lpGraphic.ellipse(0, 0, size / 2, (size / 2) * 0.85);
+                lpGraphic.fill();
+
+                const lpOpacity = lilyPad.addComponent(UIOpacity);
+                lpOpacity.opacity = 180 + Math.random() * 50;
+
+                const lpX = -width / 2 + 30 + Math.random() * (width - 60);
+                const lpY = -height / 2 + 40 + Math.random() * (height - 80);
+                lilyPad.setPosition(new Vec3(lpX, lpY, 0));
+                lilyPad.setRotationFromEuler(0, 0, Math.random() * 360);
+
+                // 上下微幅起伏
+                const floatDuration = 2.5 + Math.random() * 1.5;
+                const floatAmp = 3 + Math.random() * 3;
+                tween(lilyPad)
+                    .by(floatDuration, { position: new Vec3(0, floatAmp, 0) }, { easing: 'sineInOut' })
+                    .by(floatDuration, { position: new Vec3(0, -floatAmp, 0) }, { easing: 'sineInOut' })
+                    .union()
+                    .repeatForever()
+                    .start();
+
+                // 徐徐左右晃摆自转
+                const rotateDuration = 4.0 + Math.random() * 2.0;
+                const rotateAng = 8 + Math.random() * 8;
+                tween(lilyPad)
+                    .by(rotateDuration, { angle: rotateAng }, { easing: 'sineInOut' })
+                    .by(rotateDuration, { angle: -rotateAng }, { easing: 'sineInOut' })
+                    .union()
+                    .repeatForever()
+                    .start();
+            }
+
+            // 4. 鲤鱼畅游层 (2-4条) - 完全保留并置顶原有的精致动作与尾摆动画
             const fishCount = 2 + Math.floor(Math.random() * 3);
             for (let fi = 0; fi < fishCount; fi++) {
                 const fishNode = new Node(`KoiFish_${fi}`);
                 fishNode.parent = areaNode;
                 fishNode.layer = areaNode.layer;
+                fishNode.setSiblingIndex(4); // 位于荷叶与水纹之上
 
                 const fTransform = fishNode.addComponent(UITransform);
                 fTransform.setContentSize(30, 20);
@@ -1053,6 +1060,56 @@ export class BoardView extends Component {
                 };
 
                 this.scheduleOnce(swimCycle, Math.random() * 3.0);
+            }
+
+            // 5. 波光粼粼的闪烁动效 (6-10个环境闪光粒子)
+            const sparkleCount = 6 + Math.floor(Math.random() * 5);
+            for (let i = 0; i < sparkleCount; i++) {
+                const sparkle = new Node(`Sparkle_${i}`);
+                sparkle.parent = areaNode;
+                sparkle.layer = areaNode.layer;
+                sparkle.setSiblingIndex(5); // 最顶层，用于反射环境光
+
+                const sTransform = sparkle.addComponent(UITransform);
+                const sW = 8 + Math.random() * 8;
+                const sH = sW * 0.35; // 扁平梭形
+                sTransform.setContentSize(sW, sH);
+
+                // 使用 Graphics 绘制纯白扁平梭形波光粒子
+                const sGraphic = sparkle.addComponent(Graphics);
+                sGraphic.fillColor = new Color(255, 255, 255, 255);
+                sGraphic.ellipse(0, 0, sW / 2, sH / 2);
+                sGraphic.fill();
+
+                const sOpacity = sparkle.addComponent(UIOpacity);
+                sOpacity.opacity = 0;
+
+                const sX = -width / 2 + 15 + Math.random() * (width - 30);
+                const sY = -height / 2 + 15 + Math.random() * (height - 30);
+                sparkle.setPosition(new Vec3(sX, sY, 0));
+                sparkle.setRotationFromEuler(0, 0, -10 + Math.random() * 20);
+
+                const duration = 1.2 + Math.random() * 1.8;
+                const delay = Math.random() * 3.0;
+
+                // 闪烁和大小脉动交替进行
+                tween(sOpacity)
+                    .delay(delay)
+                    .to(duration, { opacity: 100 + Math.random() * 120 }, { easing: 'sineInOut' })
+                    .to(duration, { opacity: 0 }, { easing: 'sineInOut' })
+                    .delay(Math.random() * 2.0)
+                    .union()
+                    .repeatForever()
+                    .start();
+
+                tween(sparkle)
+                    .delay(delay)
+                    .to(duration, { scale: new Vec3(1.4, 1.0, 1.0) }, { easing: 'sineInOut' })
+                    .to(duration, { scale: new Vec3(0.7, 1.0, 1.0) }, { easing: 'sineInOut' })
+                    .delay(Math.random() * 2.0)
+                    .union()
+                    .repeatForever()
+                    .start();
             }
         };
 
@@ -1152,8 +1209,9 @@ export class BoardView extends Component {
 
         this.playAnimalSound(piece.type);
 
-        // 如果点击的是当前已选中的棋子，无需重复操作
+        // 如果点击的是当前已选中的棋子，则取消选中并清除高亮
         if (this.selectedPiece?.id === piece.id) {
+            this.clearSelection();
             return;
         } 
 
@@ -1593,15 +1651,29 @@ export class BoardView extends Component {
         dialogGraphics.stroke();
         this.customGameOverPanel.addChild(dialogNode);
 
-        // 3. 胜利标志或奖杯图标
-        const emojiNode = new Node("Emoji");
-        emojiNode.layer = 33554432;
-        const emojiLabel = emojiNode.addComponent(Label);
-        emojiLabel.string = winner === null ? "🤝" : "🏆";
-        emojiLabel.fontSize = Math.round(72 * scaleFactor);
-        emojiNode.addComponent(UITransform);
-        emojiNode.setPosition(new Vec3(0, dialogH / 2 - 80 * scaleFactor, 0));
-        dialogNode.addChild(emojiNode);
+        // 3. 胜利标志
+        const resultBadgeNode = new Node("ResultBadge");
+        resultBadgeNode.layer = 33554432;
+        resultBadgeNode.addComponent(UITransform).setContentSize(92 * scaleFactor, 92 * scaleFactor);
+        const badgeGraphics = resultBadgeNode.addComponent(Graphics);
+        badgeGraphics.fillColor = winner === null ? new Color(230, 232, 226, 255) : new Color(248, 228, 54, 255);
+        badgeGraphics.circle(0, 0, 46 * scaleFactor);
+        badgeGraphics.fill();
+        badgeGraphics.lineWidth = 3 * scaleFactor;
+        badgeGraphics.strokeColor = new Color(255, 255, 255, 255);
+        badgeGraphics.circle(0, 0, 46 * scaleFactor);
+        badgeGraphics.stroke();
+        const badgeText = new Node("BadgeText");
+        badgeText.layer = 33554432;
+        const badgeLabel = badgeText.addComponent(Label);
+        badgeLabel.string = winner === null ? "和" : "胜";
+        badgeLabel.fontSize = Math.round(48 * scaleFactor);
+        badgeLabel.color = winner === null ? new Color(102, 102, 102, 255) : new Color(110, 78, 0, 255);
+        badgeLabel.isBold = true;
+        badgeText.addComponent(UITransform);
+        resultBadgeNode.addChild(badgeText);
+        resultBadgeNode.setPosition(new Vec3(0, dialogH / 2 - 80 * scaleFactor, 0));
+        dialogNode.addChild(resultBadgeNode);
 
         // 4. 结算大字标题
         const titleNode = new Node("Title");
@@ -1654,7 +1726,7 @@ export class BoardView extends Component {
         const btnH = 80 * scaleFactor;
         const btnY = -dialogH / 2 + 76 * scaleFactor;
 
-        // (1) 再来一局 ↺
+        // (1) 再来一局
         const restartBtn = new Node("RestartBtn");
         restartBtn.layer = 33554432;
         restartBtn.addComponent(UITransform).setContentSize(btnW, btnH);
@@ -1669,7 +1741,7 @@ export class BoardView extends Component {
         const restartText = new Node("Label");
         restartText.layer = 33554432;
         const restartLabel = restartText.addComponent(Label);
-        restartLabel.string = "再来一局 ↺";
+        restartLabel.string = "再来一局";
         restartLabel.fontSize = Math.round(24 * scaleFactor);
         restartLabel.color = Color.WHITE;
         restartLabel.isBold = true;
@@ -1686,7 +1758,7 @@ export class BoardView extends Component {
         restartBtn.on(Node.EventType.TOUCH_CANCEL, () => { restartBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
         dialogNode.addChild(restartBtn);
 
-        // (2) 返回菜单 ↩
+        // (2) 返回菜单
         const exitBtn = new Node("ExitBtn");
         exitBtn.layer = 33554432;
         exitBtn.addComponent(UITransform).setContentSize(btnW, btnH);
@@ -1701,7 +1773,7 @@ export class BoardView extends Component {
         const exitText = new Node("Label");
         exitText.layer = 33554432;
         const exitLabel = exitText.addComponent(Label);
-        exitLabel.string = "返回菜单 ↩";
+        exitLabel.string = "返回菜单";
         exitLabel.fontSize = Math.round(24 * scaleFactor);
         exitLabel.color = Color.WHITE;
         exitLabel.isBold = true;
@@ -1870,7 +1942,7 @@ export class BoardView extends Component {
 
         this.node.parent!.addChild(this.backButtonNode);
 
-        // 2. 创建底部悔棋按钮 (↩ 请求悔棋)
+        // 2. 创建底部悔棋按钮
         this.undoButtonNode = new Node("UndoButton");
         this.undoButtonNode.layer = 33554432;
         this.undoButtonNode.addComponent(UITransform);
@@ -1881,7 +1953,7 @@ export class BoardView extends Component {
         undoLabelNode.layer = 33554432;
         undoLabelNode.addComponent(UITransform);
         const undoLabel = undoLabelNode.addComponent(Label);
-        undoLabel.string = "↩ 请求悔棋";
+        undoLabel.string = "请求悔棋";
         undoLabel.color = Color.WHITE;
         undoLabel.isBold = true;
         this.undoButtonNode.addChild(undoLabelNode);
@@ -2203,28 +2275,36 @@ export class BoardView extends Component {
     }
 
     private showToast(message: string) {
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+        const scaleFactor = this.getScaleFactor();
+        const toastW = Math.min(cw * 0.82, 480 * scaleFactor);
+        const toastH = Math.max(48, 56 * scaleFactor);
         const toast = new Node("Toast");
         toast.layer = 33554432;
         const transform = toast.addComponent(UITransform);
-        transform.setContentSize(400, 50);
+        transform.setContentSize(toastW, toastH);
 
         const graphics = toast.addComponent(Graphics);
         graphics.fillColor = new Color(0, 0, 0, 200);
-        graphics.roundRect(-200, -25, 400, 50, 10);
+        graphics.roundRect(-toastW / 2, -toastH / 2, toastW, toastH, 12 * scaleFactor);
         graphics.fill();
 
         const textNode = new Node("Text");
         textNode.layer = 33554432;
         const label = textNode.addComponent(Label);
         label.string = message;
-        label.fontSize = 18;
+        label.fontSize = Math.round(Math.max(16, 18 * scaleFactor));
+        label.lineHeight = Math.round(Math.max(20, 24 * scaleFactor));
         label.color = Color.WHITE;
-        textNode.addComponent(UITransform);
+        textNode.addComponent(UITransform).setContentSize(toastW - 32 * scaleFactor, toastH);
         toast.addChild(textNode);
 
         const opacity = toast.addComponent(UIOpacity);
         opacity.opacity = 255;
 
+        toast.setPosition(new Vec3(0, -ch / 2 + 126 * scaleFactor, 0));
         this.node.parent!.addChild(toast);
 
         tween(toast)
@@ -2348,5 +2428,95 @@ export class BoardView extends Component {
                 });
             }
         });
+    }
+
+    private createForestFireflies(parent: Node, scaleFactor: number) {
+        const uiTrans = parent.getComponent(UITransform);
+        if (!uiTrans) return;
+        const w = uiTrans.width;
+        const h = uiTrans.height;
+
+        const effectNode = new Node('ForestFirefliesLayer');
+        effectNode.layer = parent.layer || 33554432;
+        effectNode.addComponent(UITransform).setContentSize(w, h);
+        parent.addChild(effectNode);
+        
+        // 保证在背景 wash 层之上，但比其他 UI 元素低
+        effectNode.setSiblingIndex(2);
+
+        const particleCount = 14;
+        const colors = ['#bbfeb8', '#fff8b3', '#d4ffc7']; // 淡绿、淡金、黄绿
+
+        for (let i = 0; i < particleCount; i++) {
+            const particle = new Node(`Firefly_${i}`);
+            particle.layer = effectNode.layer;
+            particle.addComponent(UITransform);
+            const g = particle.addComponent(Graphics);
+
+            const size = (8 + Math.random() * 12) * scaleFactor;
+            const colorHex = colors[Math.floor(Math.random() * colors.length)];
+            const color = new Color();
+            Color.fromHEX(color, colorHex);
+            
+            // 绘制羽化光斑效果：用多层渐变透明的圆重叠实现
+            const baseAlpha = 30 + Math.floor(Math.random() * 50);
+            for (let r_step = 3; r_step >= 1; r_step--) {
+                color.a = Math.floor(baseAlpha / r_step);
+                g.fillColor = color;
+                g.circle(0, 0, size * (r_step * 0.45));
+                g.fill();
+            }
+
+            // 随机初始位置
+            const initX = -w / 2 + Math.random() * w;
+            const initY = -h / 2 + Math.random() * h;
+            particle.setPosition(initX, initY, 0);
+            
+            const pOpacity = particle.addComponent(UIOpacity);
+            pOpacity.opacity = baseAlpha * 2.5;
+
+            effectNode.addChild(particle);
+
+            // 游荡大缓动大循环
+            const roam = (node: Node, opacityComp: UIOpacity) => {
+                if (!node.isValid || !opacityComp.isValid) return;
+                
+                const targetX = -w / 2 + Math.random() * w;
+                const targetY = -h / 2 + Math.random() * h;
+                const duration = 12 + Math.random() * 12;
+                const targetOpacity = 50 + Math.floor(Math.random() * 180);
+
+                // 物理横向摆动曲线
+                const shakeCount = 3 + Math.floor(Math.random() * 4);
+                const currentPos = node.position.clone();
+                const stepX = (targetX - currentPos.x) / shakeCount;
+                const stepY = (targetY - currentPos.y) / shakeCount;
+
+                const t = tween(node);
+                for (let step = 1; step <= shakeCount; step++) {
+                    const stepDuration = duration / shakeCount;
+                    const nextX = currentPos.x + stepX * step + (Math.random() * 40 - 20) * scaleFactor;
+                    const nextY = currentPos.y + stepY * step + (Math.random() * 40 - 20) * scaleFactor;
+                    const stepScale = 0.8 + Math.random() * 0.4;
+                    
+                    t.to(stepDuration, { position: new Vec3(nextX, nextY, 0), scale: new Vec3(stepScale, stepScale, 1) }, { easing: 'sineInOut' });
+                }
+
+                t.call(() => {
+                    roam(node, opacityComp);
+                }).start();
+
+                // 独立控制呼吸闪烁
+                tween(opacityComp)
+                    .to(duration * 0.4, { opacity: targetOpacity }, { easing: 'sineInOut' })
+                    .to(duration * 0.6, { opacity: 20 + Math.random() * 40 }, { easing: 'sineInOut' })
+                    .start();
+            };
+
+            // 随机延时后开始游荡，错开动作
+            this.scheduleOnce(() => {
+                roam(particle, pOpacity);
+            }, Math.random() * 3.0);
+        }
     }
 }

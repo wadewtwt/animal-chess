@@ -7,6 +7,7 @@ export class LoadingScene extends Component {
     private _targetProgress: number = 0;
     private _isLoaded: boolean = false;
     private _barTotalWidth: number = 300;
+    private _barFillHeight: number = 56;
     private _elapsed: number = 0;
     private _loadingDuration: number = 2;
 
@@ -99,8 +100,8 @@ export class LoadingScene extends Component {
         if (g) {
             g.clear();
             if (w > 4) {
-                const h = 56;
-                const radius = Math.min(28, w / 2);
+                const h = this._barFillHeight;
+                const radius = Math.min(h / 2, w / 2);
                 g.roundRect(0, -h / 2, w, h, radius);
                 g.fill();
             }
@@ -140,6 +141,10 @@ export class LoadingScene extends Component {
         }
         const cw = uiTrans.width;
         const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.max(0.62, Math.min(cw / refW, ch / refH));
 
         // 1. Background (using loading_bg)
         const bgNode = new Node('Background');
@@ -162,32 +167,37 @@ export class LoadingScene extends Component {
         widget.bottom = 0;
         widget.alignMode = 2; // ON_WINDOW_RESIZE
 
-        // 2. Loading Progress Bar (整体拉长并往上移动至底部 35% 处)
+        // 2. Loading Progress Bar (随屏幕尺寸缩放，避免小屏横屏挤压)
         const bottomContainer = new Node('BottomContainer');
         bottomContainer.layer = 33554432;
         bottomContainer.addComponent(UITransform);
-        bottomContainer.setPosition(0, -ch / 2 + ch * 0.35, 0); // 往上移动至距离底边 35% 像素
+        bottomContainer.setPosition(0, -ch / 2 + ch * (isPortrait ? 0.35 : 0.28), 0);
         canvas.addChild(bottomContainer);
 
-        const statusTxt = this.createLabelNode('StatusTxt', '游戏努力加载中。。。', 36, '#137920', true); // 字号放大至 36
-        statusTxt.setPosition(0, 90, 0); // Y坐标上移至 90
+        const statusFontSize = Math.round(Math.max(22, Math.min(36, 36 * scaleFactor)));
+        const statusTxt = this.createLabelNode('StatusTxt', '游戏努力加载中...', statusFontSize, '#137920', true);
+        statusTxt.setPosition(0, 88 * scaleFactor, 0);
         bottomContainer.addChild(statusTxt);
 
-        this._barTotalWidth = Math.min(cw * 0.9, 832); // 进度条总宽度再拉长 30%，最大 832 像素
-        const barBg = this.createRectNode('BarBg', '#e9e2c6', this._barTotalWidth + 16, 72, 36); // 高度放大至 72，圆角 36
+        this._barTotalWidth = Math.min(cw * 0.86, 640 * scaleFactor);
+        const barBgHeight = 72 * scaleFactor;
+        const barBg = this.createRectNode('BarBg', '#e9e2c6', this._barTotalWidth + 16 * scaleFactor, barBgHeight, barBgHeight / 2);
         bottomContainer.addChild(barBg);
 
-        const barFillNode = this.createRectNode('BarFill', '#046a17', 0, 56, 28); // 填充条高度放大至 56，圆角 28
+        this._barFillHeight = 56 * scaleFactor;
+        const barFillNode = this.createRectNode('BarFill', '#046a17', 0, this._barFillHeight, this._barFillHeight / 2);
         barFillNode.getComponent(UITransform).setAnchorPoint(0, 0.5);
         barFillNode.setPosition(-this._barTotalWidth / 2, 0, 0);
         this.progressBarFill = barFillNode.getComponent(UITransform);
         bottomContainer.addChild(barFillNode);
 
-        this.progressBadge = this.createRectNode('ProgressBadge', '#fdf441', 150, 80, 24); // 气泡大小放大至 150x80，圆角 24
-        this.progressBadge.setPosition(-this._barTotalWidth / 2, 86, 0); // Y坐标上移至 86
+        const badgeW = 132 * scaleFactor;
+        const badgeH = 68 * scaleFactor;
+        this.progressBadge = this.createRectNode('ProgressBadge', '#fdf441', badgeW, badgeH, 20 * scaleFactor);
+        this.progressBadge.setPosition(-this._barTotalWidth / 2, 82 * scaleFactor, 0);
         bottomContainer.addChild(this.progressBadge);
 
-        this.progressText = this.createLabelNode('ProgressText', '0%', 42, '#000000', true).getComponent(Label); // 字号放大至 42
+        this.progressText = this.createLabelNode('ProgressText', '0%', Math.round(38 * scaleFactor), '#000000', true).getComponent(Label);
         this.progressBadge.addChild(this.progressText.node);
     }
 

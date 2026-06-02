@@ -47,7 +47,11 @@ export class ModeSelectionUI extends Component {
         this.safeLoadSprite('textures/main_menu_bg', bgSprite, false);
         canvas.addChild(bgNode);
 
-        canvas.addChild(this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36));
+        const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36);
+        canvas.addChild(bgWash);
+
+        // 森林微光特效粒子层 (加在背景 wash 层之上，卡片及 UI 之下)
+        this.createForestFireflies(canvas, scaleFactor);
 
         // 1. 顶栏 (自适应放大)
         const topBarHeight = 92 * scaleFactor;
@@ -66,7 +70,7 @@ export class ModeSelectionUI extends Component {
         const xpPill = this.createRectNode('XPPill', '#4caf50', 190 * scaleFactor, 58 * scaleFactor, 29 * scaleFactor);
         xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
         topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', '★ XP: 1250', 24 * scaleFactor, '#ffffff', true);
+        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', 24 * scaleFactor, '#ffffff', true);
         xpPill.addChild(xpTxt);
 
         // 2. 卡片自适应尺寸 (高宽及间距放大)
@@ -102,7 +106,7 @@ export class ModeSelectionUI extends Component {
             cardH,
             '人机挑战',
             '#8b5000',
-            '练习 >',
+            '练习',
             '#8b5000',
             '#4d2b00',
             'textures/mode_ai_practice',
@@ -120,7 +124,7 @@ export class ModeSelectionUI extends Component {
             cardH,
             '房间对战',
             '#695f00',
-            '进入 >',
+            '进入',
             '#695f00',
             '#4f4800',
             'textures/mode_online_battle',
@@ -158,7 +162,7 @@ export class ModeSelectionUI extends Component {
         cardBg.layer = 33554432;
         cardBg.addComponent(UITransform).setContentSize(w, h);
         const bgG = cardBg.addComponent(Graphics);
-        
+
         // 填充暖象牙米白色底
         bgG.fillColor = new Color(250, 248, 240, 255); // #faf8f0
         bgG.roundRect(-w/2, -h/2, w, h, r);
@@ -263,6 +267,11 @@ export class ModeSelectionUI extends Component {
             btn.setPosition(new Vec3(0, -h / 2 + 46 * scaleFactor, 0));
             onClick();
         }, this);
+
+        btn.on(Node.EventType.TOUCH_CANCEL, () => {
+            btn.setScale(new Vec3(1.0, 1.0, 1.0));
+            btn.setPosition(new Vec3(0, -h / 2 + 46 * scaleFactor, 0));
+        }, this);
         
         cardContainer.on(Node.EventType.TOUCH_CANCEL, () => {
             // 取消按压时也全部弹回常态初始参数
@@ -284,7 +293,7 @@ export class ModeSelectionUI extends Component {
         const isPortrait = ch > cw;
         const refW = isPortrait ? 750 : 1280;
         const refH = isPortrait ? 1334 : 720;
-        const scaleFactor = Math.min(cw / refW, ch / refH);
+        const scaleFactor = Math.max(0.62, Math.min(cw / refW, ch / refH));
 
         // 如果存在则先销毁，确保自适应参数永远最新
         if (this.difficultyDialog) {
@@ -495,22 +504,25 @@ export class ModeSelectionUI extends Component {
         const isPortrait = ch > cw;
         const refW = isPortrait ? 750 : 1280;
         const refH = isPortrait ? 1334 : 720;
-        const scaleFactor = Math.min(cw / refW, ch / refH);
+        const scaleFactor = Math.max(0.62, Math.min(cw / refW, ch / refH));
+        const toastW = Math.min(cw * 0.82, 460 * scaleFactor);
+        const toastH = 60 * scaleFactor;
 
         this.toastNode = new Node('Toast');
         this.toastNode.layer = 33554432;
         const trans = this.toastNode.addComponent(UITransform);
-        trans.setContentSize(280 * scaleFactor, 60 * scaleFactor);
+        trans.setContentSize(toastW, toastH);
         this.toastNode.setPosition(0, -100 * scaleFactor, 0);
         canvas.addChild(this.toastNode);
 
         const opacity = this.toastNode.addComponent(UIOpacity);
         opacity.opacity = 0;
 
-        const bg = this.createRectNode('Bg', '#000000', 280 * scaleFactor, 60 * scaleFactor, 15 * scaleFactor, 190);
+        const bg = this.createRectNode('Bg', '#000000', toastW, toastH, 15 * scaleFactor, 190);
         this.toastNode.addChild(bg);
 
         const txt = this.createLabelNode('Label', text, 18 * scaleFactor, '#ffffff', true);
+        txt.getComponent(UITransform).setContentSize(toastW - 32 * scaleFactor, toastH);
         this.toastNode.addChild(txt);
 
         tween(opacity)
@@ -798,7 +810,7 @@ export class ModeSelectionUI extends Component {
         const xpPill = this.createRectNode('XPPill', '#e5debd', 170 * scaleFactor, 54 * scaleFactor, 27 * scaleFactor);
         xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
         topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', '1,250 🔷', 22 * scaleFactor, '#3f3600', true);
+        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', 22 * scaleFactor, '#3f3600', true);
         xpPill.addChild(xpTxt);
 
         // 房间代码 (产生 6 位数字)
@@ -871,14 +883,14 @@ export class ModeSelectionUI extends Component {
             const shareBtn = this.createRectNode('ShareBtn', '#d68118', btnW, btnH, btnRadius);
             shareBtn.setPosition(0, btn1Y, 0);
             this.createRoomDialog.addChild(shareBtn);
-            const shareTxt = this.createLabelNode('ShareTxt', '☍ 复制并分享', 26 * scaleFactor, '#ffffff', true);
+            const shareTxt = this.createLabelNode('ShareTxt', '复制并分享', 26 * scaleFactor, '#ffffff', true);
             shareBtn.addChild(shareTxt);
 
             shareBtn.addComponent(Button);
             shareBtn.on(Node.EventType.TOUCH_START, () => { shareBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             shareBtn.on(Node.EventType.TOUCH_END, () => {
                 shareBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                sys.copyText(randomCode);
+                this.copyToClipboard(randomCode);
                 this.showToast(`复制成功！房间代码: ${randomCode}`);
             });
             shareBtn.on(Node.EventType.TOUCH_CANCEL, () => { shareBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
@@ -891,7 +903,7 @@ export class ModeSelectionUI extends Component {
             const enterBtn = this.createRectNode('EnterBtn', '#48b85c', btnW, btnH, btnRadius);
             enterBtn.setPosition(0, btn2Y, 0);
             this.createRoomDialog.addChild(enterBtn);
-            const enterTxt = this.createLabelNode('EnterTxt', '➜] 进入房间', 26 * scaleFactor, '#ffffff', true);
+            const enterTxt = this.createLabelNode('EnterTxt', '进入房间', 26 * scaleFactor, '#ffffff', true);
             enterBtn.addChild(enterTxt);
 
             enterBtn.addComponent(Button);
@@ -998,14 +1010,14 @@ export class ModeSelectionUI extends Component {
             const shareBtn = this.createRectNode('ShareBtn', '#d68118', btnW, btnH, btnRadius);
             shareBtn.setPosition(rightX - btnW / 2 - 12 * scaleFactor, btnY, 0);
             this.createRoomDialog.addChild(shareBtn);
-            const shareTxt = this.createLabelNode('ShareTxt', '☍ 复制并分享', 18 * scaleFactor, '#ffffff', true);
+            const shareTxt = this.createLabelNode('ShareTxt', '复制分享', 18 * scaleFactor, '#ffffff', true);
             shareBtn.addChild(shareTxt);
 
             shareBtn.addComponent(Button);
             shareBtn.on(Node.EventType.TOUCH_START, () => { shareBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             shareBtn.on(Node.EventType.TOUCH_END, () => {
                 shareBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                sys.copyText(randomCode);
+                this.copyToClipboard(randomCode);
                 this.showToast(`复制成功！房间代码: ${randomCode}`);
             });
             shareBtn.on(Node.EventType.TOUCH_CANCEL, () => { shareBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
@@ -1018,7 +1030,7 @@ export class ModeSelectionUI extends Component {
             const enterBtn = this.createRectNode('EnterBtn', '#48b85c', btnW, btnH, btnRadius);
             enterBtn.setPosition(rightX + btnW / 2 + 12 * scaleFactor, btnY, 0);
             this.createRoomDialog.addChild(enterBtn);
-            const enterTxt = this.createLabelNode('EnterTxt', '➜] 进入房间', 18 * scaleFactor, '#ffffff', true);
+            const enterTxt = this.createLabelNode('EnterTxt', '进入房间', 18 * scaleFactor, '#ffffff', true);
             enterBtn.addChild(enterTxt);
 
             enterBtn.addComponent(Button);
@@ -1050,6 +1062,131 @@ export class ModeSelectionUI extends Component {
                 }
             })
             .start();
+    }
+
+    private copyToClipboard(text: string): boolean {
+        if (sys.isBrowser) {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text);
+                    return true;
+                }
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.top = "0";
+                textArea.style.left = "0";
+                textArea.style.position = "fixed";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const success = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                return success;
+            } catch (e) {
+                console.error("Web copy error:", e);
+                return false;
+            }
+        }
+
+        try {
+            if (typeof (sys as any).copyText === "function") {
+                (sys as any).copyText(text);
+                return true;
+            }
+        } catch (e) {
+            console.warn("Clipboard copy warning:", e);
+        }
+        return false;
+    }
+
+    private createForestFireflies(parent: Node, scaleFactor: number) {
+        const uiTrans = parent.getComponent(UITransform);
+        if (!uiTrans) return;
+        const w = uiTrans.width;
+        const h = uiTrans.height;
+
+        const effectNode = new Node('ForestFirefliesLayer');
+        effectNode.layer = parent.layer || 33554432;
+        effectNode.addComponent(UITransform).setContentSize(w, h);
+        parent.addChild(effectNode);
+        
+        // 保证在背景 wash 层之上，但比其他 UI 元素低
+        effectNode.setSiblingIndex(2);
+
+        const particleCount = 14;
+        const colors = ['#bbfeb8', '#fff8b3', '#d4ffc7']; // 淡绿、淡金、黄绿
+
+        for (let i = 0; i < particleCount; i++) {
+            const particle = new Node(`Firefly_${i}`);
+            particle.layer = effectNode.layer;
+            particle.addComponent(UITransform);
+            const g = particle.addComponent(Graphics);
+
+            const size = (8 + Math.random() * 12) * scaleFactor;
+            const colorHex = colors[Math.floor(Math.random() * colors.length)];
+            const color = new Color();
+            Color.fromHEX(color, colorHex);
+            
+            // 绘制羽化光斑效果：用多层渐变透明的圆重叠实现
+            const baseAlpha = 30 + Math.floor(Math.random() * 50);
+            for (let r_step = 3; r_step >= 1; r_step--) {
+                color.a = Math.floor(baseAlpha / r_step);
+                g.fillColor = color;
+                g.circle(0, 0, size * (r_step * 0.45));
+                g.fill();
+            }
+
+            // 随机初始位置
+            const initX = -w / 2 + Math.random() * w;
+            const initY = -h / 2 + Math.random() * h;
+            particle.setPosition(initX, initY, 0);
+            
+            const pOpacity = particle.addComponent(UIOpacity);
+            pOpacity.opacity = baseAlpha * 2.5;
+
+            effectNode.addChild(particle);
+
+            // 游荡大缓动大循环
+            const roam = (node: Node, opacityComp: UIOpacity) => {
+                if (!node.isValid || !opacityComp.isValid) return;
+                
+                const targetX = -w / 2 + Math.random() * w;
+                const targetY = -h / 2 + Math.random() * h;
+                const duration = 12 + Math.random() * 12;
+                const targetOpacity = 50 + Math.floor(Math.random() * 180);
+
+                // 物理横向摆动曲线
+                const shakeCount = 3 + Math.floor(Math.random() * 4);
+                const currentPos = node.position.clone();
+                const stepX = (targetX - currentPos.x) / shakeCount;
+                const stepY = (targetY - currentPos.y) / shakeCount;
+
+                const t = tween(node);
+                for (let step = 1; step <= shakeCount; step++) {
+                    const stepDuration = duration / shakeCount;
+                    const nextX = currentPos.x + stepX * step + (Math.random() * 40 - 20) * scaleFactor;
+                    const nextY = currentPos.y + stepY * step + (Math.random() * 40 - 20) * scaleFactor;
+                    const stepScale = 0.8 + Math.random() * 0.4;
+                    
+                    t.to(stepDuration, { position: new Vec3(nextX, nextY, 0), scale: new Vec3(stepScale, stepScale, 1) }, { easing: 'sineInOut' });
+                }
+
+                t.call(() => {
+                    roam(node, opacityComp);
+                }).start();
+
+                // 独立控制呼吸闪烁
+                tween(opacityComp)
+                    .to(duration * 0.4, { opacity: targetOpacity }, { easing: 'sineInOut' })
+                    .to(duration * 0.6, { opacity: 20 + Math.random() * 40 }, { easing: 'sineInOut' })
+                    .start();
+            };
+
+            // 随机延时后开始游荡，错开动作
+            this.scheduleOnce(() => {
+                roam(particle, pOpacity);
+            }, Math.random() * 3.0);
+        }
     }
 
 }

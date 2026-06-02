@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, director, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, sys } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, director, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, UIOpacity, sys } from 'cc';
 const { ccclass } = _decorator;
 
 @ccclass('MainMenuUI')
@@ -15,52 +15,92 @@ export class MainMenuUI extends Component {
         const cw = uiTrans.width;
         const ch = uiTrans.height;
 
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
         // 1. Background
         const bgNode = new Node('Background');
         bgNode.layer = 33554432;
+        bgNode.setScale(new Vec3(1.04, 1.04, 1));
         const bgTrans = bgNode.addComponent(UITransform);
         bgTrans.setContentSize(cw, ch);
-        const bgSprite = bgNode.addComponent(Sprite);
-        bgSprite.sizeMode = 0;
-        this.safeLoadSprite('textures/main_menu_bg', bgSprite);
         canvas.addChild(bgNode);
+
+        const blurOffsets = [
+            new Vec3(0, 0, 0),
+            new Vec3(-6 * scaleFactor, 0, 0),
+            new Vec3(6 * scaleFactor, 0, 0),
+            new Vec3(0, -6 * scaleFactor, 0),
+            new Vec3(0, 6 * scaleFactor, 0),
+        ];
+        blurOffsets.forEach((offset, index) => {
+            const layerNode = new Node(index === 0 ? 'BgSharpHalf' : `BgBlurLayer${index}`);
+            layerNode.layer = 33554432;
+            layerNode.setPosition(offset);
+            const layerTrans = layerNode.addComponent(UITransform);
+            layerTrans.setContentSize(cw, ch);
+            const layerSprite = layerNode.addComponent(Sprite);
+            layerSprite.sizeMode = 0;
+            layerSprite.color = new Color(255, 255, 255, index === 0 ? 128 : 64);
+            this.safeLoadSprite('textures/main_menu_bg', layerSprite);
+            bgNode.addChild(layerNode);
+        });
 
         const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36);
         canvas.addChild(bgWash);
 
-        // 2. Top Bar
-        const topBarHeight = 100;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24, topBarHeight, 20, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8, 0);
+        // 1.5 森林微光特效粒子层 (加在背景 wash 层之上，卡片及 UI 之下)
+        this.createForestFireflies(canvas, scaleFactor);
+
+        // 2. Top Bar (二次调大，在大屏下气场更强，且在极窄屏幕下依靠自适应机制进行优雅防撞)
+        const topBarHeight = Math.max(100, Math.min(130, 130 * scaleFactor));
+        const tbW = cw - 24 * scaleFactor;
+        const topBar = this.createRectNode('TopBar', '#f6ebbf', tbW, topBarHeight, 20 * scaleFactor, 232);
+        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
         canvas.addChild(topBar);
 
-        const avatarNode = this.createCircleNode('Avatar', '#2d2b1f', 36);
-        avatarNode.setPosition(-cw / 2 + 76, 0, 0);
+        const leftX = -tbW / 2 + 14 * scaleFactor;
+        const rightX = tbW / 2 - 14 * scaleFactor;
+
+        // 头像半径调大至 32..54，大屏幕下直径超 100 像素，极其显眼大气
+        const avatarRadius = Math.max(32, Math.min(54, 54 * scaleFactor));
+        const avatarNode = this.createCircleNode('Avatar', '#2d2b1f', avatarRadius);
+        avatarNode.setPosition(leftX + avatarRadius, 0, 0);
         topBar.addChild(avatarNode);
 
-        const nameTxt = this.createLabelNode('Name', '游侠阿提 (Tim)', 24, '#22311c', true);
+        // 调整 XP 药丸参数：宽度 160..240，高度 50..76，但在窄屏下下限适当降低以给中间文字让出空间
+        const xpPillWidth = Math.max(115, Math.min(240, 240 * scaleFactor));
+        const xpPillHeight = Math.max(40, Math.min(76, 76 * scaleFactor));
+        const profileTextX = leftX + avatarRadius * 2 + 12 * scaleFactor;
+        const profileTextMaxWidth = Math.max(100, rightX - xpPillWidth - 18 * scaleFactor - profileTextX);
+
+        // 名字和等级字号二次调大，大屏下更加醒目华贵
+        const nameFontSize = Math.max(18, Math.min(34, 34 * scaleFactor));
+        const nameTxt = this.createLabelNode('Name', '游侠阿提 (Tim)', nameFontSize, '#22311c', true);
         nameTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        nameTxt.setPosition(-cw / 2 + 130, 18, 0);
+        nameTxt.getComponent(UITransform).setContentSize(profileTextMaxWidth, nameFontSize + 6);
+        nameTxt.setPosition(profileTextX, topBarHeight * 0.18, 0);
         topBar.addChild(nameTxt);
 
-        const levelTxt = this.createLabelNode('Level', '等级 12 · 黄金段位', 18, '#198d2c', true);
+        const levelFontSize = Math.max(13, Math.min(24, 24 * scaleFactor));
+        const levelTxt = this.createLabelNode('Level', '等级 12 · 黄金段位', levelFontSize, '#198d2c', true);
         levelTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        levelTxt.setPosition(-cw / 2 + 130, -18, 0);
+        levelTxt.getComponent(UITransform).setContentSize(profileTextMaxWidth, levelFontSize + 6);
+        levelTxt.setPosition(profileTextX, -topBarHeight * 0.18, 0);
         topBar.addChild(levelTxt);
 
-        const xpPill = this.createRectNode('XPPill', '#efe2af', 200, 56, 28);
-        xpPill.setPosition(cw / 2 - 120, 0, 0);
+        const xpPill = this.createRectNode('XPPill', '#efe2af', xpPillWidth, xpPillHeight, xpPillHeight / 2);
+        xpPill.setPosition(rightX - xpPillWidth / 2, 0, 0);
         topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', '✦ XP: 1250', 24, '#5b4b1c', true);
+
+        const xpFontSize = Math.max(16, Math.min(30, 30 * scaleFactor));
+        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', xpFontSize, '#5b4b1c', true);
         xpPill.addChild(xpTxt);
 
         // 3. Main Emblem
-        const isPortrait = ch > cw;
-        
-        // --- 1. 基于设计分辨率动态计算缩放因子 scaleFactor (实现跨分辨率等比例缩放) ---
-        const refW = isPortrait ? 750 : 1280;
-        const refH = isPortrait ? 1334 : 720;
-        const scaleFactor = Math.min(cw / refW, ch / refH);
+        // isPortrait 和 scaleFactor 已在顶部计算和初始化
         
         // --- 2. 动态自适应按钮尺寸及字号 (整体缩小 20%) ---
         const startBtnHeight = (isPortrait ? 190 : 120) * scaleFactor * 0.8;
@@ -201,27 +241,44 @@ export class MainMenuUI extends Component {
             startBtnNode.setScale(new Vec3(1, 1, 1));
             this.onStartGame();
         }, this);
+        startBtnNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            startBtnNode.setScale(new Vec3(1, 1, 1));
+        }, this);
 
         // 6. Bottom Buttons
         const bottomBtnWidth = startBtnWidth / 2 - 24 * scaleFactor;
         const exitBtn = this.createRectNode('ExitBtn', '#f0dd1b', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
         exitBtn.setPosition(-bottomBtnWidth / 2 - 11 * scaleFactor, bottomBtnY, 0);
         canvas.addChild(exitBtn);
-        const exitTxt = this.createLabelNode('ExitTxt', '↩ 退出', bottomBtnFontSize, '#3f3600', true);
+        const exitTxt = this.createLabelNode('ExitTxt', '退出', bottomBtnFontSize, '#3f3600', true);
         exitBtn.addChild(exitTxt);
         exitBtn.addComponent(Button);
+        exitBtn.on(Node.EventType.TOUCH_START, () => {
+            exitBtn.setScale(new Vec3(0.96, 0.96, 1));
+        }, this);
         exitBtn.on(Node.EventType.TOUCH_END, () => {
+            exitBtn.setScale(new Vec3(1, 1, 1));
             this.onExitGame();
+        }, this);
+        exitBtn.on(Node.EventType.TOUCH_CANCEL, () => {
+            exitBtn.setScale(new Vec3(1, 1, 1));
         }, this);
 
         const settingsBtn = this.createRectNode('SettingsBtn', '#efe6c8', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
         settingsBtn.setPosition(bottomBtnWidth / 2 + 11 * scaleFactor, bottomBtnY, 0);
         canvas.addChild(settingsBtn);
-        const settingsTxt = this.createLabelNode('SettingsTxt', '⚙ 系统设置', bottomBtnFontSize, '#44493f', true);
+        const settingsTxt = this.createLabelNode('SettingsTxt', '系统设置', bottomBtnFontSize, '#44493f', true);
         settingsBtn.addChild(settingsTxt);
         settingsBtn.addComponent(Button);
+        settingsBtn.on(Node.EventType.TOUCH_START, () => {
+            settingsBtn.setScale(new Vec3(0.96, 0.96, 1));
+        }, this);
         settingsBtn.on(Node.EventType.TOUCH_END, () => {
+            settingsBtn.setScale(new Vec3(1, 1, 1));
             this.onSettingsGame();
+        }, this);
+        settingsBtn.on(Node.EventType.TOUCH_CANCEL, () => {
+            settingsBtn.setScale(new Vec3(1, 1, 1));
         }, this);
     }
 
@@ -379,10 +436,10 @@ export class MainMenuUI extends Component {
         const soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
 
         if (this.musicBtnLabel) {
-            this.musicBtnLabel.string = `🎵 背景音乐: ${musicOn ? '🔊 开启' : '🔇 关闭'}`;
+            this.musicBtnLabel.string = `背景音乐: ${musicOn ? '开启' : '关闭'}`;
         }
         if (this.soundBtnLabel) {
-            this.soundBtnLabel.string = `🔊 游戏音效: ${soundOn ? '🔊 开启' : '🔇 关闭'}`;
+            this.soundBtnLabel.string = `游戏音效: ${soundOn ? '开启' : '关闭'}`;
         }
     }
 
@@ -492,5 +549,95 @@ export class MainMenuUI extends Component {
                 });
             }
         });
+    }
+
+    private createForestFireflies(parent: Node, scaleFactor: number) {
+        const uiTrans = parent.getComponent(UITransform);
+        if (!uiTrans) return;
+        const w = uiTrans.width;
+        const h = uiTrans.height;
+
+        const effectNode = new Node('ForestFirefliesLayer');
+        effectNode.layer = parent.layer || 33554432;
+        effectNode.addComponent(UITransform).setContentSize(w, h);
+        parent.addChild(effectNode);
+        
+        // 保证在背景 wash 层之上，但比其他 UI 元素低
+        effectNode.setSiblingIndex(2);
+
+        const particleCount = 14;
+        const colors = ['#bbfeb8', '#fff8b3', '#d4ffc7']; // 淡绿、淡金、黄绿
+
+        for (let i = 0; i < particleCount; i++) {
+            const particle = new Node(`Firefly_${i}`);
+            particle.layer = effectNode.layer;
+            particle.addComponent(UITransform);
+            const g = particle.addComponent(Graphics);
+
+            const size = (8 + Math.random() * 12) * scaleFactor;
+            const colorHex = colors[Math.floor(Math.random() * colors.length)];
+            const color = new Color();
+            Color.fromHEX(color, colorHex);
+            
+            // 绘制羽化光斑效果：用多层渐变透明的圆重叠实现
+            const baseAlpha = 30 + Math.floor(Math.random() * 50);
+            for (let r_step = 3; r_step >= 1; r_step--) {
+                color.a = Math.floor(baseAlpha / r_step);
+                g.fillColor = color;
+                g.circle(0, 0, size * (r_step * 0.45));
+                g.fill();
+            }
+
+            // 随机初始位置
+            const initX = -w / 2 + Math.random() * w;
+            const initY = -h / 2 + Math.random() * h;
+            particle.setPosition(initX, initY, 0);
+            
+            const pOpacity = particle.addComponent(UIOpacity);
+            pOpacity.opacity = baseAlpha * 2.5;
+
+            effectNode.addChild(particle);
+
+            // 游荡大缓动大循环
+            const roam = (node: Node, opacityComp: UIOpacity) => {
+                if (!node.isValid || !opacityComp.isValid) return;
+                
+                const targetX = -w / 2 + Math.random() * w;
+                const targetY = -h / 2 + Math.random() * h;
+                const duration = 12 + Math.random() * 12;
+                const targetOpacity = 50 + Math.floor(Math.random() * 180);
+
+                // 物理横向摆动曲线
+                const shakeCount = 3 + Math.floor(Math.random() * 4);
+                const currentPos = node.position.clone();
+                const stepX = (targetX - currentPos.x) / shakeCount;
+                const stepY = (targetY - currentPos.y) / shakeCount;
+
+                const t = tween(node);
+                for (let step = 1; step <= shakeCount; step++) {
+                    const stepDuration = duration / shakeCount;
+                    const nextX = currentPos.x + stepX * step + (Math.random() * 40 - 20) * scaleFactor;
+                    const nextY = currentPos.y + stepY * step + (Math.random() * 40 - 20) * scaleFactor;
+                    const stepScale = 0.8 + Math.random() * 0.4;
+                    
+                    t.to(stepDuration, { position: new Vec3(nextX, nextY, 0), scale: new Vec3(stepScale, stepScale, 1) }, { easing: 'sineInOut' });
+                }
+
+                t.call(() => {
+                    roam(node, opacityComp);
+                }).start();
+
+                // 独立控制呼吸闪烁
+                tween(opacityComp)
+                    .to(duration * 0.4, { opacity: targetOpacity }, { easing: 'sineInOut' })
+                    .to(duration * 0.6, { opacity: 20 + Math.random() * 40 }, { easing: 'sineInOut' })
+                    .start();
+            };
+
+            // 随机延时后开始游荡，错开动作
+            this.scheduleOnce(() => {
+                roam(particle, pOpacity);
+            }, Math.random() * 3.0);
+        }
     }
 }
