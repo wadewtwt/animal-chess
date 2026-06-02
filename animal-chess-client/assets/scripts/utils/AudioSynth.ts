@@ -1,8 +1,40 @@
+import { sys } from 'cc';
 import { AnimalType } from '../engine/LocalEngine';
 
 export class AudioSynth {
     private static ctx: AudioContext | null = null;
     private static isInitialized = false;
+
+    public static playClick() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gainNode = this.ctx.createGain();
+        
+        osc.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+        
+        // A satisfying premium soft pop/click
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, startTime);
+        osc.frequency.exponentialRampToValueAtTime(200, startTime + 0.08); // frequency sweep down
+        
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.25, startTime + 0.003);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
+        
+        osc.start(startTime);
+        osc.stop(startTime + 0.09);
+    }
 
     public static init() {
         if (this.isInitialized) return;

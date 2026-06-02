@@ -16,9 +16,6 @@ export class PieceView extends Component {
 
     private pieceData!: Piece;
     private staticAnimalFrame: SpriteFrame | null = null;
-    private walkFrames: SpriteFrame[] = [];
-    private walkFrameIndex = 0;
-    private isWalking = false;
     public useFullPieceArt = false;
 
     private shadowNode: Node | null = null;

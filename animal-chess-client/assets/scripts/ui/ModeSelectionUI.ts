@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, assetManager, UIOpacity, sys } from 'cc';
+import { AudioSynth } from '../utils/AudioSynth';
 const { ccclass } = _decorator;
 
 type DifficultyKey = 'easy' | 'normal' | 'hard';
@@ -51,7 +52,9 @@ export class ModeSelectionUI extends Component {
         canvas.addChild(bgWash);
 
         // 森林微光特效粒子层 (加在背景 wash 层之上，卡片及 UI 之下)
-        this.createForestFireflies(canvas, scaleFactor);
+        if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
+            this.createForestFireflies(canvas, scaleFactor);
+        }
 
         // 1. 顶栏 (自适应放大)
         const topBarHeight = 92 * scaleFactor;
@@ -265,6 +268,7 @@ export class ModeSelectionUI extends Component {
         btn.on(Node.EventType.TOUCH_END, () => {
             btn.setScale(new Vec3(1.0, 1.0, 1.0));
             btn.setPosition(new Vec3(0, -h / 2 + 46 * scaleFactor, 0));
+            AudioSynth.playClick();
             onClick();
         }, this);
 
@@ -329,7 +333,10 @@ export class ModeSelectionUI extends Component {
         const closeTxt = this.createLabelNode('CloseTxt', '×', 32 * scaleFactor, '#ffffff', true);
         closeBtn.addChild(closeTxt);
         closeBtn.addComponent(Button);
-        closeBtn.on(Node.EventType.TOUCH_END, () => this.hideDifficultyDialog(), this);
+        closeBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
+            this.hideDifficultyDialog();
+        }, this);
 
         const title = this.createLabelNode('Title', '选择难度', 36 * scaleFactor, '#148437', true);
         title.setPosition(0, dialogH / 2 - 60 * scaleFactor, 0);
@@ -363,6 +370,7 @@ export class ModeSelectionUI extends Component {
         startBtn.addChild(startTxt);
         startBtn.addComponent(Button);
         startBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
             const difficulty = this.selectedDifficulty;
             this.hideDifficultyDialog();
             this.node.emit('start-ai-practice', difficulty);
@@ -474,6 +482,7 @@ export class ModeSelectionUI extends Component {
 
         optionNode.addComponent(Button);
         optionNode.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
             this.selectedDifficulty = key;
             this.refreshDifficultySelection();
         }, this);
@@ -653,6 +662,7 @@ export class ModeSelectionUI extends Component {
         }, this);
         btn.on(Node.EventType.TOUCH_END, () => {
             btn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             onClick();
         }, this);
         btn.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -821,7 +831,7 @@ export class ModeSelectionUI extends Component {
             // (1) 成功绿色对勾图标
             const checkIcon = new Node('CheckIcon');
             checkIcon.layer = 33554432;
-            checkIcon.setPosition(0, ch / 2 - topBarHeight - 130 * scaleFactor, 0);
+            checkIcon.setPosition(0, ch / 2 - topBarHeight - 180 * scaleFactor, 0);
             this.createRoomDialog.addChild(checkIcon);
             const outerCircle = this.createCircleNode('Outer', '#e3f3e6', 70 * scaleFactor);
             checkIcon.addChild(outerCircle);
@@ -839,41 +849,12 @@ export class ModeSelectionUI extends Component {
             successSubtitle.setPosition(0, successTitle.position.y - 46 * scaleFactor, 0);
             this.createRoomDialog.addChild(successSubtitle);
 
-            // (3) 白色大代码卡片
-            const cardW = 520 * scaleFactor;
-            const cardH = 290 * scaleFactor;
-            const cardY = successSubtitle.position.y - 180 * scaleFactor;
-
-            const cardShadow = this.createRectNode('CardShadow', '#e0dfd5', cardW, cardH, 36 * scaleFactor);
-            cardShadow.setPosition(0, cardY - 4 * scaleFactor, 0);
-            this.createRoomDialog.addChild(cardShadow);
-
-            const codeCard = this.createRectNode('CodeCard', '#ffffff', cardW, cardH, 36 * scaleFactor);
-            codeCard.setPosition(0, cardY, 0);
-            this.createRoomDialog.addChild(codeCard);
-
-            const tagNode = this.createRectNode('Tag', '#f5eba9', 160 * scaleFactor, 46 * scaleFactor, 23 * scaleFactor);
-            tagNode.setPosition(0, cardH / 2 - 40 * scaleFactor, 0);
-            codeCard.addChild(tagNode);
-            const tagText = this.createLabelNode('TagText', '房间代码', 20 * scaleFactor, '#7f6f26', true);
-            tagNode.addChild(tagText);
-
-            const codeBg = this.createRectNode('CodeBg', '#f1f6f2', cardW - 70 * scaleFactor, 88 * scaleFactor, 26 * scaleFactor);
-            codeBg.setPosition(0, 10 * scaleFactor, 0);
-            codeCard.addChild(codeBg);
-            const codeLabel = this.createLabelNode('CodeText', randomCode, 48 * scaleFactor, '#006e1c', true);
-            codeBg.addChild(codeLabel);
-
-            const expireText = this.createLabelNode('ExpireText', '此代码在 15 分钟内有效', 18 * scaleFactor, '#9ca597', false);
-            expireText.setPosition(0, -cardH / 2 + 40 * scaleFactor, 0);
-            codeCard.addChild(expireText);
-
-            // (4) 两个按钮
+            // (3) 两个按钮 (垂直居中排列，不再有卡片阻挡)
             const btnW = 540 * scaleFactor;
             const btnH = 88 * scaleFactor;
             const btnRadius = btnH / 2;
-            const btn1Y = cardY - cardH / 2 - 80 * scaleFactor;
-            const btn2Y = btn1Y - btnH - 24 * scaleFactor;
+            const btn1Y = successSubtitle.position.y - 140 * scaleFactor;
+            const btn2Y = btn1Y - btnH - 30 * scaleFactor;
 
             // 复制分享
             const shareShadow = this.createRectNode('ShareShadow', '#7f4400', btnW, btnH, btnRadius, 120);
@@ -890,8 +871,8 @@ export class ModeSelectionUI extends Component {
             shareBtn.on(Node.EventType.TOUCH_START, () => { shareBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             shareBtn.on(Node.EventType.TOUCH_END, () => {
                 shareBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                this.copyToClipboard(randomCode);
-                this.showToast(`复制成功！房间代码: ${randomCode}`);
+                AudioSynth.playClick();
+                this.shareGameRoom(randomCode);
             });
             shareBtn.on(Node.EventType.TOUCH_CANCEL, () => { shareBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
@@ -910,33 +891,17 @@ export class ModeSelectionUI extends Component {
             enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             enterBtn.on(Node.EventType.TOUCH_END, () => {
                 enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+                AudioSynth.playClick();
                 this.showToast("正在连接网络房间对局...");
             });
             enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
-            // (5) 底部小牛蛙
-            const frogY = btn2Y - btnH / 2 - 80 * scaleFactor;
-            const frogNode = new Node('FrogNode');
-            frogNode.layer = 33554432;
-            const frogTrans = frogNode.addComponent(UITransform);
-            frogTrans.setContentSize(120 * scaleFactor, 120 * scaleFactor);
-            const frogSprite = frogNode.addComponent(Sprite);
-            frogSprite.sizeMode = 0;
-            frogSprite.color = new Color(200, 200, 200, 255);
-            frogNode.setPosition(0, frogY, 0);
-            this.createRoomDialog.addChild(frogNode);
-            this.safeLoadSprite('textures/mode_online_battle', frogSprite);
-            
         } else {
-            // ================== 横屏左右布局 ==================
-            const leftX = -cw / 4;
-            const rightX = cw / 4;
-            const startY = (ch / 2 - topBarHeight) - 60 * scaleFactor;
-
-            // (1) 左侧：成功绿色对勾图标
+            // ================== 横屏左右对齐改为居中对称布局 ==================
+            // (1) 成功绿色对勾图标
             const checkIcon = new Node('CheckIcon');
             checkIcon.layer = 33554432;
-            checkIcon.setPosition(leftX, startY - 40 * scaleFactor, 0);
+            checkIcon.setPosition(0, ch / 2 - topBarHeight - 110 * scaleFactor, 0);
             this.createRoomDialog.addChild(checkIcon);
             const outerCircle = this.createCircleNode('Outer', '#e3f3e6', 56 * scaleFactor);
             checkIcon.addChild(outerCircle);
@@ -945,70 +910,28 @@ export class ModeSelectionUI extends Component {
             const checkMark = this.createLabelNode('CheckMark', '✓', 42 * scaleFactor, '#ffffff', true);
             innerCircle.addChild(checkMark);
 
-            // (2) 左侧：成功标题和副标题
+            // (2) 成功标题和副标题
             const successTitle = this.createLabelNode('SuccessTitle', '创建房间成功！', 32 * scaleFactor, '#006e1c', true);
-            successTitle.setPosition(leftX, checkIcon.position.y - 86 * scaleFactor, 0);
+            successTitle.setPosition(0, checkIcon.position.y - 86 * scaleFactor, 0);
             this.createRoomDialog.addChild(successTitle);
 
             const successSubtitle = this.createLabelNode('SuccessSubtitle', '快叫上你的小伙伴一起来战斗吧', 16 * scaleFactor, '#66755c', false);
-            successSubtitle.setPosition(leftX, successTitle.position.y - 36 * scaleFactor, 0);
+            successSubtitle.setPosition(0, successTitle.position.y - 36 * scaleFactor, 0);
             this.createRoomDialog.addChild(successSubtitle);
 
-            // (3) 左侧：底部小牛蛙
-            const frogNode = new Node('FrogNode');
-            frogNode.layer = 33554432;
-            const frogTrans = frogNode.addComponent(UITransform);
-            frogTrans.setContentSize(96 * scaleFactor, 96 * scaleFactor);
-            const frogSprite = frogNode.addComponent(Sprite);
-            frogSprite.sizeMode = 0;
-            frogSprite.color = new Color(200, 200, 200, 255);
-            frogNode.setPosition(leftX, successSubtitle.position.y - 86 * scaleFactor, 0);
-            this.createRoomDialog.addChild(frogNode);
-            this.safeLoadSprite('textures/mode_online_battle', frogSprite);
-
-            // 右侧布局
-            // (4) 右侧：白色卡片
-            const cardW = 460 * scaleFactor;
-            const cardH = 220 * scaleFactor;
-            const cardY = startY - 20 * scaleFactor;
-
-            const cardShadow = this.createRectNode('CardShadow', '#e0dfd5', cardW, cardH, 24 * scaleFactor);
-            cardShadow.setPosition(rightX, cardY - 3 * scaleFactor, 0);
-            this.createRoomDialog.addChild(cardShadow);
-
-            const codeCard = this.createRectNode('CodeCard', '#ffffff', cardW, cardH, 24 * scaleFactor);
-            codeCard.setPosition(rightX, cardY, 0);
-            this.createRoomDialog.addChild(codeCard);
-
-            const tagNode = this.createRectNode('Tag', '#f5eba9', 140 * scaleFactor, 36 * scaleFactor, 18 * scaleFactor);
-            tagNode.setPosition(0, cardH / 2 - 28 * scaleFactor, 0);
-            codeCard.addChild(tagNode);
-            const tagText = this.createLabelNode('TagText', '房间代码', 16 * scaleFactor, '#7f6f26', true);
-            tagNode.addChild(tagText);
-
-            const codeBg = this.createRectNode('CodeBg', '#f1f6f2', cardW - 60 * scaleFactor, 72 * scaleFactor, 20 * scaleFactor);
-            codeBg.setPosition(0, 4 * scaleFactor, 0);
-            codeCard.addChild(codeBg);
-            const codeLabel = this.createLabelNode('CodeText', randomCode, 38 * scaleFactor, '#006e1c', true);
-            codeBg.addChild(codeLabel);
-
-            const expireText = this.createLabelNode('ExpireText', '此代码在 15 分钟内有效', 14 * scaleFactor, '#9ca597', false);
-            expireText.setPosition(0, -cardH / 2 + 28 * scaleFactor, 0);
-            codeCard.addChild(expireText);
-
-            // (5) 右侧：下方并排的两个按钮（横屏下并排以节约高度）
-            const btnW = cardW / 2 - 12 * scaleFactor;
+            // (3) 横屏并排按钮 (居中放置，不再有卡片阻挡)
+            const btnW = 240 * scaleFactor;
             const btnH = 76 * scaleFactor;
             const btnRadius = btnH / 2;
-            const btnY = cardY - cardH / 2 - 60 * scaleFactor;
+            const btnY = successSubtitle.position.y - 86 * scaleFactor;
 
             // 复制分享
             const shareShadow = this.createRectNode('ShareShadow', '#7f4400', btnW, btnH, btnRadius, 120);
-            shareShadow.setPosition(rightX - btnW / 2 - 12 * scaleFactor, btnY - 3 * scaleFactor, 0);
+            shareShadow.setPosition(-btnW / 2 - 12 * scaleFactor, btnY - 3 * scaleFactor, 0);
             this.createRoomDialog.addChild(shareShadow);
 
             const shareBtn = this.createRectNode('ShareBtn', '#d68118', btnW, btnH, btnRadius);
-            shareBtn.setPosition(rightX - btnW / 2 - 12 * scaleFactor, btnY, 0);
+            shareBtn.setPosition(-btnW / 2 - 12 * scaleFactor, btnY, 0);
             this.createRoomDialog.addChild(shareBtn);
             const shareTxt = this.createLabelNode('ShareTxt', '复制分享', 18 * scaleFactor, '#ffffff', true);
             shareBtn.addChild(shareTxt);
@@ -1017,18 +940,18 @@ export class ModeSelectionUI extends Component {
             shareBtn.on(Node.EventType.TOUCH_START, () => { shareBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             shareBtn.on(Node.EventType.TOUCH_END, () => {
                 shareBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                this.copyToClipboard(randomCode);
-                this.showToast(`复制成功！房间代码: ${randomCode}`);
+                AudioSynth.playClick();
+                this.shareGameRoom(randomCode);
             });
             shareBtn.on(Node.EventType.TOUCH_CANCEL, () => { shareBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
             // 进入房间
             const enterShadow = this.createRectNode('EnterShadow', '#074f14', btnW, btnH, btnRadius, 120);
-            enterShadow.setPosition(rightX + btnW / 2 + 12 * scaleFactor, btnY - 3 * scaleFactor, 0);
+            enterShadow.setPosition(btnW / 2 + 12 * scaleFactor, btnY - 3 * scaleFactor, 0);
             this.createRoomDialog.addChild(enterShadow);
 
             const enterBtn = this.createRectNode('EnterBtn', '#48b85c', btnW, btnH, btnRadius);
-            enterBtn.setPosition(rightX + btnW / 2 + 12 * scaleFactor, btnY, 0);
+            enterBtn.setPosition(btnW / 2 + 12 * scaleFactor, btnY, 0);
             this.createRoomDialog.addChild(enterBtn);
             const enterTxt = this.createLabelNode('EnterTxt', '进入房间', 18 * scaleFactor, '#ffffff', true);
             enterBtn.addChild(enterTxt);
@@ -1037,6 +960,7 @@ export class ModeSelectionUI extends Component {
             enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             enterBtn.on(Node.EventType.TOUCH_END, () => {
                 enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+                AudioSynth.playClick();
                 this.showToast("正在连接网络房间对局...");
             });
             enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
@@ -1189,4 +1113,31 @@ export class ModeSelectionUI extends Component {
         }
     }
 
+    private shareGameRoom(roomCode: string) {
+        const wxObj = (window as any).wx;
+        if (typeof wxObj !== 'undefined') {
+            try {
+                wxObj.shareAppMessage({
+                    title: '快来和我进行一局斗兽棋对决吧！房间号：' + roomCode,
+                    query: 'room=' + roomCode,
+                });
+                this.showToast("已发起分享，邀请好友加入！");
+                return;
+            } catch (e) {
+                console.warn("wx.shareAppMessage failed:", e);
+            }
+        }
+        
+        if (sys.isBrowser) {
+            const shareUrl = window.location.href.split('?')[0] + '?room=' + roomCode;
+            const success = this.copyToClipboard(shareUrl);
+            if (success) {
+                this.showToast("已复制专属对局链接，发送给好友点开即可直接进入对局！");
+            } else {
+                this.showToast("复制失败，请手动分享房间号: " + roomCode);
+            }
+        } else {
+            this.showToast("房间号: " + roomCode + " 已复制，请发给好友输入加入！");
+        }
+    }
 }

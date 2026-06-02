@@ -4,6 +4,7 @@ import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
 import { LoadingScene } from '../LoadingScene';
 import { ModeSelectionUI } from './ModeSelectionUI';
+import { AudioSynth } from '../utils/AudioSynth';
 
 const { ccclass, property } = _decorator;
 
@@ -30,8 +31,7 @@ export class BoardView extends Component {
     @property({ type: SpriteFrame, tooltip: '鼠,猫,狗,狼,豹,虎,狮,象 的图片，按战力升序排列 (共8张)' })
     public animalSprites: SpriteFrame[] = [];
 
-    @property({ type: SpriteFrame, tooltip: '每只动物6帧走路图，顺序按鼠猫狗狼豹虎狮象，每种6帧，共48帧' })
-    public animalWalkSprites: SpriteFrame[] = [];
+
 
     @property(SpriteFrame)
     public redBaseSF: SpriteFrame = null!; // 红方棋子底座
@@ -126,7 +126,7 @@ export class BoardView extends Component {
         this.engine = new LocalEngine();
         this.initBoardBackground();
         this.adjustBoardScale(); // ???????????????
-        this.showMainMenu();
+        this.showLoadingScene();
         this.loadPieceArt().then(() => {
             this.restartGame();
             this.initAudioSource();
@@ -150,9 +150,42 @@ export class BoardView extends Component {
             this.loadingNode.on('loading-complete', () => {
                 this.loadingNode!.destroy();
                 this.loadingNode = null;
-                this.showMainMenu();
+                
+                const roomCode = this.getRoomFromLaunch();
+                if (roomCode) {
+                    console.log("Directly joining room from launch:", roomCode);
+                    this.node.active = true;
+                    this.isAIMode = false;
+                    this.restartGame(); // 直接进入对局
+                } else {
+                    this.showMainMenu();
+                }
             });
         }
+    }
+
+    private getRoomFromLaunch(): string {
+        let roomCode = '';
+        if (sys.isBrowser) {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                roomCode = urlParams.get('room') || '';
+            } catch (e) {
+                console.warn("Browser query parsing failed:", e);
+            }
+        }
+        const wxObj = (window as any).wx;
+        if (typeof wxObj !== 'undefined') {
+            try {
+                const launchOpts = wxObj.getLaunchOptionsSync();
+                if (launchOpts && launchOpts.query && launchOpts.query.room) {
+                    roomCode = launchOpts.query.room;
+                }
+            } catch (e) {
+                console.warn("wx.getLaunchOptionsSync error:", e);
+            }
+        }
+        return roomCode;
     }
 
     private mainMenuNode: Node | null = null;
@@ -165,33 +198,37 @@ export class BoardView extends Component {
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
 
-        if (!this.mainMenuNode) {
-            this.mainMenuNode = new Node('MainMenuContainer');
-            this.mainMenuNode.layer = 33554432; // UI_2D
-            this.mainMenuNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
-            this.mainMenuNode.addComponent(MainMenuUI);
-            this.node.parent!.addChild(this.mainMenuNode); // Add to Canvas directly
-            
-            // Listen for start game event
-            this.mainMenuNode.on('start-game', () => {
-                this.mainMenuNode!.active = false;
-                this.showModeSelection();
-            });
-
-            // Listen for music toggle event
-            this.mainMenuNode.on('music-toggle', (enabled: boolean) => {
-                if (enabled) {
-                    this.playBGM();
-                } else {
-                    if (this.bgmSource) {
-                        this.bgmSource.stop();
-                    }
-                }
-            });
-        } else {
-            this.mainMenuNode.active = true;
-            this.node.active = false;
+        // Ensure clean recreation
+        if (this.mainMenuNode) {
+            this.mainMenuNode.destroy();
+            this.mainMenuNode = null;
         }
+
+        this.mainMenuNode = new Node('MainMenuContainer');
+        this.mainMenuNode.layer = 33554432; // UI_2D
+        this.mainMenuNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
+        this.mainMenuNode.addComponent(MainMenuUI);
+        this.node.parent!.addChild(this.mainMenuNode); // Add to Canvas directly
+        
+        // Listen for start game event
+        this.mainMenuNode.on('start-game', () => {
+            if (this.mainMenuNode) {
+                this.mainMenuNode.destroy();
+                this.mainMenuNode = null;
+            }
+            this.showModeSelection();
+        });
+
+        // Listen for music toggle event
+        this.mainMenuNode.on('music-toggle', (enabled: boolean) => {
+            if (enabled) {
+                this.playBGM();
+            } else {
+                if (this.bgmSource) {
+                    this.bgmSource.stop();
+                }
+            }
+        });
     }
 
     private modeSelectionNode: Node | null = null;
@@ -204,41 +241,49 @@ export class BoardView extends Component {
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
 
-        if (!this.modeSelectionNode) {
-            this.modeSelectionNode = new Node('ModeSelectionContainer');
-            this.modeSelectionNode.layer = 33554432; // UI_2D
-            this.modeSelectionNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
-            this.modeSelectionNode.addComponent(ModeSelectionUI);
-            this.node.parent!.addChild(this.modeSelectionNode); // Add to Canvas directly
-            
-            // Listen for go back event
-            this.modeSelectionNode.on('go-back', () => {
-                this.modeSelectionNode!.active = false;
-                if (this.mainMenuNode) {
-                    this.mainMenuNode.active = true;
-                }
-            });
-
-            // Listen for start local game event
-            this.modeSelectionNode.on('start-local-duo', () => {
-                this.modeSelectionNode!.active = false;
-                this.node.active = true;
-                this.isAIMode = false;
-                this.restartGame(); // 开启并重置对局
-            });
-
-            // Listen for AI practice start
-            this.modeSelectionNode.on('start-ai-practice', (difficulty: string) => {
-                sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
-                this.modeSelectionNode!.active = false;
-                this.node.active = true;
-                this.isAIMode = true;
-                this.restartGame();
-            });
-        } else {
-            this.modeSelectionNode.getComponent(UITransform)!.setContentSize(view.getVisibleSize());
-            this.modeSelectionNode.active = true;
+        // Ensure clean recreation
+        if (this.modeSelectionNode) {
+            this.modeSelectionNode.destroy();
+            this.modeSelectionNode = null;
         }
+
+        this.modeSelectionNode = new Node('ModeSelectionContainer');
+        this.modeSelectionNode.layer = 33554432; // UI_2D
+        this.modeSelectionNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
+        this.modeSelectionNode.addComponent(ModeSelectionUI);
+        this.node.parent!.addChild(this.modeSelectionNode); // Add to Canvas directly
+        
+        // Listen for go back event
+        this.modeSelectionNode.on('go-back', () => {
+            if (this.modeSelectionNode) {
+                this.modeSelectionNode.destroy();
+                this.modeSelectionNode = null;
+            }
+            this.showMainMenu();
+        });
+
+        // Listen for start local game event
+        this.modeSelectionNode.on('start-local-duo', () => {
+            if (this.modeSelectionNode) {
+                this.modeSelectionNode.destroy();
+                this.modeSelectionNode = null;
+            }
+            this.node.active = true;
+            this.isAIMode = false;
+            this.restartGame(); // 开启并重置对局
+        });
+
+        // Listen for AI practice start
+        this.modeSelectionNode.on('start-ai-practice', (difficulty: string) => {
+            sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
+            if (this.modeSelectionNode) {
+                this.modeSelectionNode.destroy();
+                this.modeSelectionNode = null;
+            }
+            this.node.active = true;
+            this.isAIMode = true;
+            this.restartGame();
+        });
     }
 
 
@@ -250,7 +295,7 @@ export class BoardView extends Component {
         // 创建专门用于播放背景音乐的 AudioSource，并尝试播放 BGM
         this.bgmSource = this.addComponent(AudioSource);
         this.bgmSource.loop = true;
-        this.bgmSource.volume = 0.5; // 背景音乐音量调小一点
+        this.bgmSource.volume = 0.7; // 背景音乐音量调至 70%
         this.playBGM();
     }
 
@@ -285,7 +330,8 @@ export class BoardView extends Component {
 
         // 监听用户的第一次点击：解决浏览器“必须在用户交互后才能播放音频”的安全限制
         this.node.once(Node.EventType.TOUCH_END, () => {
-            if (this.bgmSource && this.bgmSource.clip && !this.bgmSource.playing) {
+            const currentMusicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+            if (currentMusicEnabled && this.bgmSource && this.bgmSource.clip && !this.bgmSource.playing) {
                 this.bgmSource.play();
             }
         }, this);
@@ -489,6 +535,15 @@ export class BoardView extends Component {
         this.stopTurnTimer();
         this.isAIMoving = false;
 
+        // 对局中音量调低至 50% 的 0.7 = 0.35
+        if (this.bgmSource) {
+            this.bgmSource.volume = 0.35;
+            const musicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+            if (!musicEnabled && this.bgmSource.playing) {
+                this.bgmSource.stop();
+            }
+        }
+
         // 1. 清理棋子
         this.pieceViews.forEach(pv => {
             if (pv.node) pv.node.destroy();
@@ -554,9 +609,11 @@ export class BoardView extends Component {
         }
 
         // 森林微光特效粒子层 (加在背景 wash 层之上，对局元素及 UI 之下)
-        if (!this.node.getChildByName('ForestFirefliesLayer')) {
-            const scaleFactor = Math.min(view.getVisibleSize().width / 750, view.getVisibleSize().height / 1334);
-            this.createForestFireflies(this.node, scaleFactor);
+        if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
+            if (!this.node.getChildByName('ForestFirefliesLayer')) {
+                const scaleFactor = Math.min(view.getVisibleSize().width / 750, view.getVisibleSize().height / 1334);
+                this.createForestFireflies(this.node, scaleFactor);
+            }
         }
 
         this.riverSprites = [];
@@ -630,126 +687,44 @@ export class BoardView extends Component {
                                 });
                             }
 
-                            // 1. 特色：动态随风摇曳的草叶 (Grass Blades) 
-                            const grassCount = 3 + Math.floor(Math.random() * 2);
-                            for (let i = 0; i < grassCount; i++) {
-                                const bladeNode = new Node(`GrassBlade_${i}`);
-                                bladeNode.parent = cellNode;
-                                bladeNode.layer = cellNode.layer;
-
-                                const bTransform = bladeNode.addComponent(UITransform);
-                                const w = 4 + Math.random() * 2;
-                                const h = 14 + Math.random() * 12;
-                                bTransform.setContentSize(w, h);
-                                bTransform.setAnchorPoint(0.5, 0.0); // 设置草叶根部为旋转中心
-
-                                const graphics = bladeNode.addComponent(Graphics);
-                                const greenColor = new Color(
-                                    35 + Math.random() * 20,
-                                    115 + Math.random() * 25,
-                                    40 + Math.random() * 15,
-                                    255
-                                );
-                                graphics.fillColor = greenColor;
-                                graphics.strokeColor = new Color(
-                                    Math.max(0, greenColor.r - 15),
-                                    Math.max(0, greenColor.g - 25),
-                                    Math.max(0, greenColor.b - 10),
-                                    120
-                                );
-                                graphics.lineWidth = 1;
-
-                                // 1. 后置叶片 (较深暗绿色，偏左)
-                                const hBack = h * 0.85;
-                                const wBack = w * 0.7;
-                                const leanBack = -wBack - 4;
-                                graphics.fillColor = new Color(25, 80, 35, 255);
-                                graphics.strokeColor = new Color(15, 60, 25, 120);
-                                graphics.moveTo(-wBack / 2 - 2, 0);
-                                graphics.quadraticCurveTo(-wBack, hBack * 0.5, leanBack, hBack);
-                                graphics.quadraticCurveTo(leanBack * 0.5 + wBack / 2, hBack * 0.4, wBack / 2 - 2, 0);
-                                graphics.close();
-                                graphics.fill();
-                                graphics.stroke();
-
-                                // 2. 主叶片 (中度翠绿色，偏右)
-                                const leanMain = w + 4 + (Math.random() - 0.5) * 4;
-                                graphics.fillColor = new Color(45, 135, 60, 255);
-                                graphics.strokeColor = new Color(30, 95, 40, 120);
-                                graphics.moveTo(-w / 2, 0);
-                                graphics.quadraticCurveTo(-w / 4, h * 0.5, leanMain, h);
-                                graphics.quadraticCurveTo(w / 4 + leanMain * 0.5, h * 0.45, w / 2, 0);
-                                graphics.close();
-                                graphics.fill();
-                                graphics.stroke();
-
-                                // 3. 前置短叶片 (明亮黄绿色，偏左)
-                                const hFront = h * 0.6;
-                                const wFront = w * 0.8;
-                                const leanFront = -wFront - 2;
-                                graphics.fillColor = new Color(125, 195, 50, 255);
-                                graphics.strokeColor = new Color(90, 145, 30, 120);
-                                graphics.moveTo(-wFront / 2 + 1, 0);
-                                graphics.quadraticCurveTo(-wFront * 0.8, hFront * 0.55, leanFront, hFront);
-                                graphics.quadraticCurveTo(leanFront * 0.5 + wFront / 2, hFront * 0.4, wFront / 2 + 1, 0);
-                                graphics.close();
-                                graphics.fill();
-                                graphics.stroke();
-
-                                const bOpacity = bladeNode.addComponent(UIOpacity);
-                                bOpacity.opacity = 210;
-
-                                // 铺在格子的随机中下部
-                                const posX = -38 + Math.random() * 76;
-                                const posY = -45 + Math.random() * 25; 
-                                bladeNode.setPosition(new Vec3(posX, posY, 0));
-                                bladeNode.setRotationFromEuler(0, 0, Math.random() * 12 - 6);
-
-                                // 随风摆动的微型动画 (Motion 物理感觉)
-                                const swayTime = 1.3 + Math.random() * 0.7;
-                                const maxAngle = 6 + Math.random() * 8;
-                                tween(bladeNode)
-                                    .to(swayTime, { angle: maxAngle }, { easing: 'sineInOut' })
-                                    .to(swayTime, { angle: -maxAngle }, { easing: 'sineInOut' })
-                                    .union()
-                                    .repeatForever()
-                                    .start();
-                            }
+                            // 1. 特色：动态随风摇曳的草叶 (已优化移除以降低 Draw Call 和性能消耗)
 
                             // 2. 特色：偶有呼吸绽放的小野花 (Flowers)
-                            if (Math.random() < 0.25) {
-                                const flowerNode = new Node(`Flower`);
-                                flowerNode.parent = cellNode;
-                                flowerNode.layer = cellNode.layer;
+                            if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
+                                if (Math.random() < 0.25) {
+                                    const flowerNode = new Node(`Flower`);
+                                    flowerNode.parent = cellNode;
+                                    flowerNode.layer = cellNode.layer;
 
-                                const fTransform = flowerNode.addComponent(UITransform);
-                                flowerNode.setScale(new Vec3(1.0, 1.0, 1.0));
-                                fTransform.setContentSize(6, 6);
-                                fTransform.setAnchorPoint(0.5, 0.5);
+                                    const fTransform = flowerNode.addComponent(UITransform);
+                                    flowerNode.setScale(new Vec3(1.0, 1.0, 1.0));
+                                    fTransform.setContentSize(6, 6);
+                                    fTransform.setAnchorPoint(0.5, 0.5);
 
-                                const fSprite = flowerNode.addComponent(Sprite);
-                                fSprite.sizeMode = 0;
-                                fSprite.spriteFrame = this.gridCellPrefab.data.getComponent(Sprite)?.spriteFrame || sprite.spriteFrame;
-                                // 随机出白色、黄色或淡紫色的花朵
-                                const colors = [
-                                    new Color(255, 255, 255, 255), // 白色
-                                    new Color(255, 215, 0, 255),   // 黄色
-                                    new Color(210, 160, 255, 255),  // 淡紫色
-                                ];
-                                fSprite.color = colors[Math.floor(Math.random() * colors.length)];
+                                    const fSprite = flowerNode.addComponent(Sprite);
+                                    fSprite.sizeMode = 0;
+                                    fSprite.spriteFrame = this.gridCellPrefab.data.getComponent(Sprite)?.spriteFrame || sprite.spriteFrame;
+                                    // 随机出白色、黄色或淡紫色的花朵
+                                    const colors = [
+                                        new Color(255, 255, 255, 255), // 白色
+                                        new Color(255, 215, 0, 255),   // 黄色
+                                        new Color(210, 160, 255, 255),  // 淡紫色
+                                    ];
+                                    fSprite.color = colors[Math.floor(Math.random() * colors.length)];
 
-                                const flowX = -35 + Math.random() * 70;
-                                const flowY = -15 + Math.random() * 45;
-                                flowerNode.setPosition(new Vec3(flowX, flowY, 0));
+                                    const flowX = -35 + Math.random() * 70;
+                                    const flowY = -15 + Math.random() * 45;
+                                    flowerNode.setPosition(new Vec3(flowX, flowY, 0));
 
-                                // 呼吸微型动效
-                                const scaleTime = 0.8 + Math.random() * 0.5;
-                                tween(flowerNode)
-                                    .to(scaleTime, { scale: new Vec3(1.2, 1.2, 1.0) }, { easing: 'sineInOut' })
-                                    .to(scaleTime, { scale: new Vec3(0.8, 0.8, 1.0) }, { easing: 'sineInOut' })
-                                    .union()
-                                    .repeatForever()
-                                    .start();
+                                    // 呼吸微型动效
+                                    const scaleTime = 0.8 + Math.random() * 0.5;
+                                    tween(flowerNode)
+                                        .to(scaleTime, { scale: new Vec3(1.2, 1.2, 1.0) }, { easing: 'sineInOut' })
+                                        .to(scaleTime, { scale: new Vec3(0.8, 0.8, 1.0) }, { easing: 'sineInOut' })
+                                        .union()
+                                        .repeatForever()
+                                        .start();
+                                }
                             }
                         }
                     }
@@ -758,7 +733,9 @@ export class BoardView extends Component {
         }
         
         // 最后生成跨越整个河道畅游的全局鱼群
-        this.createGlobalFishes();
+        if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
+            this.createGlobalFishes();
+        }
     }
     
     private createGlobalFishes(): void {
@@ -1752,6 +1729,7 @@ export class BoardView extends Component {
         restartBtn.on(Node.EventType.TOUCH_START, () => { restartBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         restartBtn.on(Node.EventType.TOUCH_END, () => {
             restartBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             this.hideCustomGameOverPanel();
             this.restartGame();
         }, this);
@@ -1784,6 +1762,7 @@ export class BoardView extends Component {
         exitBtn.on(Node.EventType.TOUCH_START, () => { exitBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         exitBtn.on(Node.EventType.TOUCH_END, () => {
             exitBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             this.hideCustomGameOverPanel();
             this.onBackButtonClicked();
         }, this);
@@ -1934,6 +1913,7 @@ export class BoardView extends Component {
         }, this);
         this.backButtonNode.on(Node.EventType.TOUCH_END, () => {
             this.backButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             this.onBackButtonClicked();
         }, this);
         this.backButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -1964,6 +1944,7 @@ export class BoardView extends Component {
         }, this);
         this.undoButtonNode.on(Node.EventType.TOUCH_END, () => {
             this.undoButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             this.onUndoButtonClicked();
         }, this);
         this.undoButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -2022,6 +2003,11 @@ export class BoardView extends Component {
         this.stopTurnTimer();
         this.node.active = false;
 
+        // 返回菜单恢复 70% 音量
+        if (this.bgmSource) {
+            this.bgmSource.volume = 0.7;
+        }
+
         // 手动关闭动态 UI 节点以防残留
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
@@ -2033,10 +2019,7 @@ export class BoardView extends Component {
         }
         this.hideCustomGameOverPanel();
 
-        if (this.modeSelectionNode) {
-            this.modeSelectionNode.getComponent(UITransform)!.setContentSize(view.getVisibleSize());
-            this.modeSelectionNode.active = true;
-        }
+        this.showModeSelection();
     }
 
     private startTurnTimer() {
@@ -2225,6 +2208,7 @@ export class BoardView extends Component {
         agreeBtn.on(Node.EventType.TOUCH_START, () => { agreeBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         agreeBtn.on(Node.EventType.TOUCH_END, () => {
             agreeBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             this.undoRequestPanel?.destroy();
             this.undoRequestPanel = null;
             callback(true);
@@ -2258,6 +2242,7 @@ export class BoardView extends Component {
         refuseBtn.on(Node.EventType.TOUCH_START, () => { refuseBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         refuseBtn.on(Node.EventType.TOUCH_END, () => {
             refuseBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
             this.undoRequestPanel?.destroy();
             this.undoRequestPanel = null;
             callback(false);
