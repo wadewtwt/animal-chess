@@ -446,4 +446,37 @@ export class LocalEngine {
         this.historyStates = memento.historyStates;
         return true;
     }
+
+    /**
+     * 网络重连时强行同步服务端发来的棋局状态
+     */
+    public syncBoardState(boardState: Record<string, {x: number, y: number}>, turnOwner: Camp): void {
+        // 1. 清空当前棋盘
+        for (let x = 0; x < LocalEngine.COLS; x++) {
+            for (let y = 0; y < LocalEngine.ROWS; y++) {
+                this.board[x][y] = null;
+            }
+        }
+        
+        // 2. 重构活跃棋子列表
+        const newPieces: Piece[] = [];
+        for (const id in boardState) {
+            const pos = boardState[id];
+            const parts = id.split('_');
+            if (parts.length !== 2) continue;
+            const camp = parts[0] as Camp;
+            const type = parseInt(parts[1]) as AnimalType;
+            
+            const piece: Piece = { id, type, camp, x: pos.x, y: pos.y };
+            this.board[pos.x][pos.y] = piece;
+            newPieces.push(piece);
+        }
+        this.pieces = newPieces;
+        
+        // 3. 设定当前回合所有者并重置历史
+        this.currentTurn = turnOwner;
+        this.historyStates.clear();
+        this.historyStack = [];
+        this.recordHistoryState();
+    }
 }

@@ -5,6 +5,7 @@ import { MainMenuUI } from './MainMenuUI';
 import { LoadingScene } from '../LoadingScene';
 import { ModeSelectionUI } from './ModeSelectionUI';
 import { AudioSynth } from '../utils/AudioSynth';
+import { NetworkManager } from '../utils/NetworkManager';
 
 const { ccclass, property } = _decorator;
 
@@ -62,6 +63,7 @@ export class BoardView extends Component {
     // === 运行时数据 ===
     private engine!: LocalEngine;
     private pieceViews: Map<string, PieceView> = new Map(); // id -> PieceView
+    private boardGridNodes: Node[] = []; // 棋盘网格背景节点列表
     private highlightNodes: Node[] = []; // 当前高亮节点列表
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
     
@@ -74,6 +76,10 @@ export class BoardView extends Component {
     
     // === 悔棋、返回、倒计时与人机AI 运行时状态 ===
     private isAIMode: boolean = false;
+    private isNetworkMode: boolean = false;
+    private myCamp: Camp | null = null;
+    private isApplyingNetworkMove: boolean = false;
+    private isGameOverState: boolean = false;
     private remainingTime: number = 30;
     private isAIMoving: boolean = false;
     private backButtonNode: Node | null = null;
@@ -94,6 +100,9 @@ export class BoardView extends Component {
     onDestroy() {
         view.off('canvas-resize', this.adjustBoardScale, this);
         this.stopTurnTimer();
+        if (this.isNetworkMode) {
+            this.cleanupNetworkEvents();
+        }
         if (this.undoRequestPanel) {
             this.undoRequestPanel.destroy();
             this.undoRequestPanel = null;
@@ -154,9 +163,7 @@ export class BoardView extends Component {
                 const roomCode = this.getRoomFromLaunch();
                 if (roomCode) {
                     console.log("Directly joining room from launch:", roomCode);
-                    this.node.active = true;
-                    this.isAIMode = false;
-                    this.restartGame(); // 直接进入对局
+                    this.joinOnlineRoomDirectly(roomCode);
                 } else {
                     this.showMainMenu();
                 }
@@ -270,6 +277,8 @@ export class BoardView extends Component {
             }
             this.node.active = true;
             this.isAIMode = false;
+            this.isNetworkMode = false;
+            this.myCamp = null;
             this.restartGame(); // 开启并重置对局
         });
 
@@ -282,6 +291,28 @@ export class BoardView extends Component {
             }
             this.node.active = true;
             this.isAIMode = true;
+            this.isNetworkMode = false;
+            this.myCamp = null;
+            this.restartGame();
+        });
+
+        // Listen for online battle start
+        this.modeSelectionNode.on('start-online-battle', () => {
+            if (this.modeSelectionNode) {
+                this.modeSelectionNode.destroy();
+                this.modeSelectionNode = null;
+            }
+            this.node.active = true;
+            this.isAIMode = false;
+            this.isNetworkMode = true;
+            this.myCamp = NetworkManager.getInstance().myCamp as Camp;
+            
+            // 注册网络对战的广播监听
+            NetworkManager.getInstance().on('opponent_move', this.onOpponentMove);
+            NetworkManager.getInstance().on('game_over', this.onNetworkGameOver);
+            NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
+            NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
+
             this.restartGame();
         });
     }
@@ -531,6 +562,7 @@ export class BoardView extends Component {
      * 重启游戏
      */
     public restartGame(): void {
+        this.isGameOverState = false;
         this.unschedule(this.makeAIMove);
         this.stopTurnTimer();
         this.isAIMoving = false;
@@ -552,6 +584,7 @@ export class BoardView extends Component {
 
         // 2. 重置引擎状态
         this.engine.resetGame();
+        this.initBoardBackground(); // 重新创建棋盘格子及河道，更新红蓝旋转视角
         this.selectedPiece = null;
         this.clearHighlights();
 
@@ -577,6 +610,16 @@ export class BoardView extends Component {
         console.log("BoardView: initBoardBackground() called. gridCellPrefab =", this.gridCellPrefab);
         if (!this.boardContainer) {
             this.boardContainer = this.node;
+        }
+
+        // 先销毁并清理上次创建的棋盘背景节点，防止联机模式下重置棋盘造成节点重叠与位置错乱
+        if (this.boardGridNodes) {
+            for (const n of this.boardGridNodes) {
+                if (n && n.isValid) {
+                    n.destroy();
+                }
+            }
+            this.boardGridNodes = [];
         }
 
         // 创建全屏背景图
@@ -625,6 +668,7 @@ export class BoardView extends Component {
                     const cellNode = instantiate(this.gridCellPrefab);
                     cellNode.parent = this.boardContainer;
                     cellNode.setPosition(this.gridToWorldPos(x, y));
+                    this.boardGridNodes.push(cellNode);
 
                     // 绑定点击事件，点击空白格子用于移动
                     cellNode.on(Node.EventType.TOUCH_END, () => {
@@ -744,6 +788,7 @@ export class BoardView extends Component {
             areaNode.parent = this.boardContainer;
             areaNode.layer = this.boardContainer!.layer || 33554432;
             areaNode.setPosition(this.gridToWorldPos(centerX, centerY));
+            this.boardGridNodes.push(areaNode);
             
             const transform = areaNode.addComponent(UITransform);
             transform.setContentSize(width, height);
@@ -1156,7 +1201,14 @@ export class BoardView extends Component {
     private updateTurnUI(): void {
         if (this.turnIndicator) {
             const turnCamp = this.engine.getCurrentTurn();
-            const turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+            
+            let turnStr = '';
+            if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+                turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (上方)' : '🔵 蓝方行动 (下方)';
+            } else {
+                turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+            }
+            
             this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
             
             // 亮眼对比度色彩
@@ -1178,6 +1230,9 @@ export class BoardView extends Component {
     private onPieceClicked(piece: Piece): void {
         if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
             return; // AI 正在思考或行动阶段，玩家不可操作
+        }
+        if (this.isNetworkMode && this.engine.getCurrentTurn() !== this.myCamp) {
+            return; // 联机模式下，非我方回合不可操作
         }
         console.log("BoardView: onPieceClicked called for piece:", piece.id, "camp:", piece.camp);
         const turn = this.engine.getCurrentTurn();
@@ -1208,6 +1263,9 @@ export class BoardView extends Component {
     private onCellClicked(x: number, y: number): void {
         if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
             return; // AI 正在思考或行动阶段，玩家不可操作
+        }
+        if (this.isNetworkMode && this.engine.getCurrentTurn() !== this.myCamp) {
+            return; // 联机模式下，非我方回合不可操作
         }
         if (this.selectedPiece) {
             this.tryMovePiece(this.selectedPiece.x, this.selectedPiece.y, x, y);
@@ -1307,10 +1365,28 @@ export class BoardView extends Component {
      * 尝试移动棋子 (核心逻辑跳转)
      */
     private tryMovePiece(fromX: number, fromY: number, toX: number, toY: number): void {
+        console.log(`[BoardView] tryMovePiece: (${fromX},${fromY}) -> (${toX},${toY}), isNetwork=${this.isNetworkMode}, isApplyingNetwork=${this.isApplyingNetworkMove}`);
+        
         if (!this.engine.validateMove(fromX, fromY, toX, toY)) {
-            // 非法移动，清除选中
+            const piece = this.engine.getPieceAt(fromX, fromY);
+            console.warn(`[BoardView] tryMovePiece 校验失败！` + 
+                `起点存在棋子: ${piece ? piece.id : "否"}, ` + 
+                `棋子阵营: ${piece ? piece.camp : "无"}, ` + 
+                `当前回合: ${this.engine.getCurrentTurn()}`);
             this.clearSelection();
             return;
+        }
+
+        if (this.isNetworkMode && !this.isApplyingNetworkMove) {
+            const activePiece = this.engine.getPieceAt(fromX, fromY)!;
+            console.log(`[Network] 本地走棋，准备发送到服务器: ${activePiece.id} 从 (${fromX},${fromY}) 到 (${toX},${toY})`);
+            NetworkManager.getInstance().send('move', {
+                piece_id: activePiece.id,
+                from_x: fromX,
+                from_y: fromY,
+                to_x: toX,
+                to_y: toY
+            });
         }
 
         const activePiece = this.engine.getPieceAt(fromX, fromY)!;
@@ -1469,6 +1545,16 @@ export class BoardView extends Component {
         // 检查胜负
         const status = this.engine.checkGameOver();
         if (status.isGameOver) {
+            if (this.isNetworkMode) {
+                // 如果是网络模式，并且是当前玩家刚刚完成了走子
+                const prevTurnWasMe = this.engine.getCurrentTurn() !== this.myCamp;
+                if (prevTurnWasMe) {
+                    NetworkManager.getInstance().send('game_over', {
+                        winner: status.winner,
+                        reason: status.reason
+                    });
+                }
+            }
             this.showGameOver(status.winner, status.reason);
             this.stopTurnTimer();
             return;
@@ -1585,6 +1671,7 @@ export class BoardView extends Component {
      * 结算并展示游戏结束弹窗
      */
     private showGameOver(winner: Camp | null, reason: GameOverReason | null): void {
+        this.isGameOverState = true;
         this.gameOverWinner = winner;
         this.gameOverReason = reason;
 
@@ -1796,6 +1883,11 @@ export class BoardView extends Component {
      * 核心计算：将 7x9 网格坐标映射到 Cocos Creator 的本地节点 2D 坐标系 (以棋盘中心为 0,0)
      */
     public gridToWorldPos(x: number, y: number): Vec3 {
+        // 如果是在线对战且自身被分配为蓝方，将物理显示坐标翻转 180 度，实现“自己永远在下方”的对战视角
+        if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+            x = 6 - x;
+            y = 8 - y;
+        }
         // x 从 0..6，y 从 0..8
         // 棋盘中心列为 x = 3，中心行为 y = 4
         const posX = (x - 3) * this.cellWidth;
@@ -1889,7 +1981,7 @@ export class BoardView extends Component {
         // 如果已经创建，则只需将其激活并执行布局更新即可
         if (this.backButtonNode) {
             this.backButtonNode.active = showUI;
-            this.undoButtonNode.active = showUI;
+            this.undoButtonNode.active = showUI && !this.isNetworkMode;
             if (this.turnIndicatorBgNode) {
                 this.turnIndicatorBgNode.active = showUI;
             }
@@ -1958,7 +2050,7 @@ export class BoardView extends Component {
 
         // 绑定当前的 active 状态
         this.backButtonNode.active = showUI;
-        this.undoButtonNode.active = showUI;
+        this.undoButtonNode.active = showUI && !this.isNetworkMode;
         if (this.turnIndicatorBgNode) {
             this.turnIndicatorBgNode.active = showUI;
         }
@@ -2002,6 +2094,14 @@ export class BoardView extends Component {
     private onBackButtonClicked() {
         this.stopTurnTimer();
         this.node.active = false;
+
+        if (this.isNetworkMode) {
+            if (!this.isGameOverState) {
+                NetworkManager.getInstance().send('surrender', '');
+            }
+            this.cleanupNetworkEvents();
+            this.isNetworkMode = false;
+        }
 
         // 返回菜单恢复 70% 音量
         if (this.bgmSource) {
@@ -2047,7 +2147,14 @@ export class BoardView extends Component {
             const currentTurn = this.engine.getCurrentTurn();
             const winner = currentTurn === Camp.RED ? Camp.BLUE : Camp.RED;
             this.showGameOver(winner, null);
-            const winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
+            
+            let winnerName = '';
+            if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+                winnerName = winner === Camp.RED ? '红方 (上方)' : '蓝方 (下方)';
+            } else {
+                winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
+            }
+            
             if (this.gameOverText) {
                 this.gameOverText.string = `时间到！恭喜 ${winnerName} 获胜！\n当前回合方走棋超时。`;
             }
@@ -2055,6 +2162,10 @@ export class BoardView extends Component {
     }
 
     private onUndoButtonClicked() {
+        if (this.isNetworkMode) {
+            this.showToast("在线联机模式不支持悔棋！");
+            return;
+        }
         if (this.isAIMoving) {
             this.showToast("正在行棋中，请稍后...");
             return;
@@ -2503,5 +2614,122 @@ export class BoardView extends Component {
                 roam(particle, pOpacity);
             }, Math.random() * 3.0);
         }
+    }
+
+    // === 网络联机核心处理方法 ===
+
+    private onOpponentMove = (dataStr: any) => {
+        let m = dataStr;
+        if (typeof dataStr === 'string') {
+            m = JSON.parse(dataStr);
+        }
+        console.log(`[BoardView] onOpponentMove 解析消息:`, m);
+        this.isApplyingNetworkMove = true;
+        this.tryMovePiece(m.from_x, m.from_y, m.to_x, m.to_y);
+        this.isApplyingNetworkMove = false;
+    };
+
+    private onNetworkGameOver = (dataStr: string) => {
+        const data = JSON.parse(dataStr);
+        console.log(`[BoardView] 网络通知游戏结束: `, data);
+        this.showGameOver(data.winner as Camp, data.reason as GameOverReason);
+    };
+
+    private onOpponentLeft = () => {
+        console.log(`[BoardView] 对手已掉线`);
+        this.showToast("对手已掉线，正在等待重连...");
+    };
+
+    private onReconnectSuccess = (dataStr: string) => {
+        const data = JSON.parse(dataStr);
+        console.log(`[BoardView] 重连同步成功！`);
+        this.showToast("重连对局成功！");
+        this.syncBoardStateFromNetwork(data.board_state);
+    };
+
+    private cleanupNetworkEvents() {
+        NetworkManager.getInstance().off('opponent_move', this.onOpponentMove);
+        NetworkManager.getInstance().off('game_over', this.onNetworkGameOver);
+        NetworkManager.getInstance().off('opponent_left', this.onOpponentLeft);
+        NetworkManager.getInstance().off('reconnect_success', this.onReconnectSuccess);
+        NetworkManager.getInstance().disconnect();
+    }
+
+    private syncBoardStateFromNetwork(boardState: Record<string, {x: number, y: number}>) {
+        const turn = this.engine.getCurrentTurn();
+        this.engine.syncBoardState(boardState, turn);
+
+        this.pieceViews.forEach((view, id) => {
+            if (!boardState[id]) {
+                view.node.destroy();
+                this.pieceViews.delete(id);
+            }
+        });
+
+        for (const id in boardState) {
+            const netPos = boardState[id];
+            const view = this.pieceViews.get(id);
+            if (view) {
+                const targetWorldPos = this.gridToWorldPos(netPos.x, netPos.y);
+                if (!view.useFullPieceArt) {
+                    targetWorldPos.y -= 18;
+                }
+                view.node.setPosition(targetWorldPos);
+            }
+        }
+
+        this.clearHighlights();
+        this.clearSelection();
+        this.updateTurnIndicator();
+    }
+
+    private joinOnlineRoomDirectly(roomCode: string) {
+        this.showToast(`正在加入房间 ${roomCode}...`);
+        NetworkManager.getInstance().connect()
+            .then(() => {
+                const onMatchSuccess = (dataStr: any) => {
+                    let data = dataStr;
+                    if (typeof dataStr === 'string') {
+                        data = JSON.parse(dataStr);
+                    }
+                    console.log(`[BoardView] 扫码/链接加入成功: `, data);
+                    
+                    NetworkManager.getInstance().currentRoomId = data.room_id;
+                    NetworkManager.getInstance().myCamp = data.camp;
+                    NetworkManager.getInstance().opponentId = data.opponent_id;
+
+                    NetworkManager.getInstance().off('match_wait', onMatchWait);
+                    NetworkManager.getInstance().off('match_success', onMatchSuccess);
+
+                    // 启动网络模式对局
+                    this.node.active = true;
+                    this.isAIMode = false;
+                    this.isNetworkMode = true;
+                    this.myCamp = NetworkManager.getInstance().myCamp as Camp;
+                    
+                    // 注册网络对战的广播监听
+                    NetworkManager.getInstance().on('opponent_move', this.onOpponentMove);
+                    NetworkManager.getInstance().on('game_over', this.onNetworkGameOver);
+                    NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
+                    NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
+
+                    this.restartGame();
+                };
+
+                const onMatchWait = () => {
+                    this.showToast("房间等待中，等待另一方加入...");
+                };
+
+                NetworkManager.getInstance().on('match_wait', onMatchWait);
+                NetworkManager.getInstance().on('match_success', onMatchSuccess);
+                
+                // 发送匹配包
+                NetworkManager.getInstance().send('match_seek', { room_code: roomCode, user_name: "Player" });
+            })
+            .catch((err) => {
+                console.error("直接加入房间连接服务器失败:", err);
+                this.showToast("连接服务器失败，请检查网络！");
+                this.showMainMenu();
+            });
     }
 }
