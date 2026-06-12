@@ -371,7 +371,7 @@
     "_priority": 1073741824,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 478.01488833746896,
+    "_orthoHeight": 503.3165829145729,
     "_near": 1,
     "_far": 2000,
     "_color": {
@@ -531,7 +531,6 @@
         "__expectedType__": "cc.SpriteFrame"
       }
     ],
-    "animalWalkSprites": [],
     "redBaseSF": {
       "__uuid__": "f2b9631a-e8d1-419b-a01e-c6dfccff4b11@f9941",
       "__expectedType__": "cc.SpriteFrame"

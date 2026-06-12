@@ -1,8 +1,11 @@
 import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, director, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, UIOpacity, sys } from 'cc';
+import { AudioSynth } from '../utils/AudioSynth';
 const { ccclass } = _decorator;
 
 @ccclass('MainMenuUI')
 export class MainMenuUI extends Component {
+    private scaleFactor: number = 1.0;
+    private effectsBtnLabel: Label | null = null;
     
     onLoad() {
         this.buildUI();
@@ -19,6 +22,7 @@ export class MainMenuUI extends Component {
         const refW = isPortrait ? 750 : 1280;
         const refH = isPortrait ? 1334 : 720;
         const scaleFactor = Math.min(cw / refW, ch / refH);
+        this.scaleFactor = scaleFactor;
 
         // 1. Background
         const bgNode = new Node('Background');
@@ -48,11 +52,16 @@ export class MainMenuUI extends Component {
             bgNode.addChild(layerNode);
         });
 
+        // 立即根据当前设置更新背景模糊效果 (如果是低特效模式则只保留单层不透明，如果是高特效模式则开启 5 层重合模糊效果)
+        this.updateBackgroundEffects();
+
         const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36);
         canvas.addChild(bgWash);
 
         // 1.5 森林微光特效粒子层 (加在背景 wash 层之上，卡片及 UI 之下)
-        this.createForestFireflies(canvas, scaleFactor);
+        if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
+            this.createForestFireflies(canvas, scaleFactor);
+        }
 
         // 2. Top Bar (二次调大，在大屏下气场更强，且在极窄屏幕下依靠自适应机制进行优雅防撞)
         const topBarHeight = Math.max(100, Math.min(130, 130 * scaleFactor));
@@ -239,6 +248,7 @@ export class MainMenuUI extends Component {
         }, this);
         startBtnNode.on(Node.EventType.TOUCH_END, () => {
             startBtnNode.setScale(new Vec3(1, 1, 1));
+            AudioSynth.playClick();
             this.onStartGame();
         }, this);
         startBtnNode.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -258,6 +268,7 @@ export class MainMenuUI extends Component {
         }, this);
         exitBtn.on(Node.EventType.TOUCH_END, () => {
             exitBtn.setScale(new Vec3(1, 1, 1));
+            AudioSynth.playClick();
             this.onExitGame();
         }, this);
         exitBtn.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -275,6 +286,7 @@ export class MainMenuUI extends Component {
         }, this);
         settingsBtn.on(Node.EventType.TOUCH_END, () => {
             settingsBtn.setScale(new Vec3(1, 1, 1));
+            AudioSynth.playClick();
             this.onSettingsGame();
         }, this);
         settingsBtn.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -364,6 +376,7 @@ export class MainMenuUI extends Component {
 
         musicBtn.addComponent(Button);
         musicBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
             let musicOn = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
             musicOn = !musicOn;
             sys.localStorage.setItem('jungle_music_enabled', musicOn ? 'true' : 'false');
@@ -383,10 +396,33 @@ export class MainMenuUI extends Component {
 
         soundBtn.addComponent(Button);
         soundBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
             let soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
             soundOn = !soundOn;
             sys.localStorage.setItem('jungle_sound_enabled', soundOn ? 'true' : 'false');
             this.updateSettingsUI();
+        }, this);
+
+        // 5.1 画面特效开关按钮
+        const effectsBtn = this.createRectNode('EffectsBtn', '#f6ebbf', btnWidth, btnHeight, musicBtnRadius);
+        effectsBtn.setPosition(0, musicBtnY - (btnHeight + btnGap) * 2, 0);
+        dialog.addChild(effectsBtn);
+
+        const effectsLabelNode = this.createLabelNode('EffectsLabel', '', btnFontSize, '#5b4b1c', true);
+        this.effectsBtnLabel = effectsLabelNode.getComponent(Label);
+        effectsBtn.addChild(effectsLabelNode);
+
+        effectsBtn.addComponent(Button);
+        effectsBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
+            let effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
+            effectsOn = !effectsOn;
+            sys.localStorage.setItem('jungle_effects_enabled', effectsOn ? 'true' : 'false');
+            this.updateSettingsUI();
+            this.updateBackgroundEffects();
+            this.updateFirefliesEffect(scaleFactor);
+            // 触发画面特效开关事件
+            this.node.emit('effects-toggle', effectsOn);
         }, this);
 
         // 6. 关闭按钮 (确定按钮已放大)
@@ -402,6 +438,7 @@ export class MainMenuUI extends Component {
 
         closeBtn.addComponent(Button);
         closeBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
             const dialogNode = this.settingsPanel!.getChildByName('DialogNode');
             if (dialogNode) {
                 tween(dialogNode)
@@ -434,12 +471,52 @@ export class MainMenuUI extends Component {
     private updateSettingsUI() {
         const musicOn = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
         const soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        const effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
 
         if (this.musicBtnLabel) {
             this.musicBtnLabel.string = `背景音乐: ${musicOn ? '开启' : '关闭'}`;
         }
         if (this.soundBtnLabel) {
             this.soundBtnLabel.string = `游戏音效: ${soundOn ? '开启' : '关闭'}`;
+        }
+        if (this.effectsBtnLabel) {
+            this.effectsBtnLabel.string = `画面特效: ${effectsOn ? '开启' : '关闭'}`;
+        }
+    }
+
+    private updateBackgroundEffects() {
+        const effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
+        const bgNode = this.node.getChildByName('Background');
+        if (!bgNode) return;
+
+        const sharpNode = bgNode.getChildByName('BgSharpHalf');
+        if (sharpNode) {
+            const sprite = sharpNode.getComponent(Sprite);
+            if (sprite) {
+                sprite.color = new Color(255, 255, 255, effectsOn ? 128 : 255);
+            }
+        }
+
+        for (let i = 1; i <= 4; i++) {
+            const blurNode = bgNode.getChildByName(`BgBlurLayer${i}`);
+            if (blurNode) {
+                blurNode.active = effectsOn;
+            }
+        }
+    }
+
+    private updateFirefliesEffect(scaleFactor: number) {
+        const effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
+        const canvas = this.node;
+        if (effectsOn) {
+            if (!canvas.getChildByName('ForestFirefliesLayer')) {
+                this.createForestFireflies(canvas, scaleFactor);
+            }
+        } else {
+            const layer = canvas.getChildByName('ForestFirefliesLayer');
+            if (layer) {
+                layer.destroy();
+            }
         }
     }
 
@@ -565,7 +642,7 @@ export class MainMenuUI extends Component {
         // 保证在背景 wash 层之上，但比其他 UI 元素低
         effectNode.setSiblingIndex(2);
 
-        const particleCount = 14;
+        const particleCount = 4;
         const colors = ['#bbfeb8', '#fff8b3', '#d4ffc7']; // 淡绿、淡金、黄绿
 
         for (let i = 0; i < particleCount; i++) {
