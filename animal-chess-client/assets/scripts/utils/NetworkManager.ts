@@ -1,4 +1,4 @@
-import { log } from 'cc';
+import { log, sys } from 'cc';
 
 export interface WSMessage {
     action: string;
@@ -22,7 +22,13 @@ export class NetworkManager {
     public myCamp: string = ''; // "RED" | "BLUE"
     public opponentId: string = '';
 
-    private constructor() {}
+    private constructor() {
+        // 监听并持久化唯一玩家 ID，用于支持刷新页面不退出和断线重连
+        this.on('init_user', (userId: string) => {
+            sys.localStorage.setItem('animal_chess_user_id', userId);
+            log(`[Network] 本地保存/更新玩家 ID: ${userId}`);
+        });
+    }
 
     public static getInstance(): NetworkManager {
         if (!NetworkManager.instance) {
@@ -45,9 +51,16 @@ export class NetworkManager {
                 return;
             }
 
-            log(`[Network] 正在连接服务器: ${this.serverUrl}`);
+            // 获取本地持久化的唯一玩家 ID 并作为 Query 参数连入，以便服务端识别重连身份
+            const savedUserId = sys.localStorage.getItem('animal_chess_user_id') || '';
+            let finalUrl = this.serverUrl;
+            if (savedUserId) {
+                finalUrl += (finalUrl.indexOf('?') >= 0 ? '&' : '?') + `user_id=${savedUserId}`;
+            }
+
+            log(`[Network] 正在连接服务器: ${finalUrl}`);
             this.autoReconnect = true;
-            this.ws = new WebSocket(this.serverUrl);
+            this.ws = new WebSocket(finalUrl);
 
             this.ws.onopen = () => {
                 log('[Network] WebSocket 连接成功！');
@@ -77,16 +90,22 @@ export class NetworkManager {
 
             this.ws.onmessage = (ev) => {
                 try {
-                    // 解析统一消息包
-                    const rawMsg: WSMessage = JSON.parse(ev.data);
-                    
-                    // 特殊处理心跳回复
-                    if (rawMsg.action === 'pong') {
-                        return;
-                    }
+                    const dataStr = ev.data as string;
+                    const lines = dataStr.split('\n');
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        
+                        // 解析统一消息包
+                        const rawMsg: WSMessage = JSON.parse(line);
+                        
+                        // 特殊处理心跳回复
+                        if (rawMsg.action === 'pong') {
+                            continue;
+                        }
 
-                    // 分发事件
-                    this.emit(rawMsg.action, rawMsg.data);
+                        // 分发事件
+                        this.emit(rawMsg.action, rawMsg.data);
+                    }
                 } catch (e) {
                     log(`[Network] 解析服务端消息异常: ${e}, 原始内容: ${ev.data}`);
                 }

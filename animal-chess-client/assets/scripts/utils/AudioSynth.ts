@@ -219,4 +219,44 @@ export class AudioSynth {
                 break;
         }
     }
+
+    public static playLoseSound() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+        
+        // 播放 3 个连续的悲凉小调下行音符：A3 (220Hz), F3 (174.6Hz), D3 (146.8Hz)
+        // 形成落寞的小三和弦分解音符，用柔和的 triangle 波表现
+        const notes = [
+            { freq: 220, time: 0 },
+            { freq: 174.6, time: 0.25 },
+            { freq: 146.8, time: 0.5 }
+        ];
+
+        notes.forEach(note => {
+            const osc = this.ctx!.createOscillator();
+            const gainNode = this.ctx!.createGain();
+            
+            osc.connect(gainNode);
+            gainNode.connect(this.ctx!.destination);
+            
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(note.freq, startTime + note.time);
+            
+            gainNode.gain.setValueAtTime(0, startTime + note.time);
+            gainNode.gain.linearRampToValueAtTime(0.18, startTime + note.time + 0.04);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + note.time + 0.45);
+            
+            osc.start(startTime + note.time);
+            osc.stop(startTime + note.time + 0.5);
+        });
+    }
 }

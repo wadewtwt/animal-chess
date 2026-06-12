@@ -26,9 +26,12 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 生成一个简单的唯一玩家 ID
-	rand.Seed(time.Now().UnixNano())
-	userID := fmt.Sprintf("user_%d_%04d", time.Now().Unix(), rand.Intn(10000))
+	// 优先从客户端 Query 参数中提取已有的玩家 ID，无则重新生成，以支持页面刷新重连
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		rand.Seed(time.Now().UnixNano())
+		userID = fmt.Sprintf("user_%d_%04d", time.Now().Unix(), rand.Intn(10000))
+	}
 
 	client := &Client{
 		ID:   userID,

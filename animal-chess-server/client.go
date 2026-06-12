@@ -105,14 +105,7 @@ func (c *Client) WritePump() {
 				return
 			}
 			_, _ = w.Write(message)
-
-			// 检查是否有排队的其他消息，合并一次性写入
-			n := len(c.Send)
-			for i := 0; i < n; i++ {
-				_, _ = w.Write([]byte("\n"))
-				_, _ = w.Write(<-c.Send)
-			}
-
+			
 			if err := w.Close(); err != nil {
 				return
 			}

@@ -863,8 +863,8 @@ export class ModeSelectionUI extends Component {
             this.createRoomDialog.addChild(successSubtitle);
 
             // 明文展示房间号，并支持点击复制房间号
-            const roomCodeLabel = this.createLabelNode('RoomCodeLabel', `房间号：${randomCode}`, 28 * scaleFactor, '#d68118', true);
-            roomCodeLabel.setPosition(0, successSubtitle.position.y - 56 * scaleFactor, 0);
+            const roomCodeLabel = this.createLabelNode('RoomCodeLabel', `房间号：${randomCode}`, 40 * scaleFactor, '#d63031', true);
+            roomCodeLabel.setPosition(0, successSubtitle.position.y - 64 * scaleFactor, 0);
             this.createRoomDialog.addChild(roomCodeLabel);
             roomCodeLabel.addComponent(Button);
             roomCodeLabel.on(Node.EventType.TOUCH_END, () => {
@@ -946,8 +946,8 @@ export class ModeSelectionUI extends Component {
             this.createRoomDialog.addChild(successSubtitle);
 
             // 明文展示房间号，并支持点击复制房间号
-            const roomCodeLabel = this.createLabelNode('RoomCodeLabel', `房间号：${randomCode}`, 22 * scaleFactor, '#d68118', true);
-            roomCodeLabel.setPosition(0, successSubtitle.position.y - 42 * scaleFactor, 0);
+            const roomCodeLabel = this.createLabelNode('RoomCodeLabel', `房间号：${randomCode}`, 32 * scaleFactor, '#d63031', true);
+            roomCodeLabel.setPosition(0, successSubtitle.position.y - 48 * scaleFactor, 0);
             this.createRoomDialog.addChild(roomCodeLabel);
             roomCodeLabel.addComponent(Button);
             roomCodeLabel.on(Node.EventType.TOUCH_END, () => {
