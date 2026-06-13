@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math, Graphics } from 'cc';
-import { Piece, Camp } from '../engine/LocalEngine';
+import { Piece, Camp, AnimalType } from '../engine/LocalEngine';
 
 const { ccclass, property } = _decorator;
 
@@ -139,8 +139,9 @@ export class PieceView extends Component {
 
         if (isJumping) {
             // 根据距离动态计算跳跃时长和高度
-            const jumpDuration = distance > 150 ? 0.52 : 0.35;
-            const peakOffset = distance > 150 ? 130 : 60; // 跨河大跳 vs 普通小跳
+            const isRiverJump = distance > 150 && (this.pieceData.type === AnimalType.LION || this.pieceData.type === AnimalType.TIGER);
+            const jumpDuration = isRiverJump ? 0.52 : 0.35;
+            const peakOffset = isRiverJump ? 130 : 60; // 跨河大跳 vs 普通小跳
             // 鍒濆鍖栧竷灞€
             this.applyDefaultLayout(true);
             const layout = this.currentLayout;
@@ -201,10 +202,12 @@ export class PieceView extends Component {
                     .start();
             }
 
-            // 3. 闃村奖鑺傜偣锛圫hadow锛夊湪璺宠穬鑷虫渶楂樼偣鏃讹紝姣斾緥缂╁皬銆侀€忔槑搴﹀彉娣★紙琛ㄧ幇楂樺害鍙樺寲甯︽潵鐨勬姇褰辫“鍑忥級
+            // 3. 阴影节点（Shadow）在跳跃至最高点时，比例缩小、透明度变淡（表现高度变化带来的投影衰减）
             if (this.shadowNode) {
                 const startScale = layout.shadowScale;
-                const peakScale = new Vec3(startScale.x * 0.4, startScale.y * 0.4, 1);
+                const peakScale = isRiverJump 
+                    ? new Vec3(startScale.x * 0.65, startScale.y * 0.65, 1)
+                    : new Vec3(startScale.x * 0.4, startScale.y * 0.4, 1);
 
                 tween(this.shadowNode)
                     .to(jumpDuration * 0.5, { scale: peakScale }, { easing: 'sineOut' })
@@ -214,11 +217,23 @@ export class PieceView extends Component {
 
             if (this.shadowOpacity) {
                 const startOpacity = this.useFullPieceArt ? 0 : 105;
-                const peakOpacity = 25; // 鏈€娣℃椂鐨勯€忔槑搴?
-                tween(this.shadowOpacity)
-                    .to(jumpDuration * 0.5, { opacity: peakOpacity }, { easing: 'sineOut' })
-                    .to(jumpDuration * 0.5, { opacity: startOpacity }, { easing: 'sineIn' })
-                    .start();
+                if (isRiverJump) {
+                    // 飞跃小河专属投影渐变（起跳迅速显现 -> 空中因高度略微淡化 -> 落地前变实 -> 落地淡出）
+                    const peakOpacity = 90;
+                    const maxOpacity = 140;
+                    tween(this.shadowOpacity)
+                        .to(jumpDuration * 0.2, { opacity: maxOpacity }, { easing: 'sineOut' })
+                        .to(jumpDuration * 0.3, { opacity: peakOpacity }, { easing: 'sineIn' })
+                        .to(jumpDuration * 0.3, { opacity: maxOpacity }, { easing: 'sineOut' })
+                        .to(jumpDuration * 0.2, { opacity: startOpacity }, { easing: 'sineIn' })
+                        .start();
+                } else {
+                    const peakOpacity = 25; // 最淡时的透明度
+                    tween(this.shadowOpacity)
+                        .to(jumpDuration * 0.5, { opacity: peakOpacity }, { easing: 'sineOut' })
+                        .to(jumpDuration * 0.5, { opacity: startOpacity }, { easing: 'sineIn' })
+                        .start();
+                }
             }
         } else {
             // 鏅€氫竴鏍肩Щ鍔紙淇濈暀鍘熸湁鐨勬尋鍘嬪拰鍥炲脊锛?
