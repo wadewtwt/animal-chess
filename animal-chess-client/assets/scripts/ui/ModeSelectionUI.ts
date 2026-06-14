@@ -61,25 +61,15 @@ export class ModeSelectionUI extends Component {
             this.createForestFireflies(canvas, scaleFactor);
         }
 
-        // 1. 顶栏 (自适应放大)
+        // 1. 顶栏 (自适应放大) - 已隐藏黄色顶栏背景，将返回按钮直接加到 canvas
         const topBarHeight = 92 * scaleFactor;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24 * scaleFactor, topBarHeight, 18 * scaleFactor, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
-        canvas.addChild(topBar);
 
         const backBtn = this.createUnifiedBackBtn(() => {
             this.node.emit('go-back');
         }, scaleFactor);
-        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
-        topBar.addChild(backBtn);
+        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
+        canvas.addChild(backBtn);
 
-
-
-        const xpPill = this.createRectNode('XPPill', '#4caf50', 190 * scaleFactor, 58 * scaleFactor, 29 * scaleFactor);
-        xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
-        topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', 24 * scaleFactor, '#ffffff', true);
-        xpPill.addChild(xpTxt);
 
         // 2. 卡片自适应尺寸 (高宽及间距放大)
         const cardW = Math.min(cw * 0.96, 620 * scaleFactor);
@@ -816,25 +806,15 @@ export class ModeSelectionUI extends Component {
         const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36);
         this.createRoomDialog.addChild(bgWash);
 
-        // 2. 顶栏 (直接复刻)
+        // 2. 顶栏 (直接复刻) - 已隐藏黄色顶栏背景，将返回按钮直接加到弹窗
         const topBarHeight = 92 * scaleFactor;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24 * scaleFactor, topBarHeight, 18 * scaleFactor, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
-        this.createRoomDialog.addChild(topBar);
 
         const backBtn = this.createUnifiedBackBtn(() => {
             this.hideCreateRoomDialog();
         }, scaleFactor);
-        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
-        topBar.addChild(backBtn);
+        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
+        this.createRoomDialog.addChild(backBtn);
 
-
-
-        const xpPill = this.createRectNode('XPPill', '#e5debd', 170 * scaleFactor, 54 * scaleFactor, 27 * scaleFactor);
-        xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
-        topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', 22 * scaleFactor, '#3f3600', true);
-        xpPill.addChild(xpTxt);
 
         // 房间代码 (产生 6 位数字)
         const randomCode = Math.floor(100000 + Math.random() * 900000).toString();

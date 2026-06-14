@@ -63,50 +63,9 @@ export class MainMenuUI extends Component {
             this.createForestFireflies(canvas, scaleFactor);
         }
 
-        // 2. Top Bar (二次调大，在大屏下气场更强，且在极窄屏幕下依靠自适应机制进行优雅防撞)
+        // 2. Top Bar (已删除顶部个人信息模块，保留 topBarHeight 供后续排版计算使用)
         const topBarHeight = Math.max(100, Math.min(130, 130 * scaleFactor));
-        const tbW = cw - 24 * scaleFactor;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', tbW, topBarHeight, 20 * scaleFactor, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
-        canvas.addChild(topBar);
 
-        const leftX = -tbW / 2 + 14 * scaleFactor;
-        const rightX = tbW / 2 - 14 * scaleFactor;
-
-        // 头像半径调大至 32..54，大屏幕下直径超 100 像素，极其显眼大气
-        const avatarRadius = Math.max(32, Math.min(54, 54 * scaleFactor));
-        const avatarNode = this.createCircleNode('Avatar', '#2d2b1f', avatarRadius);
-        avatarNode.setPosition(leftX + avatarRadius, 0, 0);
-        topBar.addChild(avatarNode);
-
-        // 调整 XP 药丸参数：宽度 160..240，高度 50..76，但在窄屏下下限适当降低以给中间文字让出空间
-        const xpPillWidth = Math.max(115, Math.min(240, 240 * scaleFactor));
-        const xpPillHeight = Math.max(40, Math.min(76, 76 * scaleFactor));
-        const profileTextX = leftX + avatarRadius * 2 + 12 * scaleFactor;
-        const profileTextMaxWidth = Math.max(100, rightX - xpPillWidth - 18 * scaleFactor - profileTextX);
-
-        // 名字和等级字号二次调大，大屏下更加醒目华贵
-        const nameFontSize = Math.max(18, Math.min(34, 34 * scaleFactor));
-        const nameTxt = this.createLabelNode('Name', '游侠阿提 (Tim)', nameFontSize, '#22311c', true);
-        nameTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        nameTxt.getComponent(UITransform).setContentSize(profileTextMaxWidth, nameFontSize + 6);
-        nameTxt.setPosition(profileTextX, topBarHeight * 0.18, 0);
-        topBar.addChild(nameTxt);
-
-        const levelFontSize = Math.max(13, Math.min(24, 24 * scaleFactor));
-        const levelTxt = this.createLabelNode('Level', '等级 12 · 黄金段位', levelFontSize, '#198d2c', true);
-        levelTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        levelTxt.getComponent(UITransform).setContentSize(profileTextMaxWidth, levelFontSize + 6);
-        levelTxt.setPosition(profileTextX, -topBarHeight * 0.18, 0);
-        topBar.addChild(levelTxt);
-
-        const xpPill = this.createRectNode('XPPill', '#efe2af', xpPillWidth, xpPillHeight, xpPillHeight / 2);
-        xpPill.setPosition(rightX - xpPillWidth / 2, 0, 0);
-        topBar.addChild(xpPill);
-
-        const xpFontSize = Math.max(16, Math.min(30, 30 * scaleFactor));
-        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', xpFontSize, '#5b4b1c', true);
-        xpPill.addChild(xpTxt);
 
         // 3. Main Emblem
         // isPortrait 和 scaleFactor 已在顶部计算和初始化
@@ -217,10 +176,7 @@ export class MainMenuUI extends Component {
         this.safeLoadSprite('textures/start_emblem', emblemSprite);
         emblemRing.addChild(emblemImg);
 
-        // 4. Title & Subtitle
-        const subtitleText = this.createLabelNode('Subtitle', '准备好开启你的热带冒险了吗？', subtitleFontSize, '#3f4d33', false);
-        subtitleText.setPosition(0, titleY - 10 * scaleFactor, 0);
-        canvas.addChild(subtitleText);
+        // 4. Title & Subtitle (已删除副标题)
 
         // 5. Start Button
         const startBtnNode = this.createRectNode('StartBtn', '#168f25', startBtnWidth, startBtnHeight, 50 * scaleFactor);

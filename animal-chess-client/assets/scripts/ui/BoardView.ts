@@ -408,11 +408,15 @@ export class BoardView extends Component {
         this.node.setPosition(Vec3.ZERO);
         this.node.setScale(Vec3.ONE);
 
-        // 同步背景及水洗层的大小
+        // 同步背景层的大小和缩放 (保持 796x1024 原始比例进行等比缩放铺满屏幕，不拉伸变形)
         if (this.bgNode) {
             const bgTrans = this.bgNode.getComponent(UITransform);
             if (bgTrans) {
-                bgTrans.setContentSize(screenWidth, screenHeight);
+                bgTrans.setContentSize(796, 1024);
+                const scaleX = screenWidth / 796;
+                const scaleY = screenHeight / 1024;
+                const bgScale = Math.max(scaleX, scaleY);
+                this.bgNode.setScale(new Vec3(bgScale, bgScale, 1));
             }
         }
         if (this.bgWashNode) {
@@ -685,10 +689,10 @@ export class BoardView extends Component {
             this.bgNode = new Node('GameBackground');
             this.bgNode.layer = 33554432; // UI_2D
             const bgTrans = this.bgNode.addComponent(UITransform);
-            bgTrans.setContentSize(view.getVisibleSize().width, view.getVisibleSize().height);
+            bgTrans.setContentSize(796, 1024);
             const bgSprite = this.bgNode.addComponent(Sprite);
-            bgSprite.sizeMode = 0;
-            this.safeLoadSprite('textures/main_menu_bg', bgSprite);
+            bgSprite.sizeMode = 0; // CUSTOM
+            this.safeLoadSprite('textures/game_board_bg', bgSprite);
             this.node.addChild(this.bgNode);
             this.bgNode.setSiblingIndex(0); // 置于最底层
         }
@@ -950,108 +954,8 @@ export class BoardView extends Component {
 
             // 3. (漂流浮萍/荷叶已被移除以提升性能)
 
-            // 4. 鲤鱼畅游层 (1-2条)
-            const fishCount = 1 + Math.floor(Math.random() * 2);
-            for (let fi = 0; fi < fishCount; fi++) {
-                const fishNode = new Node(`KoiFish_${fi}`);
-                fishNode.parent = areaNode;
-                fishNode.layer = areaNode.layer;
-                fishNode.setSiblingIndex(4); // 位于荷叶与水纹之上
+            // 4. 鲤鱼畅游层已删除
 
-                const fTransform = fishNode.addComponent(UITransform);
-                fTransform.setContentSize(30, 20);
-
-                const fSprite = fishNode.addComponent(Sprite);
-                fSprite.sizeMode = 0;
-                
-                resources.load('textures/koi_fish/texture', ImageAsset, (err, imageAsset) => {
-                    if (err) return;
-                    if (fishNode.isValid && fSprite.isValid) {
-                        const tex = new Texture2D(); tex.image = imageAsset;
-                        const sf = new SpriteFrame(); sf.texture = tex;
-                        fSprite.spriteFrame = sf;
-                        fSprite.color = new Color(255, 255, 255, 255);
-                        fTransform.setContentSize(30, 20);
-                    }
-                });
-
-                const fOpacity = fishNode.addComponent(UIOpacity);
-                fOpacity.opacity = 0;
-
-                // 鱼尾巴 (二级动画，模拟物理运动)
-                const tailNode = new Node(`KoiTail`);
-                tailNode.parent = fishNode;
-                tailNode.layer = fishNode.layer;
-                const tTransform = tailNode.addComponent(UITransform);
-                tTransform.setContentSize(5, 3);
-                tTransform.setAnchorPoint(1.0, 0.5); 
-                tailNode.setPosition(new Vec3(-7, 0, 0));
-                
-                const tSprite = tailNode.addComponent(Sprite);
-                tSprite.sizeMode = 0;
-                tSprite.spriteFrame = this.cellSpriteFrame;
-                tSprite.color = new Color(250, 140, 70, 255); 
-                
-                resources.load('textures/koi_fish/texture', ImageAsset, (err) => {
-                    if (!err && tailNode.isValid) tailNode.active = false;
-                });
-
-                tween(tailNode)
-                    .to(0.25, { angle: 20 }, { easing: 'sineInOut' })
-                    .to(0.50, { angle: -20 }, { easing: 'sineInOut' })
-                    .to(0.25, { angle: 0 }, { easing: 'sineInOut' })
-                    .union()
-                    .repeatForever()
-                    .start();
-
-                // 游动大循环
-                const swimCycle = () => {
-                    if (!fishNode.isValid) return;
-
-                    const dir = Math.random() > 0.5 ? 1 : -1;
-                    const halfWidth = width / 2;
-                    const halfHeight = height / 2;
-                    
-                    const startX = -(halfWidth + 20) * dir;
-                    const swimY = -halfHeight + 20 + Math.random() * (height - 40);
-
-                    fishNode.setPosition(new Vec3(startX, swimY, 0));
-                    fishNode.setScale(new Vec3(dir, 1.0, 1.0)); 
-                    fishNode.angle = 0;
-                    fOpacity.opacity = 0;
-
-                    tween(fOpacity).to(0.5, { opacity: 200 }).start();
-
-                    const fishTween = tween(fishNode);
-                    let currentX = startX;
-                    let currentY = swimY;
-                    const segments = 4 + Math.floor(Math.random() * 3);
-                    
-                    for (let i = 0; i < segments; i++) {
-                        const moveX = (50 + Math.random() * 40) * dir;
-                        const moveY = (Math.random() * 40 - 20); // 游动时的上下起伏
-                        
-                        currentX += moveX;
-                        currentY += moveY;
-                        
-                        let targetAngle = Math.atan2(moveY, moveX * dir) * 180 / Math.PI;
-                        targetAngle = Math.max(-25, Math.min(25, targetAngle));
-
-                        const swimDuration = 1.0 + Math.random() * 0.8;
-                        
-                        // 连贯平滑的真实鱼类游动
-                        fishTween.to(swimDuration, { position: new Vec3(currentX, currentY, 0), angle: targetAngle }, { easing: 'sineInOut' });
-                    }
-
-                    fishTween.call(() => {
-                        tween(fOpacity).to(0.6, { opacity: 0 }).call(() => {
-                            this.scheduleOnce(swimCycle, 1.5 + Math.random() * 3.0);
-                        }).start();
-                    }).start();
-                };
-
-                this.scheduleOnce(swimCycle, Math.random() * 3.0);
-            }
 
             // 5. 水波涟漪特效 (每个河道 2 个)
             const sparkleCount = 2;

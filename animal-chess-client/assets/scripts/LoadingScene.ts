@@ -11,6 +11,11 @@ export class LoadingScene extends Component {
     private _elapsed: number = 0;
     private _loadingDuration: number = 2;
 
+    private _resProgress: number = 0;
+    private _sceneProgress: number = 0;
+    private _resCompleted: boolean = false;
+    private _sceneCompleted: boolean = false;
+
     @property
     public bootMode: boolean = false;
 
@@ -53,29 +58,63 @@ export class LoadingScene extends Component {
                 .start();
         }
 
-        this._elapsed = 0;
         this._progress = 0;
         this._targetProgress = 0;
         this._isLoaded = false;
-        this.schedule(this.simulateLoading, 0.05);
+        this._resProgress = 0;
+        this._sceneProgress = 0;
+        this._resCompleted = false;
+        this._sceneCompleted = false;
+
+        this.startRealPreloading();
     }
 
-    simulateLoading(dt: number) {
-        if (this._isLoaded) return;
-        this._elapsed += dt;
-        this._targetProgress = Math.min(1, this._elapsed / this._loadingDuration);
+    private startRealPreloading() {
+        console.log('=== LoadingScene startRealPreloading ===');
+        // 1. 预加载 resources 目录下的所有资源 (占比 70%)
+        resources.preloadDir("", (finished: number, total: number, item: any) => {
+            if (total > 0) {
+                this._resProgress = finished / total;
+                this.updateCombinedProgress();
+            }
+        }, (err: any, items: any) => {
+            if (err) {
+                console.error("Failed to preload resources directory:", err);
+            }
+            console.log("Preloading resources completed.");
+            this._resProgress = 1;
+            this._resCompleted = true;
+            this.updateCombinedProgress();
+        });
 
-        if (this._elapsed >= this._loadingDuration) {
-            this._targetProgress = 1;
-            this._isLoaded = true;
-            this.unschedule(this.simulateLoading);
-            this.onLoadComplete();
-        }
+        // 2. 预加载下一目标场景 (占比 30%)
+        director.preloadScene(this.nextScene, (finished: number, total: number, item: any) => {
+            if (total > 0) {
+                this._sceneProgress = finished / total;
+                this.updateCombinedProgress();
+            }
+        }, (err: any) => {
+            if (err) {
+                console.error(`Failed to preload scene ${this.nextScene}:`, err);
+            }
+            console.log(`Preloading scene ${this.nextScene} completed.`);
+            this._sceneProgress = 1;
+            this._sceneCompleted = true;
+            this.updateCombinedProgress();
+        });
+    }
+
+    private updateCombinedProgress() {
+        if (this._isLoaded) return;
+        // 合并计算目标进度：资源预加载占 70%，场景预加载占 30%
+        this._targetProgress = (this._resProgress * 0.7) + (this._sceneProgress * 0.3);
+        console.log(`Preload progress update: target = ${Math.floor(this._targetProgress * 100)}% (res = ${Math.floor(this._resProgress * 100)}%, scene = ${Math.floor(this._sceneProgress * 100)}%)`);
     }
 
     update(deltaTime: number) {
         if (this._progress < this._targetProgress) {
-            this._progress += deltaTime * 0.5; 
+            // 平滑步进，每秒最多前进 1.0 的进度值，确保展示平滑
+            this._progress += deltaTime * 1.0; 
             if (this._progress > this._targetProgress) {
                 this._progress = this._targetProgress;
             }
@@ -90,6 +129,23 @@ export class LoadingScene extends Component {
                 const currentX = (-this._barTotalWidth / 2) + (this._barTotalWidth * this._progress);
                 this.progressBadge.setPosition(new Vec3(currentX, this.progressBadge.position.y, 0));
             }
+        }
+
+        // 资源及场景均已完全完成，且进度条动画也已经平滑走完（达到 99% 以上）
+        if (this._resCompleted && this._sceneCompleted && this._progress >= 0.99 && !this._isLoaded) {
+            this._progress = 1;
+            if (this.progressBarFill) {
+                this.updateProgressBarFill(this._barTotalWidth);
+            }
+            if (this.progressText) {
+                this.progressText.string = '100%';
+            }
+            if (this.progressBadge) {
+                this.progressBadge.setPosition(new Vec3(this._barTotalWidth / 2, this.progressBadge.position.y, 0));
+            }
+            this._isLoaded = true;
+            console.log("All real assets preloaded successfully. Loading complete.");
+            this.onLoadComplete();
         }
     }
 
