@@ -2,27 +2,27 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "d1a07ddc-cc5e-4716-9dbd-25290ea7880f",
+  "uuid": "635415cb-1cca-4e5c-8b9a-fd1b640762ed",
   "files": [
-    ".json",
-    ".png"
+    ".jpg",
+    ".json"
   ],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "d1a07ddc-cc5e-4716-9dbd-25290ea7880f@6c48a",
-      "displayName": "game_board_bg",
+      "uuid": "635415cb-1cca-4e5c-8b9a-fd1b640762ed@6c48a",
+      "displayName": "board_grass2",
       "id": "6c48a",
       "name": "texture",
       "userData": {
-        "wrapModeS": "clamp",
-        "wrapModeT": "clamp",
+        "wrapModeS": "repeat",
+        "wrapModeT": "repeat",
         "minfilter": "linear",
         "magfilter": "linear",
         "mipfilter": "none",
         "anisotropy": 0,
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "d1a07ddc-cc5e-4716-9dbd-25290ea7880f",
+        "imageUuidOrDatabaseUri": "635415cb-1cca-4e5c-8b9a-fd1b640762ed",
         "visible": false
       },
       "ver": "1.0.22",
@@ -37,6 +37,6 @@
     "type": "texture",
     "hasAlpha": false,
     "fixAlphaTransparencyArtifacts": false,
-    "redirect": "d1a07ddc-cc5e-4716-9dbd-25290ea7880f@6c48a"
+    "redirect": "635415cb-1cca-4e5c-8b9a-fd1b640762ed@6c48a"
   }
 }

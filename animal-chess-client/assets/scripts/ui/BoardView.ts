@@ -95,6 +95,8 @@ export class BoardView extends Component {
     private gameOverReason: GameOverReason | null = null;
     private bgNode: Node | null = null;
     private bgWashNode: Node | null = null;
+    private switchBattlefieldButtonNode: Node | null = null;
+    private isGrassStyle: boolean = false;
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
@@ -143,12 +145,17 @@ export class BoardView extends Component {
             this.bgWashNode.destroy();
             this.bgWashNode = null;
         }
+        if (this.switchBattlefieldButtonNode) {
+            this.switchBattlefieldButtonNode.destroy();
+            this.switchBattlefieldButtonNode = null;
+        }
     }
 
     start() {
         console.log("BoardView: start() called.");
         this.node.active = false;
         this.engine = new LocalEngine();
+        this.isGrassStyle = sys.localStorage.getItem('board_style_is_grass') === 'true';
         this.initBoardBackground();
         this.adjustBoardScale(); // 适应屏幕比例
         this.loadPieceArt().then(() => {
@@ -207,6 +214,7 @@ export class BoardView extends Component {
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
 
         // Ensure clean recreation
         if (this.mainMenuNode) {
@@ -251,6 +259,7 @@ export class BoardView extends Component {
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
 
         // Ensure clean recreation
         if (this.modeSelectionNode) {
@@ -604,6 +613,37 @@ export class BoardView extends Component {
             }
         }
 
+        // 一键切换战场按钮位置绑定
+        if (this.switchBattlefieldButtonNode) {
+            const switchTrans = this.switchBattlefieldButtonNode.getComponent(UITransform);
+            if (switchTrans) {
+                switchTrans.setContentSize(240 * scaleFactor, 56 * scaleFactor);
+            }
+            const switchGraphics = this.switchBattlefieldButtonNode.getComponent(Graphics);
+            if (switchGraphics) {
+                switchGraphics.clear();
+                switchGraphics.lineWidth = 3 * scaleFactor;
+                switchGraphics.strokeColor = new Color(255, 255, 255, 255);
+                switchGraphics.fillColor = new Color(46, 125, 50, 240); // 优雅的森林绿色
+                const w = 240 * scaleFactor;
+                const h = 56 * scaleFactor;
+                switchGraphics.roundRect(-w/2, -h/2, w, h, 16 * scaleFactor);
+                switchGraphics.fill();
+                switchGraphics.stroke();
+            }
+            const switchLabelNode = this.switchBattlefieldButtonNode.getChildByName("Label");
+            if (switchLabelNode) {
+                const switchLabelTrans = switchLabelNode.getComponent(UITransform);
+                if (switchLabelTrans) switchLabelTrans.setContentSize(240 * scaleFactor, 56 * scaleFactor);
+                const switchLabelComp = switchLabelNode.getComponent(Label);
+                if (switchLabelComp) {
+                    switchLabelComp.fontSize = Math.round(22 * scaleFactor);
+                    switchLabelComp.lineHeight = Math.round(26 * scaleFactor);
+                }
+            }
+            this.switchBattlefieldButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
+        }
+
         // 重新排布结算弹窗 (如果有)
         if (this.customGameOverPanel && this.customGameOverPanel.active) {
             this.layoutCustomGameOverPanel();
@@ -845,6 +885,7 @@ export class BoardView extends Component {
         if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
             this.createGlobalFishes();
         }
+        this.updateBoardGridTextures();
     }
     
     private createGlobalFishes(): void {
@@ -1565,6 +1606,7 @@ export class BoardView extends Component {
 
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
 
         // 对局结束，清除本地暂存的对局房间号
         sys.localStorage.removeItem('animal_chess_room_id');
@@ -2247,6 +2289,9 @@ export class BoardView extends Component {
             if (this.surrenderButtonNode) {
                 this.surrenderButtonNode.active = showUI;
             }
+            if (this.switchBattlefieldButtonNode) {
+                this.switchBattlefieldButtonNode.active = showUI;
+            }
             if (this.turnIndicatorBgNode) {
                 this.turnIndicatorBgNode.active = showUI;
             }
@@ -2341,6 +2386,37 @@ export class BoardView extends Component {
 
         this.node.parent!.addChild(this.surrenderButtonNode);
 
+        // 2.7 创建一键切换战场按钮
+        this.switchBattlefieldButtonNode = new Node("SwitchBattlefieldButton");
+        this.switchBattlefieldButtonNode.layer = 33554432;
+        this.switchBattlefieldButtonNode.addComponent(UITransform);
+        this.switchBattlefieldButtonNode.addComponent(Graphics);
+
+        // 按钮文字
+        const switchLabelNode = new Node("Label");
+        switchLabelNode.layer = 33554432;
+        switchLabelNode.addComponent(UITransform);
+        const switchLabel = switchLabelNode.addComponent(Label);
+        switchLabel.string = "一键切换战场";
+        switchLabel.color = Color.WHITE;
+        switchLabel.isBold = true;
+        this.switchBattlefieldButtonNode.addChild(switchLabelNode);
+
+        // 绑定事件与触摸微动反馈
+        this.switchBattlefieldButtonNode.on(Node.EventType.TOUCH_START, () => {
+            this.switchBattlefieldButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
+        this.switchBattlefieldButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.switchBattlefieldButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.onSwitchBattlefieldClicked();
+        }, this);
+        this.switchBattlefieldButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            this.switchBattlefieldButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        this.node.parent!.addChild(this.switchBattlefieldButtonNode);
+
         // 3. 修饰回合文字组件
         this.decorateTurnIndicator();
 
@@ -2348,6 +2424,9 @@ export class BoardView extends Component {
         this.backButtonNode.active = showUI;
         this.undoButtonNode.active = showUI && !this.isNetworkMode;
         this.surrenderButtonNode.active = showUI;
+        if (this.switchBattlefieldButtonNode) {
+            this.switchBattlefieldButtonNode.active = showUI;
+        }
         if (this.turnIndicatorBgNode) {
             this.turnIndicatorBgNode.active = showUI;
         }
@@ -3392,5 +3471,62 @@ export class BoardView extends Component {
                 this.showToast("连接服务器失败，请检查网络！");
                 this.showMainMenu();
             });
+    }
+
+    private loadBoardStyleSpriteFrames(callback: (sf1: SpriteFrame | null, sf2: SpriteFrame | null) => void) {
+        const path1 = this.isGrassStyle ? 'textures/board_grass1' : 'textures/board_wood1';
+        const path2 = this.isGrassStyle ? 'textures/board_grass2' : 'textures/board_wood2';
+        
+        const loadOne = (path: string, cb: (sf: SpriteFrame | null) => void) => {
+            resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
+                if (!err && sf) return cb(sf);
+                resources.load(path, SpriteFrame, (err2, sf2) => {
+                    if (!err2 && sf2) return cb(sf2);
+                    resources.load(path, ImageAsset, (err3, imgAsset) => {
+                        if (!err3 && imgAsset) {
+                            return cb(SpriteFrame.createWithImage(imgAsset));
+                        }
+                        console.warn(`Failed to load board style texture ${path}:`, err3);
+                        cb(null);
+                    });
+                });
+            });
+        };
+        
+        loadOne(path1, (sf1) => {
+            loadOne(path2, (sf2) => {
+                callback(sf1, sf2);
+            });
+        });
+    }
+
+    private updateBoardGridTextures(): void {
+        this.loadBoardStyleSpriteFrames((sf1, sf2) => {
+            if (!sf1 || !sf2) return;
+            
+            for (let x = 0; x < LocalEngine.COLS; x++) {
+                for (let y = 0; y < LocalEngine.ROWS; y++) {
+                    const idx = x * LocalEngine.ROWS + y;
+                    const cellNode = this.boardGridNodes[idx];
+                    if (cellNode && cellNode.isValid) {
+                        const sprite = cellNode.getComponent(Sprite);
+                        if (sprite) {
+                            if (!this.engine.isRiver(x, y) && this.engine.getTrapCamp(x, y) === null && !this.engine.isDen(x, y)) {
+                                const useGrass1 = (x + y) % 2 === 0;
+                                sprite.spriteFrame = useGrass1 ? sf1 : sf2;
+                                sprite.color = new Color(255, 255, 255, 255);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    private onSwitchBattlefieldClicked() {
+        this.isGrassStyle = !this.isGrassStyle;
+        sys.localStorage.setItem('board_style_is_grass', this.isGrassStyle ? 'true' : 'false');
+        this.updateBoardGridTextures();
+        this.showToast(this.isGrassStyle ? "已切换至青青草地战场" : "已切换至精致木板战场");
     }
 }
