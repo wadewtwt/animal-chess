@@ -90,6 +90,7 @@ export class BoardView extends Component {
     private surrenderConfirmPanel: Node | null = null;
     private screenTimerLabelNode: Node | null = null;
     private turnIndicatorBgNode: Node | null = null;
+    private boardTitleNode: Node | null = null;
     private customGameOverPanel: Node | null = null;
     private gameOverWinner: Camp | null = null;
     private gameOverReason: GameOverReason | null = null;
@@ -124,6 +125,10 @@ export class BoardView extends Component {
         if (this.turnIndicatorBgNode) {
             this.turnIndicatorBgNode.destroy();
             this.turnIndicatorBgNode = null;
+        }
+        if (this.boardTitleNode) {
+            this.boardTitleNode.destroy();
+            this.boardTitleNode = null;
         }
         if (this.backButtonNode) {
             this.backButtonNode.destroy();
@@ -211,6 +216,7 @@ export class BoardView extends Component {
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.boardTitleNode) this.boardTitleNode.active = false;
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
@@ -256,6 +262,7 @@ export class BoardView extends Component {
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.boardTitleNode) this.boardTitleNode.active = false;
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
@@ -458,15 +465,23 @@ export class BoardView extends Component {
 
         // 状态栏美化位置绑定 (居中靠上)
         const posY = screenHeight / 2 - Math.max(64 * scaleFactor, topInset + 20 * scaleFactor);
+        if (this.boardTitleNode) {
+            const titleLabel = this.boardTitleNode.getComponent(Label);
+            if (titleLabel) {
+                titleLabel.fontSize = Math.round(28 * scaleFactor);
+                titleLabel.lineHeight = Math.round(36 * scaleFactor);
+            }
+            this.boardTitleNode.setPosition(new Vec3(0, posY + 22 * scaleFactor, 0));
+        }
         if (this.turnIndicator) {
-            this.turnIndicator.fontSize = Math.round(28 * scaleFactor);
-            this.turnIndicator.lineHeight = Math.round(36 * scaleFactor);
-            this.turnIndicator.node.setPosition(new Vec3(0, posY, 0));
+            this.turnIndicator.fontSize = Math.round(24 * scaleFactor);
+            this.turnIndicator.lineHeight = Math.round(30 * scaleFactor);
+            this.turnIndicator.node.setPosition(new Vec3(0, posY - 20 * scaleFactor, 0));
         }
         if (this.turnIndicatorBgNode) {
             const bgTrans = this.turnIndicatorBgNode.getComponent(UITransform);
             if (bgTrans) {
-                bgTrans.setContentSize(520 * scaleFactor, 68 * scaleFactor);
+                bgTrans.setContentSize(480 * scaleFactor, 116 * scaleFactor);
             }
             const bgGraphics = this.turnIndicatorBgNode.getComponent(Graphics);
             if (bgGraphics) {
@@ -474,9 +489,9 @@ export class BoardView extends Component {
                 bgGraphics.lineWidth = 2.5 * scaleFactor;
                 bgGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
                 bgGraphics.fillColor = new Color(20, 20, 20, 220); // 优雅的深碳黑色
-                const w = 520 * scaleFactor;
-                const h = 68 * scaleFactor;
-                bgGraphics.roundRect(-w/2, -h/2, w, h, 18 * scaleFactor);
+                const w = 480 * scaleFactor;
+                const h = 116 * scaleFactor;
+                bgGraphics.roundRect(-w/2, -h/2, w, h, 20 * scaleFactor);
                 bgGraphics.fill();
                 bgGraphics.stroke();
             }
@@ -1125,7 +1140,7 @@ export class BoardView extends Component {
                 turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
             }
             
-            this.turnIndicator.string = `勇者来斗兽 · ${turnStr}   ⏳ ${this.remainingTime}s`;
+            this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
             
             // 亮眼对比度色彩
             this.turnIndicator.color = turnCamp === Camp.RED ? new Color(255, 90, 90) : new Color(100, 160, 255);
@@ -2304,6 +2319,9 @@ export class BoardView extends Component {
             if (this.turnIndicator) {
                 this.turnIndicator.node.active = showUI;
             }
+            if (this.boardTitleNode) {
+                this.boardTitleNode.active = showUI;
+            }
             this.decorateTurnIndicator();
             this.adjustBoardScale();
             return;
@@ -2439,6 +2457,9 @@ export class BoardView extends Component {
         if (this.turnIndicator) {
             this.turnIndicator.node.active = showUI;
         }
+        if (this.boardTitleNode) {
+            this.boardTitleNode.active = showUI;
+        }
 
         // 刷新一次位置布局
         this.adjustBoardScale();
@@ -2448,6 +2469,23 @@ export class BoardView extends Component {
         if (!this.turnIndicator) return;
         const showUI = this.node.active;
         this.turnIndicator.node.active = showUI; // 确保仅在对局激活时显示
+
+        // 动态创建并挂载顶部的游戏标题
+        const parentNode = this.turnIndicator.node.parent!;
+        if (!this.boardTitleNode) {
+            this.boardTitleNode = new Node("BoardTitle");
+            this.boardTitleNode.layer = 33554432;
+            this.boardTitleNode.addComponent(UITransform);
+            const titleLabel = this.boardTitleNode.addComponent(Label);
+            titleLabel.string = "勇者来斗兽";
+            titleLabel.isBold = true;
+            const color = new Color();
+            Color.fromHEX(color, '#ffca28'); // 亮金黄色，非常显眼
+            titleLabel.color = color;
+            parentNode.addChild(this.boardTitleNode);
+        }
+        this.boardTitleNode.active = showUI;
+
         if (this.turnIndicatorBgNode) {
             this.turnIndicatorBgNode.active = showUI;
             return;
@@ -2498,6 +2536,7 @@ export class BoardView extends Component {
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
+        if (this.boardTitleNode) this.boardTitleNode.active = false;
 
         if (this.gameOverPanel) {
             this.gameOverPanel.active = false;

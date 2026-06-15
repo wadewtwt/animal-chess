@@ -71,7 +71,7 @@ export class ModeSelectionUI extends Component {
         canvas.addChild(backBtn);
 
         // 1.5 顶栏标题 (恢复显示游戏名，用于小游戏备案)
-        const pageTitle = this.createLabelNode('PageTitle', '勇者来斗兽 - 模式选择', 32 * scaleFactor, '#1b6e13', true);
+        const pageTitle = this.createLabelNode('PageTitle', '勇者来斗兽 - 模式选择', 32 * scaleFactor, '#ffb300', true);
         pageTitle.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
         canvas.addChild(pageTitle);
 

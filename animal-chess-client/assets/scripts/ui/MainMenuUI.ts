@@ -177,7 +177,7 @@ export class MainMenuUI extends Component {
         emblemRing.addChild(emblemImg);
 
         // 4. Title & Subtitle (恢复显示游戏名，用于小游戏备案)
-        const gameTitleNode = this.createLabelNode('GameTitle', '勇者来斗兽', titleFontSize * 1.25, '#1b6e13', true);
+        const gameTitleNode = this.createLabelNode('GameTitle', '勇者来斗兽', titleFontSize * 1.25, '#ffb300', true);
         gameTitleNode.setPosition(0, titleY, 0);
         canvas.addChild(gameTitleNode);
 
