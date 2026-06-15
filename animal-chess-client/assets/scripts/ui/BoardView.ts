@@ -407,6 +407,8 @@ export class BoardView extends Component {
         const screenWidth = visibleSize.width;
         const screenHeight = visibleSize.height;
         const scaleFactor = this.getScaleFactor();
+        const safeArea = view.getSafeAreaRect();
+        const topInset = visibleSize.height - (safeArea.y + safeArea.height);
 
         // 强制归零重正当前 BoardView 本身节点的属性，防止坐标偏离视口
         const nodeTrans = this.node.getComponent(UITransform);
@@ -455,7 +457,7 @@ export class BoardView extends Component {
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
 
         // 状态栏美化位置绑定 (居中靠上)
-        const posY = screenHeight / 2 - 64 * scaleFactor;
+        const posY = screenHeight / 2 - Math.max(64 * scaleFactor, topInset + 20 * scaleFactor);
         if (this.turnIndicator) {
             this.turnIndicator.fontSize = Math.round(28 * scaleFactor);
             this.turnIndicator.lineHeight = Math.round(36 * scaleFactor);
@@ -538,7 +540,8 @@ export class BoardView extends Component {
             if (labelNode) {
                 labelNode.active = false;
             }
-            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 56 * scaleFactor, screenHeight / 2 - 54 * scaleFactor, 0));
+            const backY = screenHeight / 2 - Math.max(54 * scaleFactor, topInset + 15 * scaleFactor);
+            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 56 * scaleFactor, backY, 0));
         }
 
         // 投降按钮位置绑定
