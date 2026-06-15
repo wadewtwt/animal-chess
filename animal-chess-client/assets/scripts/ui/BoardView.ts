@@ -96,7 +96,7 @@ export class BoardView extends Component {
     private bgNode: Node | null = null;
     private bgWashNode: Node | null = null;
     private switchBattlefieldButtonNode: Node | null = null;
-    private isGrassStyle: boolean = false;
+    private isGrassStyle: boolean = true;
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
@@ -155,7 +155,7 @@ export class BoardView extends Component {
         console.log("BoardView: start() called.");
         this.node.active = false;
         this.engine = new LocalEngine();
-        this.isGrassStyle = sys.localStorage.getItem('board_style_is_grass') === 'true';
+        this.isGrassStyle = sys.localStorage.getItem('board_style_is_grass') !== 'false';
         this.initBoardBackground();
         this.adjustBoardScale(); // 适应屏幕比例
         this.loadPieceArt().then(() => {
