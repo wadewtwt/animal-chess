@@ -176,7 +176,10 @@ export class MainMenuUI extends Component {
         this.safeLoadSprite('textures/start_emblem', emblemSprite);
         emblemRing.addChild(emblemImg);
 
-        // 4. Title & Subtitle (已删除副标题)
+        // 4. Title & Subtitle (恢复显示游戏名，用于小游戏备案)
+        const gameTitleNode = this.createLabelNode('GameTitle', '勇者来斗兽', titleFontSize * 1.25, '#1b6e13', true);
+        gameTitleNode.setPosition(0, titleY, 0);
+        canvas.addChild(gameTitleNode);
 
         // 5. Start Button
         const startBtnNode = this.createRectNode('StartBtn', '#168f25', startBtnWidth, startBtnHeight, 50 * scaleFactor);

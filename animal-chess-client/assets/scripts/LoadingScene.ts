@@ -223,6 +223,12 @@ export class LoadingScene extends Component {
         widget.bottom = 0;
         widget.alignMode = 2; // ON_WINDOW_RESIZE
 
+        // 1.5 Game Title
+        const titleFontSize = Math.round(54 * scaleFactor);
+        const gameTitle = this.createLabelNode('GameTitle', '勇者来斗兽', titleFontSize, '#137920', true);
+        gameTitle.setPosition(0, ch / 2 - ch * (isPortrait ? 0.22 : 0.18), 0);
+        canvas.addChild(gameTitle);
+
         // 2. Loading Progress Bar (随屏幕尺寸缩放，避免小屏横屏挤压)
         const bottomContainer = new Node('BottomContainer');
         bottomContainer.layer = 33554432;

@@ -466,7 +466,7 @@ export class BoardView extends Component {
         if (this.turnIndicatorBgNode) {
             const bgTrans = this.turnIndicatorBgNode.getComponent(UITransform);
             if (bgTrans) {
-                bgTrans.setContentSize(460 * scaleFactor, 68 * scaleFactor);
+                bgTrans.setContentSize(520 * scaleFactor, 68 * scaleFactor);
             }
             const bgGraphics = this.turnIndicatorBgNode.getComponent(Graphics);
             if (bgGraphics) {
@@ -474,7 +474,7 @@ export class BoardView extends Component {
                 bgGraphics.lineWidth = 2.5 * scaleFactor;
                 bgGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
                 bgGraphics.fillColor = new Color(20, 20, 20, 220); // 优雅的深碳黑色
-                const w = 460 * scaleFactor;
+                const w = 520 * scaleFactor;
                 const h = 68 * scaleFactor;
                 bgGraphics.roundRect(-w/2, -h/2, w, h, 18 * scaleFactor);
                 bgGraphics.fill();
@@ -1125,7 +1125,7 @@ export class BoardView extends Component {
                 turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
             }
             
-            this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
+            this.turnIndicator.string = `勇者来斗兽 · ${turnStr}   ⏳ ${this.remainingTime}s`;
             
             // 亮眼对比度色彩
             this.turnIndicator.color = turnCamp === Camp.RED ? new Color(255, 90, 90) : new Color(100, 160, 255);
@@ -2252,11 +2252,14 @@ export class BoardView extends Component {
                                     return;
                                 }
                                 try {
-                                    const sf = SpriteFrame.createWithImage(imgAsset);
+                                    const tex = new Texture2D();
+                                    tex.image = imgAsset;
+                                    const sf = new SpriteFrame();
+                                    sf.texture = tex;
                                     this.pieceArtByCampAndType.set(key, sf);
                                     console.log(`BoardView: registered art (ImageAsset->SF) for key: ${key} from ${path}`);
                                 } catch (e) {
-                                    console.error(`BoardView: createWithImage failed for ${path}:`, e);
+                                    console.error(`BoardView: manual SpriteFrame creation failed for ${path}:`, e);
                                 }
                                 resolve();
                             });
@@ -3169,7 +3172,10 @@ export class BoardView extends Component {
                         resources.load(path, ImageAsset, (err3, imgAsset) => {
                             if (!err3 && imgAsset) {
                                 if (sprite && sprite.isValid) {
-                                    const sf3 = SpriteFrame.createWithImage(imgAsset);
+                                    const tex = new Texture2D();
+                                    tex.image = imgAsset;
+                                    const sf3 = new SpriteFrame();
+                                    sf3.texture = tex;
                                     sprite.spriteFrame = sf3;
                                 }
                             } else {
@@ -3487,7 +3493,11 @@ export class BoardView extends Component {
                     if (!err2 && sf2) return cb(sf2);
                     resources.load(path, ImageAsset, (err3, imgAsset) => {
                         if (!err3 && imgAsset) {
-                            return cb(SpriteFrame.createWithImage(imgAsset));
+                            const tex = new Texture2D();
+                            tex.image = imgAsset;
+                            const sf = new SpriteFrame();
+                            sf.texture = tex;
+                            return cb(sf);
                         }
                         console.warn(`Failed to load board style texture ${path}:`, err3);
                         cb(null);
