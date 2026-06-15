@@ -407,7 +407,7 @@ export class BoardView extends Component {
         const screenWidth = visibleSize.width;
         const screenHeight = visibleSize.height;
         const scaleFactor = this.getScaleFactor();
-        const safeArea = view.getSafeAreaRect();
+        const safeArea = sys.getSafeAreaRect();
         const topInset = visibleSize.height - (safeArea.y + safeArea.height);
 
         // 强制归零重正当前 BoardView 本身节点的属性，防止坐标偏离视口
