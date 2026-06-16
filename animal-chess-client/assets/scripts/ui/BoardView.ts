@@ -426,7 +426,12 @@ export class BoardView extends Component {
         this.node.setPosition(Vec3.ZERO);
         this.node.setScale(Vec3.ONE);
 
-        // 同步背景层的大小和缩放 (保持 796x1024 原始比例进行等比缩放铺满屏幕，不拉伸变形)
+        // 计算棋盘的目标尺寸 (让宽度完美撑满屏幕)
+        const boardWidth = LocalEngine.COLS * this.cellWidth;
+        // 缩放比完全由宽度决定，以实现宽度撑满屏幕，高度自适应
+        const targetScale = screenWidth / boardWidth;
+
+        // 同步背景层的大小和缩放 (保持 796x1024 原始比例进行等比缩放铺满屏幕，不拉伸变形，并抵消父节点的缩放)
         if (this.bgNode) {
             const bgTrans = this.bgNode.getComponent(UITransform);
             if (bgTrans) {
@@ -434,7 +439,9 @@ export class BoardView extends Component {
                 const scaleX = screenWidth / 796;
                 const scaleY = screenHeight / 1024;
                 const bgScale = Math.max(scaleX, scaleY);
-                this.bgNode.setScale(new Vec3(bgScale, bgScale, 1));
+                // 抵消 boardContainer (this.node) 的 scale 缩放
+                const finalScale = bgScale / targetScale;
+                this.bgNode.setScale(new Vec3(finalScale, finalScale, 1));
             }
         }
         if (this.bgWashNode) {
@@ -453,12 +460,6 @@ export class BoardView extends Component {
                 g.fill();
             }
         }
-
-        // 计算棋盘的目标尺寸 (让宽度完美撑满屏幕)
-        const boardWidth = LocalEngine.COLS * this.cellWidth;
-
-        // 缩放比完全由宽度决定，以实现宽度撑满屏幕，高度自适应
-        let targetScale = screenWidth / boardWidth;
 
         console.log(`BoardView: adjustScale visibleSize=${screenWidth}x${screenHeight}, targetScale=${targetScale}`);
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
@@ -589,9 +590,9 @@ export class BoardView extends Component {
             }
 
             if (this.isNetworkMode) {
-                this.surrenderButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75 * scaleFactor, 0));
+                this.surrenderButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
             } else {
-                this.surrenderButtonNode.setPosition(new Vec3(110 * scaleFactor, -screenHeight / 2 + 75 * scaleFactor, 0));
+                this.surrenderButtonNode.setPosition(new Vec3(110 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
             }
         }
 
@@ -625,9 +626,9 @@ export class BoardView extends Component {
             }
 
             if (this.isNetworkMode) {
-                this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75 * scaleFactor, 0));
+                this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
             } else {
-                this.undoButtonNode.setPosition(new Vec3(-110 * scaleFactor, -screenHeight / 2 + 75 * scaleFactor, 0));
+                this.undoButtonNode.setPosition(new Vec3(-110 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
             }
         }
 
@@ -659,7 +660,7 @@ export class BoardView extends Component {
                     switchLabelComp.lineHeight = Math.round(26 * scaleFactor);
                 }
             }
-            this.switchBattlefieldButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
+            this.switchBattlefieldButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75 * scaleFactor, 0));
         }
 
         // 重新排布结算弹窗 (如果有)
@@ -2486,29 +2487,26 @@ export class BoardView extends Component {
         }
         this.boardTitleNode.active = showUI;
 
-        if (this.turnIndicatorBgNode) {
-            this.turnIndicatorBgNode.active = showUI;
-            return;
+        if (!this.turnIndicatorBgNode) {
+            // 创建背景板
+            this.turnIndicatorBgNode = new Node("TurnIndicatorBg");
+            this.turnIndicatorBgNode.layer = 33554432;
+            this.turnIndicatorBgNode.addComponent(UITransform);
+            this.turnIndicatorBgNode.addComponent(Graphics);
+
+            // 插入父节点下
+            parentNode.addChild(this.turnIndicatorBgNode);
+            
+            // 绑定位置：它的初始位置应该和 turnIndicator 保持完全一致
+            this.turnIndicatorBgNode.setPosition(this.turnIndicator.node.position);
         }
 
-        const parentNode = this.turnIndicator.node.parent!;
-        
-        // 创建背景板
-        this.turnIndicatorBgNode = new Node("TurnIndicatorBg");
-        this.turnIndicatorBgNode.layer = 33554432;
-        this.turnIndicatorBgNode.addComponent(UITransform);
-        this.turnIndicatorBgNode.addComponent(Graphics);
-
-        // 插入父节点下
-        parentNode.addChild(this.turnIndicatorBgNode);
-        
-        // 绑定位置：它的初始位置应该和 turnIndicator 保持完全一致
-        this.turnIndicatorBgNode.setPosition(this.turnIndicator.node.position);
-        
-        // 确保 turnIndicator 挂在其之上显示
-        this.turnIndicator.node.setSiblingIndex(this.turnIndicatorBgNode.getSiblingIndex() + 1);
-        
         this.turnIndicatorBgNode.active = showUI;
+
+        // 确保背景板在最底层，标题和回合文本在其上方显示
+        const bgIdx = this.turnIndicatorBgNode.getSiblingIndex();
+        this.boardTitleNode.setSiblingIndex(bgIdx + 1);
+        this.turnIndicator.node.setSiblingIndex(bgIdx + 2);
     }
 
     private onBackButtonClicked() {

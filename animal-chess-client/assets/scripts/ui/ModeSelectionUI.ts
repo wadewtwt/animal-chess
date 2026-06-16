@@ -90,10 +90,10 @@ export class ModeSelectionUI extends Component {
             cardW,
             cardH,
             '本地双人',
-            '#006e1c',
+            '#1b5e20',
             '开始',
-            '#006e1c',
-            '#003c0b',
+            '#27ae60',
+            '#196f3d',
             'textures/mode_local_duo',
             () => {
                 this.node.emit('start-local-duo');
@@ -108,10 +108,10 @@ export class ModeSelectionUI extends Component {
             cardW,
             cardH,
             '人机挑战',
-            '#8b5000',
+            '#e67e22',
             '练习',
-            '#8b5000',
-            '#4d2b00',
+            '#f39c12',
+            '#a05d00',
             'textures/mode_ai_practice',
             () => {
                 this.showDifficultyDialog();
@@ -126,10 +126,10 @@ export class ModeSelectionUI extends Component {
             cardW,
             cardH,
             '房间对战',
-            '#695f00',
+            '#1f618d',
             '进入',
-            '#695f00',
-            '#4f4800',
+            '#2980b9',
+            '#1a5276',
             'textures/mode_online_battle',
             () => {
                 this.showRoomActionDialog();
@@ -245,11 +245,26 @@ export class ModeSelectionUI extends Component {
         btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         btnG.fill();
 
-        // 按钮上边缘亮色内高光
+        // 按钮上边缘亮色内高光线
         btnG.lineWidth = 2 * scaleFactor;
         btnG.strokeColor = new Color(255, 255, 255, 120); 
         btnG.arc(0, 0, btnRadius - 1 * scaleFactor, 0.1 * Math.PI, 0.9 * Math.PI, false);
         btnG.stroke();
+
+        // 按钮的外发光极细白边框 (微光细描边，Alpha 设为 100 以显细腻)
+        btnG.lineWidth = 1.5 * scaleFactor;
+        btnG.strokeColor = new Color(255, 255, 255, 100);
+        btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
+        btnG.stroke();
+
+        // 按钮 3D 果冻面高光层 (高度降至 18%，位置上移至 28%，透明度大幅调低至 65，使其晶莹且自然)
+        const glowW = btnW - 14 * scaleFactor;
+        const glowH = btnH * 0.18;
+        const glowRadius = Math.max(0, btnRadius * 0.65);
+        const glowY = btnH * 0.28;
+        const btnGlow = this.createRectNode('BtnGlow', '#ffffff', glowW, glowH, glowRadius, 65);
+        btnGlow.setPosition(0, glowY, 0);
+        btn.addChild(btnGlow);
 
         btn.setPosition(0, -h / 2 + 46 * scaleFactor, 0);
         cardContainer.addChild(btn);
@@ -268,7 +283,7 @@ export class ModeSelectionUI extends Component {
         btn.on(Node.EventType.TOUCH_END, () => {
             btn.setScale(new Vec3(1.0, 1.0, 1.0));
             btn.setPosition(new Vec3(0, -h / 2 + 46 * scaleFactor, 0));
-            AudioSynth.playClick();
+            AudioSynth.playJoyfulClick();
             onClick();
         }, this);
 
@@ -370,7 +385,7 @@ export class ModeSelectionUI extends Component {
         startBtn.addChild(startTxt);
         startBtn.addComponent(Button);
         startBtn.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
+            AudioSynth.playJoyfulClick();
             const difficulty = this.selectedDifficulty;
             this.hideDifficultyDialog();
             this.node.emit('start-ai-practice', difficulty);
@@ -902,7 +917,7 @@ export class ModeSelectionUI extends Component {
             enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             enterBtn.on(Node.EventType.TOUCH_END, () => {
                 enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                AudioSynth.playClick();
+                AudioSynth.playJoyfulClick();
                 this.startOnlineMatch(randomCode);
             });
             enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
@@ -984,7 +999,7 @@ export class ModeSelectionUI extends Component {
             enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             enterBtn.on(Node.EventType.TOUCH_END, () => {
                 enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                AudioSynth.playClick();
+                AudioSynth.playJoyfulClick();
                 this.startOnlineMatch(randomCode);
             });
             enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
