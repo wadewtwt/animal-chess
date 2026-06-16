@@ -190,20 +190,25 @@ export class MainMenuUI extends Component {
         // canvas.addChild(gameTitleNode);
 
         // 5. Start Button
-        const startBtnNode = this.createRectNode('StartBtn', '#168f25', startBtnWidth, startBtnHeight, 50 * scaleFactor);
+        const startBtnNode = this.createRectNode('StartBtn', '#0f801d', startBtnWidth, startBtnHeight, startBtnHeight / 2);
         startBtnNode.setPosition(0, startBtnY, 0);
         canvas.addChild(startBtnNode);
 
-        const startGlow = this.createRectNode('StartGlow', '#4fcc58', startBtnWidth - 28 * scaleFactor, startBtnHeight * 0.3, 36 * scaleFactor, 92);
+        const startGlow = this.createRectNode('StartGlow', '#56de60', startBtnWidth - 28 * scaleFactor, startBtnHeight * 0.28, (startBtnHeight * 0.28) / 2, 75);
         startGlow.setPosition(0, startBtnHeight * 0.2, 0);
         startBtnNode.addChild(startGlow);
 
-        const playCircle = this.createCircleNode('PlayCircle', '#f8fff7', playCircleRadius);
-        playCircle.setPosition((isPortrait ? -160 : -110) * scaleFactor * 0.8, 0, 0);
-        startBtnNode.addChild(playCircle);
-        const playIcon = this.createLabelNode('PlayIcon', '▶', playIconFontSize, '#168f25', true);
-        playIcon.setPosition((isPortrait ? -160 : -110) * scaleFactor * 0.8, 0, 0);
-        startBtnNode.addChild(playIcon);
+        // 用精美新生成的 start_btn_icon 替代以前用 Graphics 画的白圆圈和字符 "▶"
+        const iconSize = playCircleRadius * 2.3;
+        const playIconImg = new Node('PlayIconImg');
+        playIconImg.layer = 33554432;
+        playIconImg.setPosition((isPortrait ? -160 : -110) * scaleFactor * 0.8, 0, 0);
+        const iconTrans = playIconImg.addComponent(UITransform);
+        iconTrans.setContentSize(iconSize, iconSize);
+        const iconSprite = playIconImg.addComponent(Sprite);
+        iconSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.safeLoadSprite('textures/start_btn_icon', iconSprite);
+        startBtnNode.addChild(playIconImg);
 
         const startBtnText = this.createLabelNode('StartTxt', '开始游戏', startBtnFontSize, '#ffffff', true);
         startBtnText.setPosition((isPortrait ? 90 : 60) * scaleFactor * 0.8, 2 * scaleFactor, 0);
@@ -222,43 +227,18 @@ export class MainMenuUI extends Component {
             startBtnNode.setScale(new Vec3(1, 1, 1));
         }, this);
 
-        // 6. Bottom Buttons (由 2 个扩展为 3 个并排排列)
-        const bottomBtnWidth = (startBtnWidth - 20 * scaleFactor) / 3;
+        // 6. Bottom Buttons (排除了退出按钮，现在是 2 个并排排列)
+        const bottomBtnWidth = (startBtnWidth - 10 * scaleFactor) / 2;
         
         // 计算通用 3D 高光参数 (贴近按钮顶部边缘，采用窄边、低透明度以实现极度柔和自然的 3D 质感)
         const glowW = bottomBtnWidth - 16 * scaleFactor;
-        const glowH = bottomBtnHeight * 0.18; // 高度缩减为 18% (原 28%)
+        const glowH = bottomBtnHeight * 0.18; // 高度缩减为 18%
         const glowRadius = Math.max(0, bottomBtnRadius * 0.65);
-        const glowY = bottomBtnHeight * 0.28; // 往上偏移至 28% (原 22%)，更靠近上边缘
+        const glowY = bottomBtnHeight * 0.28; // 往上偏移至 28%
 
-        // 6.1 退出按钮
-        const exitBtn = this.createRectNode('ExitBtn', '#f0dd1b', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
-        exitBtn.setPosition(-bottomBtnWidth - 10 * scaleFactor, bottomBtnY, 0);
-        canvas.addChild(exitBtn);
-
-        // 退出按钮 3D 高光层 (暖白黄微光高光，Alpha 降至 60)
-        const exitGlow = this.createRectNode('ExitGlow', '#fffa7a', glowW, glowH, glowRadius, 60);
-        exitGlow.setPosition(0, glowY, 0);
-        exitBtn.addChild(exitGlow);
-
-        const exitTxt = this.createLabelNode('ExitTxt', '退出', bottomBtnFontSize, '#3f3600', true);
-        exitBtn.addChild(exitTxt);
-        exitBtn.addComponent(Button);
-        exitBtn.on(Node.EventType.TOUCH_START, () => {
-            exitBtn.setScale(new Vec3(0.96, 0.96, 1));
-        }, this);
-        exitBtn.on(Node.EventType.TOUCH_END, () => {
-            exitBtn.setScale(new Vec3(1, 1, 1));
-            AudioSynth.playClick();
-            this.onExitGame();
-        }, this);
-        exitBtn.on(Node.EventType.TOUCH_CANCEL, () => {
-            exitBtn.setScale(new Vec3(1, 1, 1));
-        }, this);
-
-        // 6.2 游戏玩法按钮 (与整套森林风格搭配，使用清新的淡绿色)
+        // 6.1 游戏玩法按钮 (与整套森林风格搭配，使用清新的淡绿色，靠左侧排列)
         const rulesBtn = this.createRectNode('RulesBtn', '#d4ebd1', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
-        rulesBtn.setPosition(0, bottomBtnY, 0);
+        rulesBtn.setPosition(-bottomBtnWidth / 2 - 5 * scaleFactor, bottomBtnY, 0);
         canvas.addChild(rulesBtn);
 
         // 玩法按钮 3D 高光层 (清新白绿微光高光，Alpha 降至 70)
@@ -281,9 +261,9 @@ export class MainMenuUI extends Component {
             rulesBtn.setScale(new Vec3(1, 1, 1));
         }, this);
 
-        // 6.3 系统设置按钮
+        // 6.2 系统设置按钮 (靠右侧排列)
         const settingsBtn = this.createRectNode('SettingsBtn', '#efe6c8', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
-        settingsBtn.setPosition(bottomBtnWidth + 10 * scaleFactor, bottomBtnY, 0);
+        settingsBtn.setPosition(bottomBtnWidth / 2 + 5 * scaleFactor, bottomBtnY, 0);
         canvas.addChild(settingsBtn);
 
         // 设置按钮 3D 高光层 (通透白微光高光，Alpha 降至 65)
