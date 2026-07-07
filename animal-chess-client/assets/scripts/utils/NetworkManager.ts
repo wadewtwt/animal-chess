@@ -9,7 +9,7 @@ export class NetworkManager {
     private static instance: NetworkManager | null = null;
 
     private ws: WebSocket | null = null;
-    private serverUrl: string = 'ws://localhost:8083/ws';
+    private serverUrl: string = 'wss://animal.findfun.space/ws';
     private listeners: Map<string, Set<Function>> = new Map();
     
     private isConnected: boolean = false;

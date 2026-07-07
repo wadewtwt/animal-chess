@@ -28,7 +28,7 @@
             "configMode": "fallback",
             "overwriteSettings": {
               "wechatgame": {
-                "isRemote": false
+                "isRemote": true
               }
             }
           }

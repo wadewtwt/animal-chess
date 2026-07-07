@@ -3,7 +3,7 @@ version: '3.8'
 services:
   animal-chess-server:
     build:
-      context: ./animal-chess-server
+      context: .
       dockerfile: Dockerfile
     container_name: animal-chess-server
     ports:
