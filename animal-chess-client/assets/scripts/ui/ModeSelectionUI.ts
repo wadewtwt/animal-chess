@@ -213,24 +213,32 @@ export class ModeSelectionUI extends Component {
         const label = this.createLabelNode('Title', title, 32 * scaleFactor, '#3e3012', true); 
         label.setPosition(0, h / 2 - 245 * scaleFactor, 0);
         cardContainer.addChild(label);
-
-        // 6. 立体 ActionBtn 按钮创建
+        // 6. 现代简约高级感 ActionBtn 按钮创建 (Modern Premium Design)
         const btnW = w - 48 * scaleFactor;
         const btnH = 80 * scaleFactor;
         const btnRadius = 40 * scaleFactor;
 
-        // 按钮底投影 (偏移 5 * scaleFactor，暗度提升)
+        // 现代柔和双层阴影设计
         const btnShadow = new Node("BtnShadow");
         btnShadow.layer = 33554432;
         btnShadow.addComponent(UITransform).setContentSize(btnW, btnH);
         const bShadowG = btnShadow.addComponent(Graphics);
         const shadowColor = new Color();
         Color.fromHEX(shadowColor, btnShadowColor);
-        shadowColor.a = 230; 
+        
+        // 外层柔和弥散阴影
+        shadowColor.a = 40; 
         bShadowG.fillColor = shadowColor;
         bShadowG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         bShadowG.fill();
-        btnShadow.setPosition(0, -h / 2 + 41 * scaleFactor, 0);
+        
+        // 内层核心支撑阴影
+        shadowColor.a = 85;
+        bShadowG.fillColor = shadowColor;
+        bShadowG.roundRect(-btnW/2 + 2*scaleFactor, -btnH/2 + 2*scaleFactor, btnW - 4*scaleFactor, btnH - 4*scaleFactor, btnRadius - 2*scaleFactor);
+        bShadowG.fill();
+
+        btnShadow.setPosition(0, -h / 2 + 38 * scaleFactor, 0); // 阴影轻微下移，更具立体悬浮感
         cardContainer.addChild(btnShadow);
 
         // 按钮主体
@@ -241,35 +249,22 @@ export class ModeSelectionUI extends Component {
         const mainColor = new Color();
         Color.fromHEX(mainColor, btnColor);
         
+        // 纯净扁平色彩
         btnG.fillColor = mainColor;
         btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         btnG.fill();
 
-        // 按钮上边缘亮色内高光线
-        btnG.lineWidth = 2 * scaleFactor;
-        btnG.strokeColor = new Color(255, 255, 255, 120); 
-        btnG.arc(0, 0, btnRadius - 1 * scaleFactor, 0.1 * Math.PI, 0.9 * Math.PI, false);
-        btnG.stroke();
-
-        // 按钮的外发光极细白边框 (微光细描边，Alpha 设为 100 以显细腻)
+        // 细腻的发光细白边框 (微光细描边，提升精致度)
         btnG.lineWidth = 1.5 * scaleFactor;
-        btnG.strokeColor = new Color(255, 255, 255, 100);
+        btnG.strokeColor = new Color(255, 255, 255, 90);
         btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         btnG.stroke();
-
-        // 按钮 3D 果冻面高光层 (高度降至 18%，位置上移至 28%，透明度大幅调低至 65，使其晶莹且自然)
-        const glowW = btnW - 14 * scaleFactor;
-        const glowH = btnH * 0.18;
-        const glowRadius = Math.max(0, btnRadius * 0.65);
-        const glowY = btnH * 0.28;
-        const btnGlow = this.createRectNode('BtnGlow', '#ffffff', glowW, glowH, glowRadius, 65);
-        btnGlow.setPosition(0, glowY, 0);
-        btn.addChild(btnGlow);
 
         btn.setPosition(0, -h / 2 + 46 * scaleFactor, 0);
         cardContainer.addChild(btn);
 
-        const btnTxt = this.createLabelNode('BtnTxt', btnText, 28 * scaleFactor, '#ffffff', true);
+        // 文字稍微放大一点点更醒目
+        const btnTxt = this.createLabelNode('BtnTxt', btnText, 30 * scaleFactor, '#ffffff', true);
         btn.addChild(btnTxt);
 
         // 7. 为彩色动作按钮绑定点击与下压微动反馈 (卡片本身没有任何点击效果)

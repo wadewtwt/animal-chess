@@ -65,6 +65,7 @@ export class BoardView extends Component {
     private pieceViews: Map<string, PieceView> = new Map(); // id -> PieceView
     private boardGridNodes: Node[] = []; // 棋盘网格背景节点列表
     private highlightNodes: Node[] = []; // 当前高亮节点列表
+    private lastMoveHighlightNodes: Node[] = []; // 标记上一手起点和终点的高亮节点
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
     private cellSpriteFrame: SpriteFrame | null = null; // 缓存背景格子的默认贴图
     
@@ -677,6 +678,8 @@ export class BoardView extends Component {
         this.unschedule(this.makeAIMove);
         this.stopTurnTimer();
         this.isAIMoving = false;
+        
+        this.clearLastMoveHighlight();
 
         if (this.surrenderConfirmPanel) {
             this.surrenderConfirmPanel.destroy();
@@ -1347,6 +1350,9 @@ export class BoardView extends Component {
         this.clearHighlights();
         this.selectedPiece = null;
 
+        // 标记上一手移动残影（起点与终点高亮）
+        this.showLastMoveHighlight(fromX, fromY, toX, toY);
+
         // 视图层执行移动动画
         const targetWorldPos = this.gridToWorldPos(toX, toY);
         if (!activeView.useFullPieceArt) {
@@ -1366,6 +1372,20 @@ export class BoardView extends Component {
 
                     // 播放击中波光与爪击特写特效，并触发棋盘震屏
                     this.playImpactEffect(targetWorldPos);
+                    
+                    // 触发手机震动 (兼容 Web 和微信小游戏等环境)
+                    try {
+                        if (typeof window !== 'undefined') {
+                            const win = window as any;
+                            if (win.wx && win.wx.vibrateShort) {
+                                win.wx.vibrateShort({ type: 'heavy' }); // 吃子用重震动效果更好
+                            } else if (win.navigator && win.navigator.vibrate) {
+                                win.navigator.vibrate(100); // 震动 100ms
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Vibration not supported', e);
+                    }
                     
                     // 被吃方播放旋转击飞淡出动画
                     eatenView.playBeatenAnimation(() => {
@@ -1613,6 +1633,55 @@ export class BoardView extends Component {
             if (node) node.destroy();
         });
         this.highlightNodes = [];
+    }
+
+    private clearLastMoveHighlight(): void {
+        this.lastMoveHighlightNodes.forEach(node => {
+            if (node && node.isValid) node.destroy();
+        });
+        this.lastMoveHighlightNodes = [];
+    }
+
+    private showLastMoveHighlight(fromX: number, fromY: number, toX: number, toY: number): void {
+        this.clearLastMoveHighlight();
+        
+        const createHighlightBox = (x: number, y: number, isStart: boolean) => {
+            const hlNode = new Node(`LastMoveHighlight_${x}_${y}`);
+            hlNode.parent = this.boardContainer;
+            hlNode.setPosition(this.gridToWorldPos(x, y));
+            hlNode.layer = this.boardContainer!.layer || 33554432;
+            
+            const g = hlNode.addComponent(Graphics);
+            // 醒目的亮黄色边框
+            g.strokeColor = new Color(255, 230, 50, 200);
+            g.lineWidth = 6;
+            
+            // 绘制稍微比格子小一点的方框
+            const hw = this.cellWidth / 2 - 2;
+            const hh = this.cellHeight / 2 - 2;
+            g.roundRect(-hw, -hh, hw * 2, hh * 2, 8);
+            g.stroke();
+            
+            if (isStart) {
+                // 起点可以用半透明填充增强辨识度，表示棋子是从这里离开的
+                g.fillColor = new Color(255, 230, 50, 40);
+                g.fill();
+            }
+            
+            // 加入呼吸透明度动画
+            const opacityComp = hlNode.addComponent(UIOpacity);
+            tween(opacityComp)
+                .to(0.7, { opacity: 120 })
+                .to(0.7, { opacity: 255 })
+                .union()
+                .repeatForever()
+                .start();
+                
+            this.lastMoveHighlightNodes.push(hlNode);
+        };
+
+        createHighlightBox(fromX, fromY, true);
+        createHighlightBox(toX, toY, false);
     }
 
     /**
