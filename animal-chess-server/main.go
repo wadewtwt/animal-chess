@@ -19,6 +19,14 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+func buildHTTPHandler(app *App) (http.Handler, error) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(app.Hub, w, r)
+	})
+	return mux, nil
+}
+
 func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -49,18 +57,32 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	log.Println("正在初始化斗兽棋大厅管理器...")
-	hub := NewHub()
-	go hub.Run()
 
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(hub, w, r)
-	})
-
-	// 端口按照用户要求修改为 8083
-	port := "8083"
-	log.Printf("斗兽棋联机服务器已启动，正在监听端口 :%s...", port)
-	err := http.ListenAndServe(":"+port, nil)
+	app, err := newApp()
 	if err != nil {
-		log.Fatal("服务器启动失败: ", err)
+		log.Printf("main newApp error: %v", err)
+		return
+	}
+	if app.DB != nil {
+		defer app.DB.Close()
+	}
+
+	go app.Hub.Run()
+
+	handler, err := buildHTTPHandler(app)
+	if err != nil {
+		log.Printf("main buildHTTPHandler error: %v", err)
+		return
+	}
+
+	server := &http.Server{
+		Addr:    app.Config.ListenAddr,
+		Handler: handler,
+	}
+
+	log.Printf("斗兽棋联机服务器已启动，正在监听端口 %s...", app.Config.ListenAddr)
+	err = server.ListenAndServe()
+	if err != nil {
+		log.Fatalf("main ListenAndServe error: %v", err)
 	}
 }
