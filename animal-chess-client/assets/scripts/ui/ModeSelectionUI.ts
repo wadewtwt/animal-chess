@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, assetManager, UIOpacity, sys } from 'cc';
 import { AudioSynth } from '../utils/AudioSynth';
+import { getMatchDuration, getMatchStatusText } from './MatchmakingConfig';
 const { ccclass } = _decorator;
 
 type DifficultyKey = 'easy' | 'normal' | 'hard';
@@ -22,6 +23,11 @@ export class ModeSelectionUI extends Component {
     private selectedDifficulty: DifficultyKey = 'normal';
     private difficultyStates: Map<DifficultyKey, DifficultyState> = new Map();
     private createRoomDialog: Node | null = null;
+    private matchmakingDialog: Node | null = null;
+    private matchmakingStatusLabel: Label | null = null;
+    private matchmakingElapsedLabel: Label | null = null;
+    private matchmakingElapsedSeconds = 0;
+    private matchmakingDurationSeconds = 0;
 
     onLoad() {
         this.buildUI();
@@ -121,23 +127,23 @@ export class ModeSelectionUI extends Component {
         aiCard.setPosition(0, card2Y, 0);
         canvas.addChild(aiCard);
 
-        const roomCard = this.createCardNode(
-            'OnlineBattleCard',
+        const onlineMatchCard = this.createCardNode(
+            'OnlineMatchCard',
             cardW,
             cardH,
-            '房间对战',
-            '#695f00',
-            '进入',
-            '#695f00',
-            '#4f4800',
+            '在线匹配',
+            '#185f99',
+            '开始匹配',
+            '#1976b9',
+            '#0d436f',
             'textures/mode_online_battle',
             () => {
-                this.showCreateRoomDialog();
+                this.showMatchmakingDialog();
             },
             scaleFactor
         );
-        roomCard.setPosition(0, card3Y, 0);
-        canvas.addChild(roomCard);
+        onlineMatchCard.setPosition(0, card3Y, 0);
+        canvas.addChild(onlineMatchCard);
     }
 
     private createCardNode(name: string, w: number, h: number, title: string, titleColor: string, btnText: string, btnColor: string, btnShadowColor: string, imgUrl: string, onClick: () => void, scaleFactor: number): Node {
@@ -501,6 +507,187 @@ export class ModeSelectionUI extends Component {
         });
     }
 
+    private showMatchmakingDialog(): void {
+        if (this.matchmakingDialog && this.matchmakingDialog.isValid) {
+            return;
+        }
+
+        const canvas = this.node;
+        const canvasTransform = canvas.getComponent(UITransform);
+        if (!canvasTransform) {
+            console.warn('无法创建匹配界面：缺少 UITransform。');
+            return;
+        }
+
+        const cw = canvasTransform.width;
+        const ch = canvasTransform.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.max(0.62, Math.min(cw / refW, ch / refH));
+        const dialogW = Math.min(cw * 0.88, 580 * scaleFactor);
+        const dialogH = Math.min(ch * 0.72, 590 * scaleFactor);
+
+        this.matchmakingDialog = new Node('MatchmakingDialog');
+        this.matchmakingDialog.layer = 33554432;
+        this.matchmakingDialog.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.matchmakingDialog);
+
+        const mask = this.createRectNode('Mask', '#092314', cw, ch, 0, 188);
+        this.matchmakingDialog.addChild(mask);
+
+        const panelShadow = this.createRectNode('PanelShadow', '#203316', dialogW, dialogH, 30 * scaleFactor, 105);
+        panelShadow.setPosition(0, -8 * scaleFactor, 0);
+        this.matchmakingDialog.addChild(panelShadow);
+
+        const panel = this.createRectNode('Panel', '#fff8df', dialogW, dialogH, 30 * scaleFactor);
+        panel.name = 'MatchPanel';
+        this.matchmakingDialog.addChild(panel);
+
+        const title = this.createLabelNode('Title', '正在在线匹配', 36 * scaleFactor, '#146c38', true);
+        title.setPosition(0, dialogH / 2 - 62 * scaleFactor, 0);
+        panel.addChild(title);
+
+        const subtitle = this.createLabelNode('Subtitle', '正在为你寻找旗鼓相当的对手', 18 * scaleFactor, '#7a765e', false);
+        subtitle.setPosition(0, dialogH / 2 - 102 * scaleFactor, 0);
+        panel.addChild(subtitle);
+
+        const badge = new Node('MatchPulse');
+        badge.layer = 33554432;
+        badge.addComponent(UITransform).setContentSize(180 * scaleFactor, 180 * scaleFactor);
+        badge.setPosition(0, 42 * scaleFactor, 0);
+        panel.addChild(badge);
+
+        const outerRing = badge.addComponent(Graphics);
+        outerRing.lineWidth = 12 * scaleFactor;
+        outerRing.strokeColor = new Color(180, 224, 150, 255);
+        outerRing.circle(0, 0, 72 * scaleFactor);
+        outerRing.stroke();
+
+        const inner = this.createCircleNode('Inner', '#4caf50', 56 * scaleFactor);
+        badge.addChild(inner);
+        const innerText = this.createLabelNode('InnerText', 'VS', 30 * scaleFactor, '#ffffff', true);
+        inner.addChild(innerText);
+
+        tween(badge)
+            .to(0.72, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'sineInOut' })
+            .to(0.72, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+            .union()
+            .repeatForever()
+            .start();
+
+        const statusNode = this.createLabelNode('Status', '', 25 * scaleFactor, '#31583a', true);
+        statusNode.setPosition(0, -104 * scaleFactor, 0);
+        panel.addChild(statusNode);
+        this.matchmakingStatusLabel = statusNode.getComponent(Label);
+
+        const elapsedNode = this.createLabelNode('Elapsed', '', 18 * scaleFactor, '#9a8d5d', false);
+        elapsedNode.setPosition(0, -143 * scaleFactor, 0);
+        panel.addChild(elapsedNode);
+        this.matchmakingElapsedLabel = elapsedNode.getComponent(Label);
+
+        const cancelShadow = this.createRectNode('CancelShadow', '#7f4400', dialogW - 104 * scaleFactor, 70 * scaleFactor, 35 * scaleFactor, 120);
+        cancelShadow.setPosition(0, -dialogH / 2 + 74 * scaleFactor, 0);
+        panel.addChild(cancelShadow);
+
+        const cancelButton = this.createRectNode('CancelButton', '#d68118', dialogW - 104 * scaleFactor, 70 * scaleFactor, 35 * scaleFactor);
+        cancelButton.setPosition(0, -dialogH / 2 + 78 * scaleFactor, 0);
+        panel.addChild(cancelButton);
+        cancelButton.addComponent(Button);
+        const cancelText = this.createLabelNode('CancelText', '取消匹配', 24 * scaleFactor, '#ffffff', true);
+        cancelButton.addChild(cancelText);
+        cancelButton.on(Node.EventType.TOUCH_START, () => cancelButton.setScale(new Vec3(0.96, 0.96, 1)), this);
+        cancelButton.on(Node.EventType.TOUCH_END, () => {
+            cancelButton.setScale(Vec3.ONE);
+            AudioSynth.playClick();
+            this.hideMatchmakingDialog();
+        }, this);
+        cancelButton.on(Node.EventType.TOUCH_CANCEL, () => cancelButton.setScale(Vec3.ONE), this);
+
+        this.matchmakingElapsedSeconds = 0;
+        this.matchmakingDurationSeconds = getMatchDuration();
+        this.updateMatchmakingLabels();
+        this.schedule(this.advanceMatchmaking, 1);
+
+        panel.setScale(new Vec3(0.86, 0.86, 1));
+        tween(panel)
+            .to(0.24, { scale: Vec3.ONE }, { easing: 'backOut' })
+            .start();
+    }
+
+    private advanceMatchmaking(): void {
+        if (!this.matchmakingDialog || !this.matchmakingDialog.isValid) {
+            this.unschedule(this.advanceMatchmaking);
+            return;
+        }
+
+        this.matchmakingElapsedSeconds += 1;
+        this.updateMatchmakingLabels();
+        if (this.matchmakingElapsedSeconds >= this.matchmakingDurationSeconds) {
+            this.finishMatchmaking();
+        }
+    }
+
+    private updateMatchmakingLabels(): void {
+        if (this.matchmakingStatusLabel) {
+            this.matchmakingStatusLabel.string = getMatchStatusText(this.matchmakingElapsedSeconds);
+        }
+        if (this.matchmakingElapsedLabel) {
+            this.matchmakingElapsedLabel.string = `已匹配 ${this.matchmakingElapsedSeconds} 秒`;
+        }
+    }
+
+    private finishMatchmaking(): void {
+        this.unschedule(this.advanceMatchmaking);
+        if (!this.matchmakingDialog || !this.matchmakingDialog.isValid) {
+            return;
+        }
+
+        if (this.matchmakingStatusLabel) {
+            this.matchmakingStatusLabel.string = '匹配成功，准备开战';
+        }
+        if (this.matchmakingElapsedLabel) {
+            this.matchmakingElapsedLabel.string = '对手已就绪';
+        }
+        const cancelButton = this.matchmakingDialog.getChildByName('MatchPanel')?.getChildByName('CancelButton');
+        if (cancelButton) {
+            cancelButton.active = false;
+        }
+        AudioSynth.playClick();
+
+        this.scheduleOnce(() => {
+            if (!this.matchmakingDialog || !this.matchmakingDialog.isValid) {
+                return;
+            }
+            this.matchmakingDialog.destroy();
+            this.matchmakingDialog = null;
+            this.matchmakingStatusLabel = null;
+            this.matchmakingElapsedLabel = null;
+            this.node.emit('start-online-match', 'normal');
+        }, 0.5);
+    }
+
+    private hideMatchmakingDialog(): void {
+        this.unschedule(this.advanceMatchmaking);
+        const dialog = this.matchmakingDialog;
+        this.matchmakingDialog = null;
+        this.matchmakingStatusLabel = null;
+        this.matchmakingElapsedLabel = null;
+        if (!dialog || !dialog.isValid) {
+            return;
+        }
+
+        const panel = dialog.getChildByName('MatchPanel');
+        if (panel) {
+            tween(panel)
+                .to(0.15, { scale: new Vec3(0.86, 0.86, 1) }, { easing: 'backIn' })
+                .call(() => dialog.destroy())
+                .start();
+            return;
+        }
+        dialog.destroy();
+    }
+
     private showToast(text: string) {
         if (this.toastNode && this.toastNode.isValid) {
             this.toastNode.destroy();
@@ -763,6 +950,11 @@ export class ModeSelectionUI extends Component {
     }
 
     onDestroy() {
+        this.unschedule(this.advanceMatchmaking);
+        if (this.matchmakingDialog && this.matchmakingDialog.isValid) {
+            this.matchmakingDialog.destroy();
+            this.matchmakingDialog = null;
+        }
         if (this.createRoomDialog && this.createRoomDialog.isValid) {
             this.createRoomDialog.destroy();
             this.createRoomDialog = null;
