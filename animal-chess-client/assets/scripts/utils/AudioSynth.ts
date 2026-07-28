@@ -219,4 +219,88 @@ export class AudioSynth {
                 break;
         }
     }
+
+    public static playLoseSound() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+        
+        // 播放 3 个连续的悲凉小调下行音符：A3 (220Hz), F3 (174.6Hz), D3 (146.8Hz)
+        // 形成落寞的小三和弦分解音符，用柔和的 triangle 波表现
+        const notes = [
+            { freq: 220, time: 0 },
+            { freq: 174.6, time: 0.25 },
+            { freq: 146.8, time: 0.5 }
+        ];
+
+        notes.forEach(note => {
+            const osc = this.ctx!.createOscillator();
+            const gainNode = this.ctx!.createGain();
+            
+            osc.connect(gainNode);
+            gainNode.connect(this.ctx!.destination);
+            
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(note.freq, startTime + note.time);
+            
+            gainNode.gain.setValueAtTime(0, startTime + note.time);
+            gainNode.gain.linearRampToValueAtTime(0.18, startTime + note.time + 0.04);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + note.time + 0.45);
+            
+            osc.start(startTime + note.time);
+            osc.stop(startTime + note.time + 0.5);
+        });
+    }
+
+    public static playJoyfulClick() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+
+        // 播放一段经典的大调上行 Chiptune 欢快音符序列，总长约 1s
+        // 音符：C5 (523.25), E5 (659.25), G5 (783.99), C6 (1046.50), E6 (1318.51), G6 (1567.98)
+        const notes = [
+            { freq: 523.25, time: 0.0, dur: 0.12 },
+            { freq: 659.25, time: 0.08, dur: 0.12 },
+            { freq: 783.99, time: 0.16, dur: 0.12 },
+            { freq: 1046.50, time: 0.24, dur: 0.15 },
+            { freq: 1318.51, time: 0.32, dur: 0.15 },
+            { freq: 1567.98, time: 0.40, dur: 0.55 } // 最后一个音符拉长，形成欢快收尾
+        ];
+
+        notes.forEach(note => {
+            const osc = this.ctx!.createOscillator();
+            const gainNode = this.ctx!.createGain();
+            
+            osc.connect(gainNode);
+            gainNode.connect(this.ctx!.destination);
+            
+            // 使用 triangle 波产生类似 8-bit 红白机游戏的清脆复古感，非常欢快
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(note.freq, startTime + note.time);
+            
+            gainNode.gain.setValueAtTime(0, startTime + note.time);
+            gainNode.gain.linearRampToValueAtTime(0.12, startTime + note.time + 0.02);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + note.time + note.dur);
+            
+            osc.start(startTime + note.time);
+            osc.stop(startTime + note.time + note.dur);
+        });
+    }
 }

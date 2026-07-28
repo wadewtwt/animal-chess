@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, assetManager, UIOpacity, sys } from 'cc';
 import { AudioSynth } from '../utils/AudioSynth';
+import { NetworkManager } from '../utils/NetworkManager';
 import { getMatchDuration, getMatchStatusText } from './MatchmakingConfig';
 const { ccclass } = _decorator;
 
@@ -23,6 +24,10 @@ export class ModeSelectionUI extends Component {
     private selectedDifficulty: DifficultyKey = 'normal';
     private difficultyStates: Map<DifficultyKey, DifficultyState> = new Map();
     private createRoomDialog: Node | null = null;
+    private roomActionDialog: Node | null = null;
+    private joinRoomDialog: Node | null = null;
+    private currentInputCode: string = '';
+    private inputGridLabels: Label[] = [];
     private matchmakingDialog: Node | null = null;
     private matchmakingStatusLabel: Label | null = null;
     private matchmakingElapsedLabel: Label | null = null;
@@ -62,25 +67,20 @@ export class ModeSelectionUI extends Component {
             this.createForestFireflies(canvas, scaleFactor);
         }
 
-        // 1. 顶栏 (自适应放大)
+        // 1. 顶栏 (自适应放大) - 已隐藏黄色顶栏背景，将返回按钮直接加到 canvas
         const topBarHeight = 92 * scaleFactor;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24 * scaleFactor, topBarHeight, 18 * scaleFactor, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
-        canvas.addChild(topBar);
 
         const backBtn = this.createUnifiedBackBtn(() => {
             this.node.emit('go-back');
         }, scaleFactor);
-        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
-        topBar.addChild(backBtn);
+        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
+        canvas.addChild(backBtn);
 
+        // 1.5 顶栏标题 (恢复显示游戏名，用于小游戏备案)
+        const pageTitle = this.createLabelNode('PageTitle', '勇者来斗兽 - 模式选择', 32 * scaleFactor, '#ffb300', true);
+        pageTitle.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
+        canvas.addChild(pageTitle);
 
-
-        const xpPill = this.createRectNode('XPPill', '#4caf50', 190 * scaleFactor, 58 * scaleFactor, 29 * scaleFactor);
-        xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
-        topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', 24 * scaleFactor, '#ffffff', true);
-        xpPill.addChild(xpTxt);
 
         // 2. 卡片自适应尺寸 (高宽及间距放大)
         const cardW = Math.min(cw * 0.96, 620 * scaleFactor);
@@ -96,10 +96,10 @@ export class ModeSelectionUI extends Component {
             cardW,
             cardH,
             '本地双人',
-            '#006e1c',
+            '#1b5e20',
             '开始',
-            '#006e1c',
-            '#003c0b',
+            '#27ae60',
+            '#196f3d',
             'textures/mode_local_duo',
             () => {
                 this.node.emit('start-local-duo');
@@ -114,10 +114,10 @@ export class ModeSelectionUI extends Component {
             cardW,
             cardH,
             '人机挑战',
-            '#8b5000',
+            '#e67e22',
             '练习',
-            '#8b5000',
-            '#4d2b00',
+            '#f39c12',
+            '#a05d00',
             'textures/mode_ai_practice',
             () => {
                 this.showDifficultyDialog();
@@ -131,14 +131,14 @@ export class ModeSelectionUI extends Component {
             'OnlineMatchCard',
             cardW,
             cardH,
-            '在线匹配',
-            '#185f99',
-            '开始匹配',
-            '#1976b9',
-            '#0d436f',
+            '房间对战',
+            '#1f618d',
+            '进入',
+            '#2980b9',
+            '#1a5276',
             'textures/mode_online_battle',
             () => {
-                this.showMatchmakingDialog();
+                this.showRoomActionDialog();
             },
             scaleFactor
         );
@@ -219,24 +219,32 @@ export class ModeSelectionUI extends Component {
         const label = this.createLabelNode('Title', title, 32 * scaleFactor, '#3e3012', true); 
         label.setPosition(0, h / 2 - 245 * scaleFactor, 0);
         cardContainer.addChild(label);
-
-        // 6. 立体 ActionBtn 按钮创建
+        // 6. 现代简约高级感 ActionBtn 按钮创建 (Modern Premium Design)
         const btnW = w - 48 * scaleFactor;
         const btnH = 80 * scaleFactor;
         const btnRadius = 40 * scaleFactor;
 
-        // 按钮底投影 (偏移 5 * scaleFactor，暗度提升)
+        // 现代柔和双层阴影设计
         const btnShadow = new Node("BtnShadow");
         btnShadow.layer = 33554432;
         btnShadow.addComponent(UITransform).setContentSize(btnW, btnH);
         const bShadowG = btnShadow.addComponent(Graphics);
         const shadowColor = new Color();
         Color.fromHEX(shadowColor, btnShadowColor);
-        shadowColor.a = 230; 
+
+        // 外层柔和弥散阴影
+        shadowColor.a = 40;
         bShadowG.fillColor = shadowColor;
         bShadowG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         bShadowG.fill();
-        btnShadow.setPosition(0, -h / 2 + 41 * scaleFactor, 0);
+
+        // 内层核心支撑阴影
+        shadowColor.a = 85;
+        bShadowG.fillColor = shadowColor;
+        bShadowG.roundRect(-btnW/2 + 2*scaleFactor, -btnH/2 + 2*scaleFactor, btnW - 4*scaleFactor, btnH - 4*scaleFactor, btnRadius - 2*scaleFactor);
+        bShadowG.fill();
+
+        btnShadow.setPosition(0, -h / 2 + 38 * scaleFactor, 0); // 阴影轻微下移，更具立体悬浮感
         cardContainer.addChild(btnShadow);
 
         // 按钮主体
@@ -247,20 +255,22 @@ export class ModeSelectionUI extends Component {
         const mainColor = new Color();
         Color.fromHEX(mainColor, btnColor);
         
+        // 纯净扁平色彩
         btnG.fillColor = mainColor;
         btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         btnG.fill();
 
-        // 按钮上边缘亮色内高光
-        btnG.lineWidth = 2 * scaleFactor;
-        btnG.strokeColor = new Color(255, 255, 255, 120); 
-        btnG.arc(0, 0, btnRadius - 1 * scaleFactor, 0.1 * Math.PI, 0.9 * Math.PI, false);
+        // 细腻的发光细白边框 (微光细描边，提升精致度)
+        btnG.lineWidth = 1.5 * scaleFactor;
+        btnG.strokeColor = new Color(255, 255, 255, 90);
+        btnG.roundRect(-btnW/2, -btnH/2, btnW, btnH, btnRadius);
         btnG.stroke();
 
         btn.setPosition(0, -h / 2 + 46 * scaleFactor, 0);
         cardContainer.addChild(btn);
 
-        const btnTxt = this.createLabelNode('BtnTxt', btnText, 28 * scaleFactor, '#ffffff', true);
+        // 文字稍微放大一点点更醒目
+        const btnTxt = this.createLabelNode('BtnTxt', btnText, 30 * scaleFactor, '#ffffff', true);
         btn.addChild(btnTxt);
 
         // 7. 为彩色动作按钮绑定点击与下压微动反馈 (卡片本身没有任何点击效果)
@@ -274,7 +284,7 @@ export class ModeSelectionUI extends Component {
         btn.on(Node.EventType.TOUCH_END, () => {
             btn.setScale(new Vec3(1.0, 1.0, 1.0));
             btn.setPosition(new Vec3(0, -h / 2 + 46 * scaleFactor, 0));
-            AudioSynth.playClick();
+            AudioSynth.playJoyfulClick();
             onClick();
         }, this);
 
@@ -376,7 +386,7 @@ export class ModeSelectionUI extends Component {
         startBtn.addChild(startTxt);
         startBtn.addComponent(Button);
         startBtn.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
+            AudioSynth.playJoyfulClick();
             const difficulty = this.selectedDifficulty;
             this.hideDifficultyDialog();
             this.node.emit('start-ai-practice', difficulty);
@@ -959,6 +969,14 @@ export class ModeSelectionUI extends Component {
             this.createRoomDialog.destroy();
             this.createRoomDialog = null;
         }
+        if (this.roomActionDialog && this.roomActionDialog.isValid) {
+            this.roomActionDialog.destroy();
+            this.roomActionDialog = null;
+        }
+        if (this.joinRoomDialog && this.joinRoomDialog.isValid) {
+            this.joinRoomDialog.destroy();
+            this.joinRoomDialog = null;
+        }
     }
 
     private showCreateRoomDialog() {
@@ -995,25 +1013,15 @@ export class ModeSelectionUI extends Component {
         const bgWash = this.createRectNode('BgWash', '#f6ffe8', cw, ch, 0, 36);
         this.createRoomDialog.addChild(bgWash);
 
-        // 2. 顶栏 (直接复刻)
+        // 2. 顶栏 (直接复刻) - 已隐藏黄色顶栏背景，将返回按钮直接加到弹窗
         const topBarHeight = 92 * scaleFactor;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', cw - 24 * scaleFactor, topBarHeight, 18 * scaleFactor, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
-        this.createRoomDialog.addChild(topBar);
 
         const backBtn = this.createUnifiedBackBtn(() => {
             this.hideCreateRoomDialog();
         }, scaleFactor);
-        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, 0, 0);
-        topBar.addChild(backBtn);
+        backBtn.setPosition(-cw / 2 + 56 * scaleFactor, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
+        this.createRoomDialog.addChild(backBtn);
 
-
-
-        const xpPill = this.createRectNode('XPPill', '#e5debd', 170 * scaleFactor, 54 * scaleFactor, 27 * scaleFactor);
-        xpPill.setPosition(cw / 2 - 108 * scaleFactor, 0, 0);
-        topBar.addChild(xpPill);
-        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', 22 * scaleFactor, '#3f3600', true);
-        xpPill.addChild(xpTxt);
 
         // 房间代码 (产生 6 位数字)
         const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1041,11 +1049,24 @@ export class ModeSelectionUI extends Component {
             successSubtitle.setPosition(0, successTitle.position.y - 46 * scaleFactor, 0);
             this.createRoomDialog.addChild(successSubtitle);
 
+            // 明文展示房间号，并支持点击复制房间号
+            const roomCodeLabel = this.createLabelNode('RoomCodeLabel', `房间号：${randomCode}`, 40 * scaleFactor, '#d63031', true);
+            roomCodeLabel.setPosition(0, successSubtitle.position.y - 64 * scaleFactor, 0);
+            this.createRoomDialog.addChild(roomCodeLabel);
+            roomCodeLabel.addComponent(Button);
+            roomCodeLabel.on(Node.EventType.TOUCH_END, () => {
+                AudioSynth.playClick();
+                const success = this.copyToClipboard(randomCode);
+                if (success) {
+                    this.showToast(`已复制房间号: ${randomCode}`);
+                }
+            });
+
             // (3) 两个按钮 (垂直居中排列，不再有卡片阻挡)
             const btnW = 540 * scaleFactor;
             const btnH = 88 * scaleFactor;
             const btnRadius = btnH / 2;
-            const btn1Y = successSubtitle.position.y - 140 * scaleFactor;
+            const btn1Y = successSubtitle.position.y - 200 * scaleFactor;
             const btn2Y = btn1Y - btnH - 30 * scaleFactor;
 
             // 复制分享
@@ -1083,8 +1104,8 @@ export class ModeSelectionUI extends Component {
             enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             enterBtn.on(Node.EventType.TOUCH_END, () => {
                 enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                AudioSynth.playClick();
-                this.showToast("正在连接网络房间对局...");
+                AudioSynth.playJoyfulClick();
+                this.startOnlineMatch(randomCode);
             });
             enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
@@ -1111,11 +1132,24 @@ export class ModeSelectionUI extends Component {
             successSubtitle.setPosition(0, successTitle.position.y - 36 * scaleFactor, 0);
             this.createRoomDialog.addChild(successSubtitle);
 
+            // 明文展示房间号，并支持点击复制房间号
+            const roomCodeLabel = this.createLabelNode('RoomCodeLabel', `房间号：${randomCode}`, 32 * scaleFactor, '#d63031', true);
+            roomCodeLabel.setPosition(0, successSubtitle.position.y - 48 * scaleFactor, 0);
+            this.createRoomDialog.addChild(roomCodeLabel);
+            roomCodeLabel.addComponent(Button);
+            roomCodeLabel.on(Node.EventType.TOUCH_END, () => {
+                AudioSynth.playClick();
+                const success = this.copyToClipboard(randomCode);
+                if (success) {
+                    this.showToast(`已复制房间号: ${randomCode}`);
+                }
+            });
+
             // (3) 横屏并排按钮 (居中放置，不再有卡片阻挡)
             const btnW = 240 * scaleFactor;
             const btnH = 76 * scaleFactor;
             const btnRadius = btnH / 2;
-            const btnY = successSubtitle.position.y - 86 * scaleFactor;
+            const btnY = successSubtitle.position.y - 130 * scaleFactor;
 
             // 复制分享
             const shareShadow = this.createRectNode('ShareShadow', '#7f4400', btnW, btnH, btnRadius, 120);
@@ -1152,8 +1186,8 @@ export class ModeSelectionUI extends Component {
             enterBtn.on(Node.EventType.TOUCH_START, () => { enterBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
             enterBtn.on(Node.EventType.TOUCH_END, () => {
                 enterBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-                AudioSynth.playClick();
-                this.showToast("正在连接网络房间对局...");
+                AudioSynth.playJoyfulClick();
+                this.startOnlineMatch(randomCode);
             });
             enterBtn.on(Node.EventType.TOUCH_CANCEL, () => { enterBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
         }
@@ -1166,7 +1200,63 @@ export class ModeSelectionUI extends Component {
             .start();
     }
 
-    private hideCreateRoomDialog() {
+    private onMatchWait = () => {
+        this.showToast("已连接，等待另一位玩家加入中...");
+        if (this.createRoomDialog) {
+            const enterBtn = this.createRoomDialog.getChildByName("EnterBtn");
+            if (enterBtn) {
+                const txtNode = enterBtn.getChildByName("EnterTxt");
+                if (txtNode) {
+                    const label = txtNode.getComponent(Label);
+                    if (label) label.string = "等待中...";
+                }
+            }
+        }
+    };
+
+    private onMatchSuccess = (dataStr: string) => {
+        const data = JSON.parse(dataStr);
+        console.log(`[ModeSelectionUI] 匹配成功: `, data);
+
+        NetworkManager.getInstance().currentRoomId = data.room_id;
+        NetworkManager.getInstance().myCamp = data.camp;
+        NetworkManager.getInstance().opponentId = data.opponent_id;
+
+        NetworkManager.getInstance().off('match_wait', this.onMatchWait);
+        NetworkManager.getInstance().off('match_success', this.onMatchSuccess);
+
+        this.hideCreateRoomDialog(false);
+        this.node.emit('start-online-battle');
+    };
+
+    private startOnlineMatch(roomCode: string) {
+        this.showToast("正在连接对战服务器...");
+        NetworkManager.getInstance().connect()
+            .then(() => {
+                this.showToast("正在发起房间匹配...");
+                NetworkManager.getInstance().on('match_wait', this.onMatchWait);
+                NetworkManager.getInstance().on('match_success', this.onMatchSuccess);
+                NetworkManager.getInstance().send('match_seek', { room_code: roomCode, user_name: "Player" });
+            })
+            .catch((err) => {
+                console.error("连接服务器失败:", err);
+                this.showToast("连接服务器失败，请检查网络！");
+            });
+    }
+
+    private cleanupNetwork() {
+        NetworkManager.getInstance().off('match_wait', this.onMatchWait);
+        NetworkManager.getInstance().off('match_success', this.onMatchSuccess);
+        NetworkManager.getInstance().disconnect();
+    }
+
+    private hideCreateRoomDialog(shouldDisconnect: boolean = true) {
+        if (shouldDisconnect) {
+            this.cleanupNetwork();
+        } else {
+            NetworkManager.getInstance().off('match_wait', this.onMatchWait);
+            NetworkManager.getInstance().off('match_success', this.onMatchSuccess);
+        }
         if (!this.createRoomDialog) return;
         const dialogNode = this.createRoomDialog;
         tween(dialogNode)
@@ -1330,6 +1420,367 @@ export class ModeSelectionUI extends Component {
             }
         } else {
             this.showToast("房间号: " + roomCode + " 已复制，请发给好友输入加入！");
+        }
+    }
+
+    private showRoomActionDialog() {
+        const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
+        if (this.roomActionDialog && this.roomActionDialog.isValid) {
+            this.roomActionDialog.destroy();
+            this.roomActionDialog = null;
+        }
+
+        this.roomActionDialog = new Node('RoomActionDialog');
+        this.roomActionDialog.layer = 33554432;
+        this.roomActionDialog.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.roomActionDialog);
+
+        // 1. 半透明黑色遮罩
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        mask.addComponent(Button);
+        mask.on(Node.EventType.TOUCH_END, () => this.hideRoomActionDialog(), this);
+        this.roomActionDialog.addChild(mask);
+
+        // 2. 弹窗体
+        const dialogW = Math.min(cw * 0.88, 560 * scaleFactor);
+        const dialogH = Math.min(ch * 0.5, 480 * scaleFactor);
+        const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 30 * scaleFactor);
+        dialog.name = 'DialogNode';
+        this.roomActionDialog.addChild(dialog);
+
+        // 3. 关闭按钮
+        const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 22 * scaleFactor);
+        closeBtn.setPosition(dialogW / 2 - 28 * scaleFactor, dialogH / 2 - 28 * scaleFactor, 0);
+        dialog.addChild(closeBtn);
+        const closeTxt = this.createLabelNode('CloseTxt', '×', 30 * scaleFactor, '#ffffff', true);
+        closeBtn.addChild(closeTxt);
+        closeBtn.addComponent(Button);
+        closeBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
+            this.hideRoomActionDialog();
+        }, this);
+
+        // 4. 标题和副标题
+        const title = this.createLabelNode('Title', '房间联机', 34 * scaleFactor, '#695f00', true);
+        title.setPosition(0, dialogH / 2 - 60 * scaleFactor, 0);
+        dialog.addChild(title);
+
+        const subtitle = this.createLabelNode('Subtitle', '创建新房间，或加入好友的房间', 18 * scaleFactor, '#9a8d5d', false);
+        subtitle.setPosition(0, dialogH / 2 - 96 * scaleFactor, 0);
+        dialog.addChild(subtitle);
+
+        // 5. 两个大按钮
+        const btnW = dialogW - 80 * scaleFactor;
+        const btnH = 80 * scaleFactor;
+        const btnRadius = 40 * scaleFactor;
+        const btnGap = 20 * scaleFactor;
+        const btn1Y = dialogH / 2 - 190 * scaleFactor;
+        const btn2Y = btn1Y - btnH - btnGap;
+
+        // 创建房间按钮
+        const createShadow = this.createRectNode('CreateShadow', '#7f4400', btnW, btnH, btnRadius, 100);
+        createShadow.setPosition(0, btn1Y - 4 * scaleFactor, 0);
+        dialog.addChild(createShadow);
+
+        const createBtn = this.createRectNode('CreateBtn', '#d68118', btnW, btnH, btnRadius);
+        createBtn.setPosition(0, btn1Y, 0);
+        dialog.addChild(createBtn);
+        const createTxt = this.createLabelNode('CreateTxt', '创建房间', 26 * scaleFactor, '#ffffff', true);
+        createBtn.addChild(createTxt);
+
+        createBtn.addComponent(Button);
+        createBtn.on(Node.EventType.TOUCH_START, () => { createBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
+        createBtn.on(Node.EventType.TOUCH_END, () => {
+            createBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.hideRoomActionDialog();
+            this.showCreateRoomDialog();
+        });
+        createBtn.on(Node.EventType.TOUCH_CANCEL, () => { createBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
+
+        // 加入房间按钮
+        const joinShadow = this.createRectNode('JoinShadow', '#074f14', btnW, btnH, btnRadius, 100);
+        joinShadow.setPosition(0, btn2Y - 4 * scaleFactor, 0);
+        dialog.addChild(joinShadow);
+
+        const joinBtn = this.createRectNode('JoinBtn', '#48b85c', btnW, btnH, btnRadius);
+        joinBtn.setPosition(0, btn2Y, 0);
+        dialog.addChild(joinBtn);
+        const joinTxt = this.createLabelNode('JoinTxt', '输入房间号加入', 26 * scaleFactor, '#ffffff', true);
+        joinBtn.addChild(joinTxt);
+
+        joinBtn.addComponent(Button);
+        joinBtn.on(Node.EventType.TOUCH_START, () => { joinBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
+        joinBtn.on(Node.EventType.TOUCH_END, () => {
+            joinBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.hideRoomActionDialog();
+            this.showJoinRoomKeyboard();
+        });
+        joinBtn.on(Node.EventType.TOUCH_CANCEL, () => { joinBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
+
+        // 动画弹出
+        this.roomActionDialog.active = true;
+        const dialogNode = this.roomActionDialog.getChildByName('DialogNode')!;
+        dialogNode.setScale(new Vec3(0.85, 0.85, 1.0));
+        tween(dialogNode)
+            .to(0.2, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
+    }
+
+    private hideRoomActionDialog() {
+        if (!this.roomActionDialog) return;
+        const dialogNode = this.roomActionDialog.getChildByName('DialogNode');
+        if (dialogNode) {
+            tween(dialogNode)
+                .to(0.15, { scale: new Vec3(0.85, 0.85, 1.0) }, { easing: 'backIn' })
+                .call(() => {
+                    if (this.roomActionDialog && this.roomActionDialog.isValid) {
+                        this.roomActionDialog.destroy();
+                        this.roomActionDialog = null;
+                    }
+                })
+                .start();
+        } else {
+            this.roomActionDialog.destroy();
+            this.roomActionDialog = null;
+        }
+    }
+
+    private showJoinRoomKeyboard() {
+        const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
+        if (this.joinRoomDialog && this.joinRoomDialog.isValid) {
+            this.joinRoomDialog.destroy();
+            this.joinRoomDialog = null;
+        }
+
+        this.currentInputCode = '';
+
+        this.joinRoomDialog = new Node('JoinRoomDialog');
+        this.joinRoomDialog.layer = 33554432;
+        this.joinRoomDialog.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.joinRoomDialog);
+
+        // 1. 遮罩
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        mask.addComponent(Button);
+        mask.on(Node.EventType.TOUCH_END, () => this.hideJoinRoomKeyboard(), this);
+        this.joinRoomDialog.addChild(mask);
+
+        // 2. 弹窗体
+        const dialogW = Math.min(cw * 0.9, 580 * scaleFactor);
+        const dialogH = Math.min(ch * 0.82, 580 * scaleFactor);
+        const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 30 * scaleFactor);
+        dialog.name = 'DialogNode';
+        this.joinRoomDialog.addChild(dialog);
+
+        // 3. 关闭按钮
+        const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 22 * scaleFactor);
+        closeBtn.setPosition(dialogW / 2 - 28 * scaleFactor, dialogH / 2 - 28 * scaleFactor, 0);
+        dialog.addChild(closeBtn);
+        const closeTxt = this.createLabelNode('CloseTxt', '×', 30 * scaleFactor, '#ffffff', true);
+        closeBtn.addChild(closeTxt);
+        closeBtn.addComponent(Button);
+        closeBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
+            this.hideJoinRoomKeyboard();
+        }, this);
+
+        // 4. 标题和副标题
+        const title = this.createLabelNode('Title', '加入对局', 32 * scaleFactor, '#695f00', true);
+        title.setPosition(0, dialogH / 2 - 58 * scaleFactor, 0);
+        dialog.addChild(title);
+
+        const subtitle = this.createLabelNode('Subtitle', '请输入6位数字房间号', 18 * scaleFactor, '#9a8d5d', false);
+        subtitle.setPosition(0, dialogH / 2 - 92 * scaleFactor, 0);
+        dialog.addChild(subtitle);
+
+        // 5. 6位输入格子
+        const inputContainer = new Node('InputContainer');
+        inputContainer.layer = 33554432;
+        inputContainer.setPosition(0, dialogH / 2 - 150 * scaleFactor, 0);
+        dialog.addChild(inputContainer);
+
+        const gridW = 56 * scaleFactor;
+        const gridH = 72 * scaleFactor;
+        const gridGap = 10 * scaleFactor;
+        const startX = -((gridW * 6 + gridGap * 5) / 2) + gridW / 2;
+
+        this.inputGridLabels = [];
+        for (let i = 0; i < 6; i++) {
+            const gridBg = this.createRectNode(`GridBg_${i}`, '#ffffff', gridW, gridH, 12 * scaleFactor, 248);
+            gridBg.setPosition(startX + i * (gridW + gridGap), 0, 0);
+            inputContainer.addChild(gridBg);
+
+            const gg = gridBg.getComponent(Graphics)!;
+            gg.lineWidth = 2.5 * scaleFactor;
+            gg.strokeColor = new Color(215, 205, 185, 255);
+            gg.roundRect(-gridW/2, -gridH/2, gridW, gridH, 12 * scaleFactor);
+            gg.stroke();
+
+            const lbl = this.createLabelNode(`Label`, '_', 34 * scaleFactor, '#9a8d5d', true);
+            gridBg.addChild(lbl);
+            this.inputGridLabels.push(lbl.getComponent(Label)!);
+        }
+
+        // 6. 虚拟键盘渲染
+        const keyW = 120 * scaleFactor;
+        const keyH = 56 * scaleFactor;
+        const keyRadius = keyH / 2;
+        const colGap = 24 * scaleFactor;
+        const rowGap = 12 * scaleFactor;
+        const keyStartX = -((keyW * 3 + colGap * 2) / 2) + keyW / 2;
+        const keyboardStartY = dialogH / 2 - 250 * scaleFactor;
+
+        const layout = [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9'],
+            ['←', '0', '✓']
+        ];
+
+        layout.forEach((row, rowIndex) => {
+            const rowY = keyboardStartY - rowIndex * (keyH + rowGap);
+            row.forEach((char, colIndex) => {
+                const keyX = keyStartX + colIndex * (keyW + colGap);
+
+                // 选择不同的按键颜色背景提升视觉层次
+                let keyColor = '#ffffff';
+                let keyShadow = '#d2caa7';
+                let txtColor = '#3f3600';
+
+                if (char === '✓') {
+                    keyColor = '#48b85c';
+                    keyShadow = '#074f14';
+                    txtColor = '#ffffff';
+                } else if (char === '←') {
+                    keyColor = '#d63a2f';
+                    keyShadow = '#6c0f0a';
+                    txtColor = '#ffffff';
+                }
+
+                // 投影
+                const shadow = this.createRectNode('KeyShadow', keyShadow, keyW, keyH, keyRadius, 150);
+                shadow.setPosition(keyX, rowY - 3 * scaleFactor, 0);
+                dialog.addChild(shadow);
+
+                const btn = this.createRectNode('KeyBtn', keyColor, keyW, keyH, keyRadius);
+                btn.setPosition(keyX, rowY, 0);
+                dialog.addChild(btn);
+
+                // 给白色按键加精致描边
+                if (char !== '✓' && char !== '←') {
+                    const bgG = btn.getComponent(Graphics)!;
+                    bgG.lineWidth = 1.5 * scaleFactor;
+                    bgG.strokeColor = new Color(215, 205, 185, 255);
+                    bgG.roundRect(-keyW/2, -keyH/2, keyW, keyH, keyRadius);
+                    bgG.stroke();
+                }
+
+                const txt = this.createLabelNode('Text', char, 26 * scaleFactor, txtColor, true);
+                btn.addChild(txt);
+
+                btn.addComponent(Button);
+                btn.on(Node.EventType.TOUCH_START, () => {
+                    btn.setScale(new Vec3(0.94, 0.94, 1.0));
+                    btn.setPosition(new Vec3(keyX, rowY - 1.5 * scaleFactor, 0));
+                });
+                btn.on(Node.EventType.TOUCH_END, () => {
+                    btn.setScale(new Vec3(1.0, 1.0, 1.0));
+                    btn.setPosition(new Vec3(keyX, rowY, 0));
+                    this.onKeyClick(char);
+                });
+                btn.on(Node.EventType.TOUCH_CANCEL, () => {
+                    btn.setScale(new Vec3(1.0, 1.0, 1.0));
+                    btn.setPosition(new Vec3(keyX, rowY, 0));
+                });
+            });
+        });
+
+        // 动画弹出
+        this.joinRoomDialog.active = true;
+        const dialogNode = this.joinRoomDialog.getChildByName('DialogNode')!;
+        dialogNode.setScale(new Vec3(0.85, 0.85, 1.0));
+        tween(dialogNode)
+            .to(0.2, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
+    }
+
+    private hideJoinRoomKeyboard() {
+        if (!this.joinRoomDialog) return;
+        const dialogNode = this.joinRoomDialog.getChildByName('DialogNode');
+        if (dialogNode) {
+            tween(dialogNode)
+                .to(0.15, { scale: new Vec3(0.85, 0.85, 1.0) }, { easing: 'backIn' })
+                .call(() => {
+                    if (this.joinRoomDialog && this.joinRoomDialog.isValid) {
+                        this.joinRoomDialog.destroy();
+                        this.joinRoomDialog = null;
+                    }
+                })
+                .start();
+        } else {
+            this.joinRoomDialog.destroy();
+            this.joinRoomDialog = null;
+        }
+    }
+
+    private onKeyClick(char: string) {
+        AudioSynth.playClick();
+        if (char === '←') {
+            if (this.currentInputCode.length > 0) {
+                this.currentInputCode = this.currentInputCode.slice(0, -1);
+                this.updateInputDisplay();
+            }
+        } else if (char === '✓') {
+            if (this.currentInputCode.length === 6) {
+                const code = this.currentInputCode;
+                this.hideJoinRoomKeyboard();
+                this.startOnlineMatch(code);
+            } else {
+                this.showToast("请输入6位房间号！");
+            }
+        } else {
+            if (this.currentInputCode.length < 6) {
+                this.currentInputCode += char;
+                this.updateInputDisplay();
+
+                // 输满 6 位后自动开始匹配，极度丝滑
+                if (this.currentInputCode.length === 6) {
+                    this.scheduleOnce(() => {
+                        const code = this.currentInputCode;
+                        this.hideJoinRoomKeyboard();
+                        this.startOnlineMatch(code);
+                    }, 0.25);
+                }
+            }
+        }
+    }
+
+    private updateInputDisplay() {
+        for (let i = 0; i < 6; i++) {
+            const char = this.currentInputCode.charAt(i);
+            const lbl = this.inputGridLabels[i];
+            if (lbl && lbl.isValid) {
+                lbl.string = char || '_';
+                lbl.color = char ? new Color(0, 110, 28, 255) : new Color(154, 141, 93, 255);
+            }
         }
     }
 }

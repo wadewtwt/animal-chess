@@ -63,50 +63,9 @@ export class MainMenuUI extends Component {
             this.createForestFireflies(canvas, scaleFactor);
         }
 
-        // 2. Top Bar (二次调大，在大屏下气场更强，且在极窄屏幕下依靠自适应机制进行优雅防撞)
+        // 2. Top Bar (已删除顶部个人信息模块，保留 topBarHeight 供后续排版计算使用)
         const topBarHeight = Math.max(100, Math.min(130, 130 * scaleFactor));
-        const tbW = cw - 24 * scaleFactor;
-        const topBar = this.createRectNode('TopBar', '#f6ebbf', tbW, topBarHeight, 20 * scaleFactor, 232);
-        topBar.setPosition(0, ch / 2 - topBarHeight / 2 - 8 * scaleFactor, 0);
-        canvas.addChild(topBar);
 
-        const leftX = -tbW / 2 + 14 * scaleFactor;
-        const rightX = tbW / 2 - 14 * scaleFactor;
-
-        // 头像半径调大至 32..54，大屏幕下直径超 100 像素，极其显眼大气
-        const avatarRadius = Math.max(32, Math.min(54, 54 * scaleFactor));
-        const avatarNode = this.createCircleNode('Avatar', '#2d2b1f', avatarRadius);
-        avatarNode.setPosition(leftX + avatarRadius, 0, 0);
-        topBar.addChild(avatarNode);
-
-        // 调整 XP 药丸参数：宽度 160..240，高度 50..76，但在窄屏下下限适当降低以给中间文字让出空间
-        const xpPillWidth = Math.max(115, Math.min(240, 240 * scaleFactor));
-        const xpPillHeight = Math.max(40, Math.min(76, 76 * scaleFactor));
-        const profileTextX = leftX + avatarRadius * 2 + 12 * scaleFactor;
-        const profileTextMaxWidth = Math.max(100, rightX - xpPillWidth - 18 * scaleFactor - profileTextX);
-
-        // 名字和等级字号二次调大，大屏下更加醒目华贵
-        const nameFontSize = Math.max(18, Math.min(34, 34 * scaleFactor));
-        const nameTxt = this.createLabelNode('Name', '游侠阿提 (Tim)', nameFontSize, '#22311c', true);
-        nameTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        nameTxt.getComponent(UITransform).setContentSize(profileTextMaxWidth, nameFontSize + 6);
-        nameTxt.setPosition(profileTextX, topBarHeight * 0.18, 0);
-        topBar.addChild(nameTxt);
-
-        const levelFontSize = Math.max(13, Math.min(24, 24 * scaleFactor));
-        const levelTxt = this.createLabelNode('Level', '等级 12 · 黄金段位', levelFontSize, '#198d2c', true);
-        levelTxt.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        levelTxt.getComponent(UITransform).setContentSize(profileTextMaxWidth, levelFontSize + 6);
-        levelTxt.setPosition(profileTextX, -topBarHeight * 0.18, 0);
-        topBar.addChild(levelTxt);
-
-        const xpPill = this.createRectNode('XPPill', '#efe2af', xpPillWidth, xpPillHeight, xpPillHeight / 2);
-        xpPill.setPosition(rightX - xpPillWidth / 2, 0, 0);
-        topBar.addChild(xpPill);
-
-        const xpFontSize = Math.max(16, Math.min(30, 30 * scaleFactor));
-        const xpTxt = this.createLabelNode('XPTxt', 'XP 1250', xpFontSize, '#5b4b1c', true);
-        xpPill.addChild(xpTxt);
 
         // 3. Main Emblem
         // isPortrait 和 scaleFactor 已在顶部计算和初始化
@@ -122,6 +81,8 @@ export class MainMenuUI extends Component {
         let startBtnY: number;
         let bottomBtnY: number;
         let startBtnWidth: number;
+        let emblemTopLimit: number;
+        let emblemBottomLimit: number;
 
         // 全自适应字号 (字号和图标随按钮同步缩小 20%)
         const titleFontSize = (isPortrait ? 42 : 32) * scaleFactor;
@@ -164,11 +125,15 @@ export class MainMenuUI extends Component {
             // 依据弹性分配自底向上精算各组件中心 Y 坐标 (防重叠，跨手机自适应)
             bottomBtnY = bottomLimitY + gapBottom + hBottom / 2;
             startBtnY = bottomBtnY + hBottom / 2 + gapMiddle1 + hStart / 2;
-            titleY = startBtnY + hStart / 2 + gapMiddle2 + 30 * scaleFactor; // 30 为标题中心偏移量
             
-            // 徽章中心 Y 坐标设在标题上边缘和顶部栏下边缘的几何中心，确保对称美观
-            const titleTopY = titleY + 30 * scaleFactor;
-            emblemY = (titleTopY + topBarMinY) / 2;
+            // 游戏标题“勇者来斗兽”移动到顶部栏下方
+            titleY = topBarMinY - 60 * scaleFactor;
+            
+            // 徽章中心 Y 坐标设在标题下边缘和开始按钮上边缘的几何中心，确保对称美观
+            const titleBottomY = titleY - 30 * scaleFactor;
+            emblemY = (titleBottomY + startBtnY + hStart / 2) / 2;
+            emblemTopLimit = topBarMinY;
+            emblemBottomLimit = startBtnY + hStart / 2;
         } else {
             // --- 动态自适应弹性布局系统 (横屏) ---
             startBtnWidth = Math.min(cw * 0.76 * 0.8, 720 * scaleFactor * 0.8);
@@ -194,49 +159,56 @@ export class MainMenuUI extends Component {
             
             bottomBtnY = bottomLimitY + gapBottom + hBottom / 2;
             startBtnY = bottomBtnY + hBottom / 2 + gapMiddle1 + hStart / 2;
-            titleY = startBtnY + hStart / 2 + gapMiddle2 + 20 * scaleFactor;
             
-            const titleTopY = titleY + 22 * scaleFactor;
-            emblemY = (titleTopY + topBarMinY) / 2;
+            // 游戏标题“勇者来斗兽”移动到顶部栏下方
+            titleY = topBarMinY - 40 * scaleFactor;
+            
+            // 徽章中心 Y 坐标设在标题下边缘和开始按钮上边缘的几何中心，确保对称美观
+            const titleBottomY = titleY - 22 * scaleFactor;
+            emblemY = (titleBottomY + startBtnY + hStart / 2) / 2;
+            emblemTopLimit = topBarMinY;
+            emblemBottomLimit = startBtnY + hStart / 2;
         }
-
-        const emblemShadow = this.createCircleNode('EmblemShadow', '#0f2b0f', emblemRadius + 4, 42);
-        emblemShadow.setPosition(0, emblemY - 6 * scaleFactor, 0);
-        canvas.addChild(emblemShadow);
-
-        const emblemRing = this.createCircleNode('EmblemRing', '#f9e42b', emblemRadius + 16 * scaleFactor);
-        emblemRing.setPosition(0, emblemY, 0);
-        canvas.addChild(emblemRing);
 
         const emblemImg = new Node('EmblemImage');
         emblemImg.layer = 33554432;
+        emblemImg.setPosition(0, emblemY, 0);
         const emblemImgTrans = emblemImg.addComponent(UITransform);
-        emblemImgTrans.setContentSize(emblemRadius * 2.18, emblemRadius * 2.18);
+        const emblemPadding = 8 * scaleFactor;
+        const maxEmblemSizeByTop = Math.max(0, (emblemTopLimit - emblemY - emblemPadding) * 2);
+        const maxEmblemSizeByBottom = Math.max(0, (emblemY - emblemBottomLimit - emblemPadding) * 2);
+        const emblemImageSize = Math.min(emblemRadius * 2.6, cw * 0.92, maxEmblemSizeByTop, maxEmblemSizeByBottom);
+        emblemImgTrans.setContentSize(emblemImageSize, emblemImageSize);
         const emblemSprite = emblemImg.addComponent(Sprite);
-        emblemSprite.sizeMode = 0;
-        this.safeLoadSprite('textures/start_emblem', emblemSprite);
-        emblemRing.addChild(emblemImg);
+        emblemSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.safeLoadUntrimmedSprite('textures/start_emblem', emblemSprite);
+        canvas.addChild(emblemImg);
 
-        // 4. Title & Subtitle
-        const subtitleText = this.createLabelNode('Subtitle', '准备好开启你的热带冒险了吗？', subtitleFontSize, '#3f4d33', false);
-        subtitleText.setPosition(0, titleY - 10 * scaleFactor, 0);
-        canvas.addChild(subtitleText);
+        // 4. Title & Subtitle (由于新图片自带“勇者来斗兽”，此处屏蔽重复的文本渲染)
+        // const gameTitleNode = this.createLabelNode('GameTitle', '勇者来斗兽', titleFontSize * 1.25, '#ffb300', true);
+        // gameTitleNode.setPosition(0, titleY, 0);
+        // canvas.addChild(gameTitleNode);
 
         // 5. Start Button
-        const startBtnNode = this.createRectNode('StartBtn', '#168f25', startBtnWidth, startBtnHeight, 50 * scaleFactor);
+        const startBtnNode = this.createRectNode('StartBtn', '#0f801d', startBtnWidth, startBtnHeight, startBtnHeight / 2);
         startBtnNode.setPosition(0, startBtnY, 0);
         canvas.addChild(startBtnNode);
 
-        const startGlow = this.createRectNode('StartGlow', '#4fcc58', startBtnWidth - 28 * scaleFactor, startBtnHeight * 0.3, 36 * scaleFactor, 92);
+        const startGlow = this.createRectNode('StartGlow', '#56de60', startBtnWidth - 28 * scaleFactor, startBtnHeight * 0.28, (startBtnHeight * 0.28) / 2, 75);
         startGlow.setPosition(0, startBtnHeight * 0.2, 0);
         startBtnNode.addChild(startGlow);
 
-        const playCircle = this.createCircleNode('PlayCircle', '#f8fff7', playCircleRadius);
-        playCircle.setPosition((isPortrait ? -160 : -110) * scaleFactor * 0.8, 0, 0);
-        startBtnNode.addChild(playCircle);
-        const playIcon = this.createLabelNode('PlayIcon', '▶', playIconFontSize, '#168f25', true);
-        playIcon.setPosition((isPortrait ? -160 : -110) * scaleFactor * 0.8, 0, 0);
-        startBtnNode.addChild(playIcon);
+        // 用精美新生成的 start_btn_icon 替代以前用 Graphics 画的白圆圈和字符 "▶"
+        const iconSize = playCircleRadius * 2.3;
+        const playIconImg = new Node('PlayIconImg');
+        playIconImg.layer = 33554432;
+        playIconImg.setPosition((isPortrait ? -160 : -110) * scaleFactor * 0.8, 0, 0);
+        const iconTrans = playIconImg.addComponent(UITransform);
+        iconTrans.setContentSize(iconSize, iconSize);
+        const iconSprite = playIconImg.addComponent(Sprite);
+        iconSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.safeLoadSprite('textures/start_btn_icon', iconSprite);
+        startBtnNode.addChild(playIconImg);
 
         const startBtnText = this.createLabelNode('StartTxt', '开始游戏', startBtnFontSize, '#ffffff', true);
         startBtnText.setPosition((isPortrait ? 90 : 60) * scaleFactor * 0.8, 2 * scaleFactor, 0);
@@ -255,29 +227,50 @@ export class MainMenuUI extends Component {
             startBtnNode.setScale(new Vec3(1, 1, 1));
         }, this);
 
-        // 6. Bottom Buttons
-        const bottomBtnWidth = startBtnWidth / 2 - 24 * scaleFactor;
-        const exitBtn = this.createRectNode('ExitBtn', '#f0dd1b', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
-        exitBtn.setPosition(-bottomBtnWidth / 2 - 11 * scaleFactor, bottomBtnY, 0);
-        canvas.addChild(exitBtn);
-        const exitTxt = this.createLabelNode('ExitTxt', '退出', bottomBtnFontSize, '#3f3600', true);
-        exitBtn.addChild(exitTxt);
-        exitBtn.addComponent(Button);
-        exitBtn.on(Node.EventType.TOUCH_START, () => {
-            exitBtn.setScale(new Vec3(0.96, 0.96, 1));
+        // 6. Bottom Buttons (排除了退出按钮，现在是 2 个并排排列)
+        const bottomBtnWidth = (startBtnWidth - 10 * scaleFactor) / 2;
+        
+        // 计算通用 3D 高光参数 (贴近按钮顶部边缘，采用窄边、低透明度以实现极度柔和自然的 3D 质感)
+        const glowW = bottomBtnWidth - 16 * scaleFactor;
+        const glowH = bottomBtnHeight * 0.18; // 高度缩减为 18%
+        const glowRadius = Math.max(0, bottomBtnRadius * 0.65);
+        const glowY = bottomBtnHeight * 0.28; // 往上偏移至 28%
+
+        // 6.1 游戏玩法按钮 (与整套森林风格搭配，使用清新的淡绿色，靠左侧排列)
+        const rulesBtn = this.createRectNode('RulesBtn', '#d4ebd1', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
+        rulesBtn.setPosition(-bottomBtnWidth / 2 - 5 * scaleFactor, bottomBtnY, 0);
+        canvas.addChild(rulesBtn);
+
+        // 玩法按钮 3D 高光层 (清新白绿微光高光，Alpha 降至 70)
+        const rulesGlow = this.createRectNode('RulesGlow', '#f1faf0', glowW, glowH, glowRadius, 70);
+        rulesGlow.setPosition(0, glowY, 0);
+        rulesBtn.addChild(rulesGlow);
+
+        const rulesTxt = this.createLabelNode('RulesTxt', '游戏玩法', bottomBtnFontSize, '#1e4a1a', true);
+        rulesBtn.addChild(rulesTxt);
+        rulesBtn.addComponent(Button);
+        rulesBtn.on(Node.EventType.TOUCH_START, () => {
+            rulesBtn.setScale(new Vec3(0.96, 0.96, 1));
         }, this);
-        exitBtn.on(Node.EventType.TOUCH_END, () => {
-            exitBtn.setScale(new Vec3(1, 1, 1));
+        rulesBtn.on(Node.EventType.TOUCH_END, () => {
+            rulesBtn.setScale(new Vec3(1, 1, 1));
             AudioSynth.playClick();
-            this.onExitGame();
+            this.onRulesClicked();
         }, this);
-        exitBtn.on(Node.EventType.TOUCH_CANCEL, () => {
-            exitBtn.setScale(new Vec3(1, 1, 1));
+        rulesBtn.on(Node.EventType.TOUCH_CANCEL, () => {
+            rulesBtn.setScale(new Vec3(1, 1, 1));
         }, this);
 
+        // 6.2 系统设置按钮 (靠右侧排列)
         const settingsBtn = this.createRectNode('SettingsBtn', '#efe6c8', bottomBtnWidth, bottomBtnHeight, bottomBtnRadius);
-        settingsBtn.setPosition(bottomBtnWidth / 2 + 11 * scaleFactor, bottomBtnY, 0);
+        settingsBtn.setPosition(bottomBtnWidth / 2 + 5 * scaleFactor, bottomBtnY, 0);
         canvas.addChild(settingsBtn);
+
+        // 设置按钮 3D 高光层 (通透白微光高光，Alpha 降至 65)
+        const settingsGlow = this.createRectNode('SettingsGlow', '#ffffff', glowW, glowH, glowRadius, 65);
+        settingsGlow.setPosition(0, glowY, 0);
+        settingsBtn.addChild(settingsGlow);
+
         const settingsTxt = this.createLabelNode('SettingsTxt', '系统设置', bottomBtnFontSize, '#44493f', true);
         settingsBtn.addChild(settingsTxt);
         settingsBtn.addComponent(Button);
@@ -305,8 +298,133 @@ export class MainMenuUI extends Component {
     }
 
     private settingsPanel: Node | null = null;
+    private rulesPanel: Node | null = null;
     private musicBtnLabel: Label | null = null;
     private soundBtnLabel: Label | null = null;
+
+    private onRulesClicked() {
+        console.log('Rules Clicked!');
+        
+        const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
+        // 如果存在则销毁重建，确保每次自适应正确
+        if (this.rulesPanel) {
+            this.rulesPanel.destroy();
+            this.rulesPanel = null;
+        }
+
+        // 1. 创建全屏遮罩防穿透
+        this.rulesPanel = new Node('RulesPanel');
+        this.rulesPanel.layer = 33554432; // UI_2D
+        this.rulesPanel.addComponent(UITransform).setContentSize(cw, ch);
+        canvas.addChild(this.rulesPanel);
+
+        // 灰色半透明背景，添加 Button 拦截触摸事件
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        mask.name = 'Mask';
+        mask.addComponent(Button); // 吞噬事件
+        this.rulesPanel.addChild(mask);
+
+        // 2. 创建弹窗主体
+        const dialogWidth = Math.min(cw * 0.92, 650 * scaleFactor);
+        const dialogHeight = Math.min(ch * 0.85, 920 * scaleFactor);
+        const dialogRadius = 40 * scaleFactor;
+        const dialog = this.createRectNode('Dialog', '#efe6c8', dialogWidth, dialogHeight, dialogRadius);
+        dialog.name = 'DialogNode';
+        this.rulesPanel.addChild(dialog);
+
+        // 3. 弹窗标题
+        const titleFontSize = 38 * scaleFactor;
+        const title = this.createLabelNode('Title', '玩法规则说明', titleFontSize, '#11751e', true);
+        title.setPosition(0, dialogHeight / 2 - 64 * scaleFactor, 0);
+        dialog.addChild(title);
+
+        // 分割线
+        const line = this.createRectNode('Line', '#11751e', dialogWidth - 64 * scaleFactor, 3 * scaleFactor, 0, 40);
+        line.setPosition(0, dialogHeight / 2 - 100 * scaleFactor, 0);
+        dialog.addChild(line);
+
+        // 4. 玩法内容文本 (配置为左对齐且自动多行换行)
+        const rulesTextNode = new Node('RulesText');
+        rulesTextNode.layer = 33554432;
+        const txtTrans = rulesTextNode.addComponent(UITransform);
+        txtTrans.setContentSize(dialogWidth - 60 * scaleFactor, dialogHeight - 240 * scaleFactor);
+        
+        const label = rulesTextNode.addComponent(Label);
+        
+        const rulesString = 
+            "一、棋子大小（克制关系）\n" +
+            "象 > 狮 > 虎 > 豹 > 狼 > 狗 > 猫 > 鼠\n" +
+            "★ 特殊：最小的【鼠】可以吃最大的【象】！\n\n" +
+            "二、河道规则（小河）\n" +
+            "1.【鼠】可以游入河中。在河里的鼠不能吃岸上的象，岸上的棋子也不能吃河里的鼠。\n" +
+            "2.【狮、虎】可以横向或纵向跃过河道。若河道中没有敌方的鼠阻挡，则可直接吃掉河对岸更小的棋子。\n\n" +
+            "三、特殊地形\n" +
+            "1.【陷阱】：棋子走入敌方陷阱后战力归零，任何敌方棋子皆可直接将其吃掉。\n" +
+            "2.【兽穴】：己方棋子无法进入己方兽穴。若成功将任何棋子走入敌方【兽穴】，即获得本局胜利！";
+
+        label.string = rulesString;
+        label.fontSize = (isPortrait ? 22 : 18) * scaleFactor;
+        label.lineHeight = (isPortrait ? 32 : 25) * scaleFactor;
+        label.isBold = true;
+        label.overflow = Label.Overflow.CLAMP;
+        label.horizontalAlign = Label.HorizontalAlign.LEFT;
+        label.verticalAlign = Label.VerticalAlign.TOP;
+        
+        const color = new Color();
+        Color.fromHEX(color, '#3f3600'); // 深褐色字
+        label.color = color;
+        
+        rulesTextNode.setPosition(0, (isPortrait ? 15 : 25) * scaleFactor, 0);
+        dialog.addChild(rulesTextNode);
+
+        // 5. 确定/关闭按钮
+        const btnFontSize = 30 * scaleFactor;
+        const closeBtnWidth = dialogWidth - 160 * scaleFactor;
+        const closeBtnHeight = 84 * scaleFactor;
+        const closeBtnRadius = 42 * scaleFactor;
+        const closeBtn = this.createRectNode('CloseBtn', '#168f25', closeBtnWidth, closeBtnHeight, closeBtnRadius);
+        closeBtn.setPosition(0, -dialogHeight / 2 + 76 * scaleFactor, 0);
+        dialog.addChild(closeBtn);
+
+        const closeTxt = this.createLabelNode('CloseTxt', '确 定', btnFontSize, '#ffffff', true);
+        closeBtn.addChild(closeTxt);
+
+        closeBtn.addComponent(Button);
+        closeBtn.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
+            const dialogNode = this.rulesPanel!.getChildByName('DialogNode');
+            if (dialogNode) {
+                tween(dialogNode)
+                    .to(0.2, { scale: new Vec3(0.78, 0.78, 1.0) }, { easing: 'backIn' })
+                    .call(() => {
+                        this.rulesPanel!.active = false;
+                    })
+                    .start();
+            } else {
+                this.rulesPanel!.active = false;
+            }
+        }, this);
+
+        // 显示并执行弹出动画
+        this.rulesPanel.active = true;
+
+        const dialogNode = this.rulesPanel.getChildByName('DialogNode');
+        if (dialogNode) {
+            dialogNode.setScale(new Vec3(0.78, 0.78, 1.0));
+            tween(dialogNode)
+                .to(0.3, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+                .start();
+        }
+    }
 
     private onSettingsGame() {
         console.log('Settings Clicked!');
@@ -624,6 +742,20 @@ export class MainMenuUI extends Component {
                         });
                     }
                 });
+            }
+        });
+    }
+
+    private safeLoadUntrimmedSprite(path: string, sprite: Sprite) {
+        resources.load(`${path}/texture`, Texture2D, (err, tex) => {
+            if (!err && tex) {
+                if (sprite && sprite.isValid) {
+                    const sf = new SpriteFrame();
+                    sf.texture = tex;
+                    sprite.spriteFrame = sf;
+                }
+            } else {
+                this.safeLoadSprite(path, sprite);
             }
         });
     }

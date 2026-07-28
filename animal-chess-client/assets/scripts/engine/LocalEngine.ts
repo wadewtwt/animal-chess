@@ -35,7 +35,9 @@ export enum GameOverReason {
     DEN_CAPTURED = 'DEN_CAPTURED',   // 占领兽穴
     ELIMINATED = 'ELIMINATED',       // 全军覆没
     NO_MOVE = 'NO_MOVE',             // 无路可走 (困毙)
-    REPETITION_DRAW = 'REPETITION_DRAW' // 5次相同局面判和
+    REPETITION_DRAW = 'REPETITION_DRAW', // 5次相同局面判和
+    SURRENDER = 'SURRENDER',          // 认输/投降
+    TIMEOUT = 'TIMEOUT'               // 走棋超时
 }
 
 export interface GameOverStatus {
@@ -88,24 +90,24 @@ export class LocalEngine {
         this.historyStack = [];
 
         // 初始化红方 (下方，y=0..2)
-        this.addPiece(AnimalType.RAT, Camp.RED, 0, 0);
-        this.addPiece(AnimalType.ELEPHANT, Camp.RED, 6, 0);
+        this.addPiece(AnimalType.TIGER, Camp.RED, 0, 0);
+        this.addPiece(AnimalType.LION, Camp.RED, 6, 0);
         this.addPiece(AnimalType.CAT, Camp.RED, 1, 1);
         this.addPiece(AnimalType.DOG, Camp.RED, 5, 1);
-        this.addPiece(AnimalType.WOLF, Camp.RED, 0, 2);
-        this.addPiece(AnimalType.LEOPARD, Camp.RED, 2, 2);
-        this.addPiece(AnimalType.TIGER, Camp.RED, 4, 2);
-        this.addPiece(AnimalType.LION, Camp.RED, 6, 2);
+        this.addPiece(AnimalType.ELEPHANT, Camp.RED, 0, 2);
+        this.addPiece(AnimalType.WOLF, Camp.RED, 2, 2);
+        this.addPiece(AnimalType.LEOPARD, Camp.RED, 4, 2);
+        this.addPiece(AnimalType.RAT, Camp.RED, 6, 2);
 
         // 初始化蓝方 (上方，y=6..8)
-        this.addPiece(AnimalType.ELEPHANT, Camp.BLUE, 0, 8);
-        this.addPiece(AnimalType.RAT, Camp.BLUE, 6, 8);
+        this.addPiece(AnimalType.LION, Camp.BLUE, 0, 8);
+        this.addPiece(AnimalType.TIGER, Camp.BLUE, 6, 8);
         this.addPiece(AnimalType.DOG, Camp.BLUE, 1, 7);
         this.addPiece(AnimalType.CAT, Camp.BLUE, 5, 7);
-        this.addPiece(AnimalType.LION, Camp.BLUE, 0, 6);
-        this.addPiece(AnimalType.TIGER, Camp.BLUE, 2, 6);
-        this.addPiece(AnimalType.LEOPARD, Camp.BLUE, 4, 6);
-        this.addPiece(AnimalType.WOLF, Camp.BLUE, 6, 6);
+        this.addPiece(AnimalType.RAT, Camp.BLUE, 0, 6);
+        this.addPiece(AnimalType.LEOPARD, Camp.BLUE, 2, 6);
+        this.addPiece(AnimalType.WOLF, Camp.BLUE, 4, 6);
+        this.addPiece(AnimalType.ELEPHANT, Camp.BLUE, 6, 6);
 
         // 记录初始局面
         this.recordHistoryState();
@@ -129,6 +131,10 @@ export class LocalEngine {
 
     public getCurrentTurn(): Camp {
         return this.currentTurn;
+    }
+
+    public setCurrentTurn(turn: Camp): void {
+        this.currentTurn = turn;
     }
 
     /**
@@ -445,5 +451,38 @@ export class LocalEngine {
         this.currentTurn = memento.currentTurn;
         this.historyStates = memento.historyStates;
         return true;
+    }
+
+    /**
+     * 网络重连时强行同步服务端发来的棋局状态
+     */
+    public syncBoardState(boardState: Record<string, {x: number, y: number}>, turnOwner: Camp): void {
+        // 1. 清空当前棋盘
+        for (let x = 0; x < LocalEngine.COLS; x++) {
+            for (let y = 0; y < LocalEngine.ROWS; y++) {
+                this.board[x][y] = null;
+            }
+        }
+        
+        // 2. 重构活跃棋子列表
+        const newPieces: Piece[] = [];
+        for (const id in boardState) {
+            const pos = boardState[id];
+            const parts = id.split('_');
+            if (parts.length !== 2) continue;
+            const camp = parts[0] as Camp;
+            const type = parseInt(parts[1]) as AnimalType;
+            
+            const piece: Piece = { id, type, camp, x: pos.x, y: pos.y };
+            this.board[pos.x][pos.y] = piece;
+            newPieces.push(piece);
+        }
+        this.pieces = newPieces;
+        
+        // 3. 设定当前回合所有者并重置历史
+        this.currentTurn = turnOwner;
+        this.historyStates.clear();
+        this.historyStack = [];
+        this.recordHistoryState();
     }
 }

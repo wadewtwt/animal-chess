@@ -2,11 +2,11 @@ import { _decorator, Component, Node, Sprite, SpriteFrame, Button, Prefab, insta
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
-import { LoadingScene } from '../LoadingScene';
 import { ModeSelectionUI } from './ModeSelectionUI';
 import { AudioSynth } from '../utils/AudioSynth';
 import { ANIMAL_ACTION_CONFIGS, getActionFramePaths, getAnimalActionConfig } from './PieceActionConfig';
 import { BOARD_TRANSITION_CONFIG, getPieceCascadeDelay, getTransitionTitle } from './BoardTransitionConfig';
+import { NetworkManager } from '../utils/NetworkManager';
 
 const { ccclass, property } = _decorator;
 
@@ -64,9 +64,12 @@ export class BoardView extends Component {
     // === 运行时数据 ===
     private engine!: LocalEngine;
     private pieceViews: Map<string, PieceView> = new Map(); // id -> PieceView
+    private boardGridNodes: Node[] = []; // 棋盘网格背景节点列表
     private highlightNodes: Node[] = []; // 当前高亮节点列表
+    private lastMoveHighlightNodes: Node[] = []; // 标记上一手起点和终点的高亮节点
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
-    
+    private cellSpriteFrame: SpriteFrame | null = null; // 缓存背景格子的默认贴图
+
     // 音效与音乐播放器
     private audioSource: AudioSource | null = null;
     private bgmSource: AudioSource | null = null;
@@ -77,17 +80,27 @@ export class BoardView extends Component {
     
     // === 悔棋、返回、倒计时与人机AI 运行时状态 ===
     private isAIMode: boolean = false;
+    private isNetworkMode: boolean = false;
+    private myCamp: Camp | null = null;
+    private isApplyingNetworkMove: boolean = false;
+    private isGameOverState: boolean = false;
     private remainingTime: number = 30;
     private isAIMoving: boolean = false;
     private backButtonNode: Node | null = null;
     private undoButtonNode: Node | null = null;
+    private surrenderButtonNode: Node | null = null;
     private undoRequestPanel: Node | null = null;
+    private surrenderConfirmPanel: Node | null = null;
+    private screenTimerLabelNode: Node | null = null;
     private turnIndicatorBgNode: Node | null = null;
+    private boardTitleNode: Node | null = null;
     private customGameOverPanel: Node | null = null;
     private gameOverWinner: Camp | null = null;
     private gameOverReason: GameOverReason | null = null;
     private bgNode: Node | null = null;
     private bgWashNode: Node | null = null;
+    private switchBattlefieldButtonNode: Node | null = null;
+    private isGrassStyle: boolean = true;
     private boardTransitionOverlayNode: Node | null = null;
     private isBoardTransitioning: boolean = false;
 
@@ -99,13 +112,28 @@ export class BoardView extends Component {
     onDestroy() {
         view.off('canvas-resize', this.adjustBoardScale, this);
         this.stopTurnTimer();
+        if (this.isNetworkMode) {
+            this.cleanupNetworkEvents();
+        }
         if (this.undoRequestPanel) {
             this.undoRequestPanel.destroy();
             this.undoRequestPanel = null;
         }
+        if (this.surrenderConfirmPanel) {
+            this.surrenderConfirmPanel.destroy();
+            this.surrenderConfirmPanel = null;
+        }
+        if (this.screenTimerLabelNode) {
+            this.screenTimerLabelNode.destroy();
+            this.screenTimerLabelNode = null;
+        }
         if (this.turnIndicatorBgNode) {
             this.turnIndicatorBgNode.destroy();
             this.turnIndicatorBgNode = null;
+        }
+        if (this.boardTitleNode) {
+            this.boardTitleNode.destroy();
+            this.boardTitleNode = null;
         }
         if (this.backButtonNode) {
             this.backButtonNode.destroy();
@@ -115,6 +143,10 @@ export class BoardView extends Component {
             this.undoButtonNode.destroy();
             this.undoButtonNode = null;
         }
+        if (this.surrenderButtonNode) {
+            this.surrenderButtonNode.destroy();
+            this.surrenderButtonNode = null;
+        }
         if (this.bgNode) {
             this.bgNode.destroy();
             this.bgNode = null;
@@ -123,54 +155,48 @@ export class BoardView extends Component {
             this.bgWashNode.destroy();
             this.bgWashNode = null;
         }
+        if (this.switchBattlefieldButtonNode) {
+            this.switchBattlefieldButtonNode.destroy();
+            this.switchBattlefieldButtonNode = null;
+        }
         this.clearBoardTransitionOverlay();
     }
 
-    start() {
+    start(): void {
         console.log("BoardView: start() called.");
         this.node.active = false;
         this.engine = new LocalEngine();
+        this.isGrassStyle = sys.localStorage.getItem('board_style_is_grass') !== 'false';
         this.initBoardBackground();
-        this.adjustBoardScale(); // ???????????????
-        this.showLoadingScene();
+        this.adjustBoardScale(); // 适应屏幕比例
+
         Promise.all([
             this.loadPieceArt(),
             this.loadPieceActions(),
         ]).then(() => {
             this.restartGame();
             this.initAudioSource();
-        });
-    }
-
-    private loadingNode: Node | null = null;
-
-    private showLoadingScene() {
-        if (!this.loadingNode) {
-            this.loadingNode = new Node('LoadingContainer');
-            this.loadingNode.layer = 33554432; // UI_2D
-            this.loadingNode.addComponent(UITransform).setContentSize(view.getVisibleSize());
-            this.loadingNode.addComponent(LoadingScene);
-            this.node.parent!.addChild(this.loadingNode); // Add to Canvas directly
             
-            // Hide the board
-            this.node.active = false;
-            
-            // Listen for loading complete
-            this.loadingNode.on('loading-complete', () => {
-                this.loadingNode!.destroy();
-                this.loadingNode = null;
-                
-                const roomCode = this.getRoomFromLaunch();
-                if (roomCode) {
-                    console.log("Directly joining room from launch:", roomCode);
-                    this.node.active = true;
-                    this.isAIMode = false;
-                    this.restartGame(); // 直接进入对局
+            const roomCode = this.getRoomFromLaunch();
+            if (roomCode) {
+                console.log("Directly joining room from launch:", roomCode);
+                this.joinOnlineRoomDirectly(roomCode);
+            } else {
+                // 自动检测并重连上一次断线/刷新的网络对局
+                const savedRoomId = sys.localStorage.getItem('animal_chess_room_id') || '';
+                if (savedRoomId) {
+                    console.log("[Reconnect] 检查到未完成的网络对局，正在自动连回房间:", savedRoomId);
+                    this.showToast(`正在重连对局房间 ${savedRoomId}...`);
+                    this.joinOnlineRoomDirectly(savedRoomId);
                 } else {
                     this.showMainMenu();
                 }
-            });
-        }
+            }
+        }).catch((error: unknown) => {
+            console.error("BoardView resource loading failed:", error);
+            this.showToast("资源加载失败，请稍后重试");
+            this.showMainMenu();
+        });
     }
 
     private getRoomFromLaunch(): string {
@@ -204,8 +230,11 @@ export class BoardView extends Component {
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.boardTitleNode) this.boardTitleNode.active = false;
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
+        if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
 
         // Ensure clean recreation
         if (this.mainMenuNode) {
@@ -247,8 +276,11 @@ export class BoardView extends Component {
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
+        if (this.boardTitleNode) this.boardTitleNode.active = false;
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
+        if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
 
         // Ensure clean recreation
         if (this.modeSelectionNode) {
@@ -273,6 +305,15 @@ export class BoardView extends Component {
 
         // Listen for start local game event
         this.modeSelectionNode.on('start-local-duo', () => {
+            if (this.modeSelectionNode) {
+                this.modeSelectionNode.destroy();
+                this.modeSelectionNode = null;
+            }
+            this.node.active = true;
+            this.isAIMode = false;
+            this.isNetworkMode = false;
+            this.myCamp = null;
+            this.restartGame(); // 开启并重置对局
             this.startGameWithBoardTransition(false);
         });
 
@@ -286,6 +327,30 @@ export class BoardView extends Component {
         this.modeSelectionNode.on('start-online-match', (difficulty: string) => {
             sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
             this.startGameWithBoardTransition(true);
+        });
+
+        // Listen for online battle start
+        this.modeSelectionNode.on('start-online-battle', () => {
+            if (this.modeSelectionNode) {
+                this.modeSelectionNode.destroy();
+                this.modeSelectionNode = null;
+            }
+            this.node.active = true;
+            this.isAIMode = false;
+            this.isNetworkMode = true;
+            this.myCamp = NetworkManager.getInstance().myCamp as Camp;
+
+            // 保存当前对局房间号以支持刷新重连
+            sys.localStorage.setItem('animal_chess_room_id', NetworkManager.getInstance().currentRoomId);
+
+            // 注册网络对战的广播监听
+            NetworkManager.getInstance().on('opponent_move', this.onOpponentMove);
+            NetworkManager.getInstance().on('game_over', this.onNetworkGameOver);
+            NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
+            NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
+            NetworkManager.getInstance().on('timer_sync', this.onNetworkTimerSync);
+
+            this.restartGame();
         });
     }
 
@@ -542,6 +607,8 @@ export class BoardView extends Component {
         const screenWidth = visibleSize.width;
         const screenHeight = visibleSize.height;
         const scaleFactor = this.getScaleFactor();
+        const safeArea = sys.getSafeAreaRect();
+        const topInset = visibleSize.height - (safeArea.y + safeArea.height);
 
         // 强制归零重正当前 BoardView 本身节点的属性，防止坐标偏离视口
         const nodeTrans = this.node.getComponent(UITransform);
@@ -552,11 +619,22 @@ export class BoardView extends Component {
         this.node.setPosition(Vec3.ZERO);
         this.node.setScale(Vec3.ONE);
 
-        // 同步背景及水洗层的大小
+        // 计算棋盘的目标尺寸 (让宽度完美撑满屏幕)
+        const boardWidth = LocalEngine.COLS * this.cellWidth;
+        // 缩放比完全由宽度决定，以实现宽度撑满屏幕，高度自适应
+        const targetScale = screenWidth / boardWidth;
+
+        // 同步背景层的大小和缩放 (保持 796x1024 原始比例进行等比缩放铺满屏幕，不拉伸变形，并抵消父节点的缩放)
         if (this.bgNode) {
             const bgTrans = this.bgNode.getComponent(UITransform);
             if (bgTrans) {
-                bgTrans.setContentSize(screenWidth, screenHeight);
+                bgTrans.setContentSize(796, 1024);
+                const scaleX = screenWidth / 796;
+                const scaleY = screenHeight / 1024;
+                const bgScale = Math.max(scaleX, scaleY);
+                // 抵消 boardContainer (this.node) 的 scale 缩放
+                const finalScale = bgScale / targetScale;
+                this.bgNode.setScale(new Vec3(finalScale, finalScale, 1));
             }
         }
         if (this.bgWashNode) {
@@ -576,26 +654,28 @@ export class BoardView extends Component {
             }
         }
 
-        // 计算棋盘的目标尺寸 (让宽度完美撑满屏幕)
-        const boardWidth = LocalEngine.COLS * this.cellWidth;
-
-        // 缩放比完全由宽度决定，以实现宽度撑满屏幕，高度自适应
-        let targetScale = screenWidth / boardWidth;
-
         console.log(`BoardView: adjustScale visibleSize=${screenWidth}x${screenHeight}, targetScale=${targetScale}`);
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
 
         // 状态栏美化位置绑定 (居中靠上)
-        const posY = screenHeight / 2 - 64 * scaleFactor;
+        const posY = screenHeight / 2 - Math.max(64 * scaleFactor, topInset + 20 * scaleFactor);
+        if (this.boardTitleNode) {
+            const titleLabel = this.boardTitleNode.getComponent(Label);
+            if (titleLabel) {
+                titleLabel.fontSize = Math.round(28 * scaleFactor);
+                titleLabel.lineHeight = Math.round(36 * scaleFactor);
+            }
+            this.boardTitleNode.setPosition(new Vec3(0, posY + 22 * scaleFactor, 0));
+        }
         if (this.turnIndicator) {
-            this.turnIndicator.fontSize = Math.round(28 * scaleFactor);
-            this.turnIndicator.lineHeight = Math.round(36 * scaleFactor);
-            this.turnIndicator.node.setPosition(new Vec3(0, posY, 0));
+            this.turnIndicator.fontSize = Math.round(24 * scaleFactor);
+            this.turnIndicator.lineHeight = Math.round(30 * scaleFactor);
+            this.turnIndicator.node.setPosition(new Vec3(0, posY - 20 * scaleFactor, 0));
         }
         if (this.turnIndicatorBgNode) {
             const bgTrans = this.turnIndicatorBgNode.getComponent(UITransform);
             if (bgTrans) {
-                bgTrans.setContentSize(460 * scaleFactor, 68 * scaleFactor);
+                bgTrans.setContentSize(480 * scaleFactor, 116 * scaleFactor);
             }
             const bgGraphics = this.turnIndicatorBgNode.getComponent(Graphics);
             if (bgGraphics) {
@@ -603,9 +683,9 @@ export class BoardView extends Component {
                 bgGraphics.lineWidth = 2.5 * scaleFactor;
                 bgGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
                 bgGraphics.fillColor = new Color(20, 20, 20, 220); // 优雅的深碳黑色
-                const w = 460 * scaleFactor;
-                const h = 68 * scaleFactor;
-                bgGraphics.roundRect(-w/2, -h/2, w, h, 18 * scaleFactor);
+                const w = 480 * scaleFactor;
+                const h = 116 * scaleFactor;
+                bgGraphics.roundRect(-w/2, -h/2, w, h, 20 * scaleFactor);
                 bgGraphics.fill();
                 bgGraphics.stroke();
             }
@@ -669,7 +749,44 @@ export class BoardView extends Component {
             if (labelNode) {
                 labelNode.active = false;
             }
-            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 56 * scaleFactor, screenHeight / 2 - 54 * scaleFactor, 0));
+            const backY = screenHeight / 2 - Math.max(54 * scaleFactor, topInset + 15 * scaleFactor);
+            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 56 * scaleFactor, backY, 0));
+        }
+
+        // 投降按钮位置绑定
+        if (this.surrenderButtonNode) {
+            const surrenderTrans = this.surrenderButtonNode.getComponent(UITransform);
+            if (surrenderTrans) {
+                surrenderTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+            }
+            const surrenderGraphics = this.surrenderButtonNode.getComponent(Graphics);
+            if (surrenderGraphics) {
+                surrenderGraphics.clear();
+                surrenderGraphics.lineWidth = 3 * scaleFactor;
+                surrenderGraphics.strokeColor = new Color(255, 255, 255, 255);
+                surrenderGraphics.fillColor = new Color(211, 47, 47, 240); // 优雅红色
+                const w = 190 * scaleFactor;
+                const h = 56 * scaleFactor;
+                surrenderGraphics.roundRect(-w/2, -h/2, w, h, 16 * scaleFactor);
+                surrenderGraphics.fill();
+                surrenderGraphics.stroke();
+            }
+            const surrenderLabelNode = this.surrenderButtonNode.getChildByName("Label");
+            if (surrenderLabelNode) {
+                const surrenderLabelTrans = surrenderLabelNode.getComponent(UITransform);
+                if (surrenderLabelTrans) surrenderLabelTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+                const surrenderLabelComp = surrenderLabelNode.getComponent(Label);
+                if (surrenderLabelComp) {
+                    surrenderLabelComp.fontSize = Math.round(22 * scaleFactor);
+                    surrenderLabelComp.lineHeight = Math.round(26 * scaleFactor);
+                }
+            }
+
+            if (this.isNetworkMode) {
+                this.surrenderButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
+            } else {
+                this.surrenderButtonNode.setPosition(new Vec3(110 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
+            }
         }
 
         // 悔棋按钮位置绑定 (底部偏上，避开安全操作栏)
@@ -700,7 +817,43 @@ export class BoardView extends Component {
                     undoLabelComp.lineHeight = Math.round(26 * scaleFactor);
                 }
             }
-            this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75 * scaleFactor, 0));
+
+            if (this.isNetworkMode) {
+                this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
+            } else {
+                this.undoButtonNode.setPosition(new Vec3(-110 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
+            }
+        }
+
+        // 一键切换战场按钮位置绑定
+        if (this.switchBattlefieldButtonNode) {
+            const switchTrans = this.switchBattlefieldButtonNode.getComponent(UITransform);
+            if (switchTrans) {
+                switchTrans.setContentSize(240 * scaleFactor, 56 * scaleFactor);
+            }
+            const switchGraphics = this.switchBattlefieldButtonNode.getComponent(Graphics);
+            if (switchGraphics) {
+                switchGraphics.clear();
+                switchGraphics.lineWidth = 3 * scaleFactor;
+                switchGraphics.strokeColor = new Color(255, 255, 255, 255);
+                switchGraphics.fillColor = new Color(46, 125, 50, 240); // 优雅的森林绿色
+                const w = 240 * scaleFactor;
+                const h = 56 * scaleFactor;
+                switchGraphics.roundRect(-w/2, -h/2, w, h, 16 * scaleFactor);
+                switchGraphics.fill();
+                switchGraphics.stroke();
+            }
+            const switchLabelNode = this.switchBattlefieldButtonNode.getChildByName("Label");
+            if (switchLabelNode) {
+                const switchLabelTrans = switchLabelNode.getComponent(UITransform);
+                if (switchLabelTrans) switchLabelTrans.setContentSize(240 * scaleFactor, 56 * scaleFactor);
+                const switchLabelComp = switchLabelNode.getComponent(Label);
+                if (switchLabelComp) {
+                    switchLabelComp.fontSize = Math.round(22 * scaleFactor);
+                    switchLabelComp.lineHeight = Math.round(26 * scaleFactor);
+                }
+            }
+            this.switchBattlefieldButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 75 * scaleFactor, 0));
         }
 
         // 重新排布结算弹窗 (如果有)
@@ -713,9 +866,22 @@ export class BoardView extends Component {
      * 重启游戏
      */
     public restartGame(startTimer: boolean = true): void {
+        this.isGameOverState = false;
         this.unschedule(this.makeAIMove);
         this.stopTurnTimer();
         this.isAIMoving = false;
+
+        this.clearLastMoveHighlight();
+
+        if (this.surrenderConfirmPanel) {
+            this.surrenderConfirmPanel.destroy();
+            this.surrenderConfirmPanel = null;
+        }
+
+        if (this.screenTimerLabelNode) {
+            this.screenTimerLabelNode.destroy();
+            this.screenTimerLabelNode = null;
+        }
 
         // 对局中音量调低至 50% 的 0.7 = 0.35
         if (this.bgmSource) {
@@ -734,6 +900,7 @@ export class BoardView extends Component {
 
         // 2. 重置引擎状态
         this.engine.resetGame();
+        this.initBoardBackground(); // 重新创建棋盘格子及河道，更新红蓝旋转视角
         this.selectedPiece = null;
         this.clearHighlights();
 
@@ -763,15 +930,25 @@ export class BoardView extends Component {
             this.boardContainer = this.node;
         }
 
+        // 先销毁并清理上次创建的棋盘背景节点，防止联机模式下重置棋盘造成节点重叠与位置错乱
+        if (this.boardGridNodes) {
+            for (const n of this.boardGridNodes) {
+                if (n && n.isValid) {
+                    n.destroy();
+                }
+            }
+            this.boardGridNodes = [];
+        }
+
         // 创建全屏背景图
         if (!this.bgNode) {
             this.bgNode = new Node('GameBackground');
             this.bgNode.layer = 33554432; // UI_2D
             const bgTrans = this.bgNode.addComponent(UITransform);
-            bgTrans.setContentSize(view.getVisibleSize().width, view.getVisibleSize().height);
+            bgTrans.setContentSize(796, 1024);
             const bgSprite = this.bgNode.addComponent(Sprite);
-            bgSprite.sizeMode = 0;
-            this.safeLoadSprite('textures/main_menu_bg', bgSprite);
+            bgSprite.sizeMode = 0; // CUSTOM
+            this.safeLoadSprite('textures/game_board_bg', bgSprite);
             this.node.addChild(this.bgNode);
             this.bgNode.setSiblingIndex(0); // 置于最底层
         }
@@ -809,6 +986,7 @@ export class BoardView extends Component {
                     const cellNode = instantiate(this.gridCellPrefab);
                     cellNode.parent = this.boardContainer;
                     cellNode.setPosition(this.gridToWorldPos(x, y));
+                    this.boardGridNodes.push(cellNode);
 
                     // 绑定点击事件，点击空白格子用于移动
                     cellNode.on(Node.EventType.TOUCH_END, () => {
@@ -818,6 +996,9 @@ export class BoardView extends Component {
                     // 根据地形给格子涂色，方便新手认清棋盘
                     const sprite = cellNode.getComponent(Sprite);
                     if (sprite) {
+                        if (!this.cellSpriteFrame) {
+                            this.cellSpriteFrame = sprite.spriteFrame;
+                        }
                         if (this.engine.isRiver(x, y)) {
                             // 小河格：保持底层预设的贴图，染成卡通水蓝色
                             sprite.color = new Color(30, 144, 255, 255); // DodgerBlue
@@ -887,7 +1068,7 @@ export class BoardView extends Component {
 
                                     const fSprite = flowerNode.addComponent(Sprite);
                                     fSprite.sizeMode = 0;
-                                    fSprite.spriteFrame = this.gridCellPrefab.data.getComponent(Sprite)?.spriteFrame || sprite.spriteFrame;
+                                    fSprite.spriteFrame = sprite.spriteFrame;
                                     // 随机出白色、黄色或淡紫色的花朵
                                     const colors = [
                                         new Color(255, 255, 255, 255), // 白色
@@ -920,6 +1101,7 @@ export class BoardView extends Component {
         if (sys.localStorage.getItem('jungle_effects_enabled') !== 'false') {
             this.createGlobalFishes();
         }
+        this.updateBoardGridTextures();
     }
     
     private createGlobalFishes(): void {
@@ -928,7 +1110,8 @@ export class BoardView extends Component {
             areaNode.parent = this.boardContainer;
             areaNode.layer = this.boardContainer!.layer || 33554432;
             areaNode.setPosition(this.gridToWorldPos(centerX, centerY));
-            
+            this.boardGridNodes.push(areaNode);
+
             const transform = areaNode.addComponent(UITransform);
             transform.setContentSize(width, height);
             areaNode.addComponent(Mask);
@@ -977,52 +1160,7 @@ export class BoardView extends Component {
                 .repeatForever()
                 .start();
 
-            // 第二层：快速表层波光干涉纹理
-            const waterContainer2 = new Node('WaterContainer2');
-            waterContainer2.parent = areaNode;
-            waterContainer2.layer = areaNode.layer;
-            waterContainer2.setSiblingIndex(1);
-            // 微微放大第二层，避免完全等比例重叠，消除拼贴感
-            waterContainer2.setScale(new Vec3(1.15, 1.15, 1.0));
-
-            const water2_1 = new Node('Water2_1');
-            water2_1.parent = waterContainer2;
-            water2_1.layer = areaNode.layer;
-            const wTrans2_1 = water2_1.addComponent(UITransform);
-            wTrans2_1.setContentSize(width, height);
-            const wSprite2_1 = water2_1.addComponent(Sprite);
-            wSprite2_1.sizeMode = 0;
-            wSprite2_1.color = new Color(255, 255, 255, 75); // 较淡透明度，作为动态纹理干涉层
-
-            const water2_2 = new Node('Water2_2');
-            water2_2.parent = waterContainer2;
-            water2_2.layer = areaNode.layer;
-            const wTrans2_2 = water2_2.addComponent(UITransform);
-            wTrans2_2.setContentSize(width, height);
-            water2_2.setPosition(new Vec3(0, height, 0));
-            const wSprite2_2 = water2_2.addComponent(Sprite);
-            wSprite2_2.sizeMode = 0;
-            wSprite2_2.color = new Color(255, 255, 255, 75);
-
-            // 缓动向下流动（快速）
-            tween(waterContainer2)
-                .to(10.0, { position: new Vec3(0, -height, 0) })
-                .call(() => {
-                    waterContainer2.setPosition(Vec3.ZERO);
-                })
-                .union()
-                .repeatForever()
-                .start();
-
-            // 横向采用不同的周期与幅值进行正弦摆动，创造多重动态质感
-            tween(waterContainer2)
-                .by(3.2, { position: new Vec3(-8, 0, 0) }, { easing: 'sineInOut' })
-                .by(3.2, { position: new Vec3(8, 0, 0) }, { easing: 'sineInOut' })
-                .union()
-                .repeatForever()
-                .start();
-
-            // 载入水纹贴图应用到双层 4 张 Sprite 纹理上
+            // 载入水纹贴图应用到单层 2 张 Sprite 纹理上
             resources.load('textures/river_water/texture', ImageAsset, (err, imageAsset) => {
                 if (err) { console.error("Failed to load river_water:", err); return; }
                 if (areaNode.isValid) {
@@ -1033,13 +1171,11 @@ export class BoardView extends Component {
 
                     if (wSprite1_1.isValid) wSprite1_1.spriteFrame = sf;
                     if (wSprite1_2.isValid) wSprite1_2.spriteFrame = sf;
-                    if (wSprite2_1.isValid) wSprite2_1.spriteFrame = sf;
-                    if (wSprite2_2.isValid) wSprite2_2.spriteFrame = sf;
                 }
             });
 
-            // 2. 河底静谧石头 (3-5颗)
-            const stoneCount = 3 + Math.floor(Math.random() * 3);
+            // 2. 河底静谧石头 (2-3颗)
+            const stoneCount = 2 + Math.floor(Math.random() * 2);
             for (let i = 0; i < stoneCount; i++) {
                 const stone = new Node(`RiverStone_${i}`);
                 stone.parent = areaNode;
@@ -1073,201 +1209,55 @@ export class BoardView extends Component {
                 stone.setRotationFromEuler(0, 0, Math.random() * 360);
             }
 
-            // 3. 漂流浮萍/荷叶 (2个)
-            const lilyPadCount = 2;
-            for (let i = 0; i < lilyPadCount; i++) {
-                const lilyPad = new Node(`LilyPad_${i}`);
-                lilyPad.parent = areaNode;
-                lilyPad.layer = areaNode.layer;
-                lilyPad.setSiblingIndex(3); // 浮于水面 (鱼儿从下方穿过)
+            // 3. (漂流浮萍/荷叶已被移除以提升性能)
 
-                const lpTrans = lilyPad.addComponent(UITransform);
-                const size = 20 + Math.random() * 10;
-                lpTrans.setContentSize(size, size);
-                lpTrans.setAnchorPoint(0.5, 0.5);
+            // 4. 鲤鱼畅游层已删除
 
-                const lpGraphic = lilyPad.addComponent(Graphics);
-                lpGraphic.fillColor = new Color(46, 139, 87, 220); // 浮萍绿 (SeaGreen)
-                lpGraphic.ellipse(0, 0, size / 2, (size / 2) * 0.85);
-                lpGraphic.fill();
 
-                const lpOpacity = lilyPad.addComponent(UIOpacity);
-                lpOpacity.opacity = 180 + Math.random() * 50;
-
-                const lpX = -width / 2 + 30 + Math.random() * (width - 60);
-                const lpY = -height / 2 + 40 + Math.random() * (height - 80);
-                lilyPad.setPosition(new Vec3(lpX, lpY, 0));
-                lilyPad.setRotationFromEuler(0, 0, Math.random() * 360);
-
-                // 上下微幅起伏
-                const floatDuration = 2.5 + Math.random() * 1.5;
-                const floatAmp = 3 + Math.random() * 3;
-                tween(lilyPad)
-                    .by(floatDuration, { position: new Vec3(0, floatAmp, 0) }, { easing: 'sineInOut' })
-                    .by(floatDuration, { position: new Vec3(0, -floatAmp, 0) }, { easing: 'sineInOut' })
-                    .union()
-                    .repeatForever()
-                    .start();
-
-                // 徐徐左右晃摆自转
-                const rotateDuration = 4.0 + Math.random() * 2.0;
-                const rotateAng = 8 + Math.random() * 8;
-                tween(lilyPad)
-                    .by(rotateDuration, { angle: rotateAng }, { easing: 'sineInOut' })
-                    .by(rotateDuration, { angle: -rotateAng }, { easing: 'sineInOut' })
-                    .union()
-                    .repeatForever()
-                    .start();
-            }
-
-            // 4. 鲤鱼畅游层 (2-4条) - 完全保留并置顶原有的精致动作与尾摆动画
-            const fishCount = 2 + Math.floor(Math.random() * 3);
-            for (let fi = 0; fi < fishCount; fi++) {
-                const fishNode = new Node(`KoiFish_${fi}`);
-                fishNode.parent = areaNode;
-                fishNode.layer = areaNode.layer;
-                fishNode.setSiblingIndex(4); // 位于荷叶与水纹之上
-
-                const fTransform = fishNode.addComponent(UITransform);
-                fTransform.setContentSize(30, 20);
-
-                const fSprite = fishNode.addComponent(Sprite);
-                fSprite.sizeMode = 0;
-                
-                resources.load('textures/koi_fish/texture', ImageAsset, (err, imageAsset) => {
-                    if (err) return;
-                    if (fishNode.isValid && fSprite.isValid) {
-                        const tex = new Texture2D(); tex.image = imageAsset;
-                        const sf = new SpriteFrame(); sf.texture = tex;
-                        fSprite.spriteFrame = sf;
-                        fSprite.color = new Color(255, 255, 255, 255);
-                        fTransform.setContentSize(30, 20);
-                    }
-                });
-
-                const fOpacity = fishNode.addComponent(UIOpacity);
-                fOpacity.opacity = 0;
-
-                // 鱼尾巴 (二级动画，模拟物理运动)
-                const tailNode = new Node(`KoiTail`);
-                tailNode.parent = fishNode;
-                tailNode.layer = fishNode.layer;
-                const tTransform = tailNode.addComponent(UITransform);
-                tTransform.setContentSize(5, 3);
-                tTransform.setAnchorPoint(1.0, 0.5); 
-                tailNode.setPosition(new Vec3(-7, 0, 0));
-                
-                const tSprite = tailNode.addComponent(Sprite);
-                tSprite.sizeMode = 0;
-                tSprite.spriteFrame = this.gridCellPrefab?.data?.getComponent(Sprite)?.spriteFrame || null;
-                tSprite.color = new Color(250, 140, 70, 255); 
-                
-                resources.load('textures/koi_fish/texture', ImageAsset, (err) => {
-                    if (!err && tailNode.isValid) tailNode.active = false;
-                });
-
-                tween(tailNode)
-                    .to(0.25, { angle: 20 }, { easing: 'sineInOut' })
-                    .to(0.50, { angle: -20 }, { easing: 'sineInOut' })
-                    .to(0.25, { angle: 0 }, { easing: 'sineInOut' })
-                    .union()
-                    .repeatForever()
-                    .start();
-
-                // 游动大循环
-                const swimCycle = () => {
-                    if (!fishNode.isValid) return;
-
-                    const dir = Math.random() > 0.5 ? 1 : -1;
-                    const halfWidth = width / 2;
-                    const halfHeight = height / 2;
-                    
-                    const startX = -(halfWidth + 20) * dir;
-                    const swimY = -halfHeight + 20 + Math.random() * (height - 40);
-
-                    fishNode.setPosition(new Vec3(startX, swimY, 0));
-                    fishNode.setScale(new Vec3(dir, 1.0, 1.0)); 
-                    fishNode.angle = 0;
-                    fOpacity.opacity = 0;
-
-                    tween(fOpacity).to(0.5, { opacity: 200 }).start();
-
-                    const fishTween = tween(fishNode);
-                    let currentX = startX;
-                    let currentY = swimY;
-                    const segments = 4 + Math.floor(Math.random() * 3);
-                    
-                    for (let i = 0; i < segments; i++) {
-                        const moveX = (50 + Math.random() * 40) * dir;
-                        const moveY = (Math.random() * 40 - 20); // 游动时的上下起伏
-                        
-                        currentX += moveX;
-                        currentY += moveY;
-                        
-                        let targetAngle = Math.atan2(moveY, moveX * dir) * 180 / Math.PI;
-                        targetAngle = Math.max(-25, Math.min(25, targetAngle));
-
-                        const swimDuration = 1.0 + Math.random() * 0.8;
-                        
-                        // 连贯平滑的真实鱼类游动
-                        fishTween.to(swimDuration, { position: new Vec3(currentX, currentY, 0), angle: targetAngle }, { easing: 'sineInOut' });
-                    }
-
-                    fishTween.call(() => {
-                        tween(fOpacity).to(0.6, { opacity: 0 }).call(() => {
-                            this.scheduleOnce(swimCycle, 1.5 + Math.random() * 3.0);
-                        }).start();
-                    }).start();
-                };
-
-                this.scheduleOnce(swimCycle, Math.random() * 3.0);
-            }
-
-            // 5. 波光粼粼的闪烁动效 (6-10个环境闪光粒子)
-            const sparkleCount = 6 + Math.floor(Math.random() * 5);
+            // 5. 水波涟漪特效 (每个河道 2 个)
+            const sparkleCount = 2;
             for (let i = 0; i < sparkleCount; i++) {
-                const sparkle = new Node(`Sparkle_${i}`);
+                const sparkle = new Node(`Ripple_${i}`);
                 sparkle.parent = areaNode;
                 sparkle.layer = areaNode.layer;
-                sparkle.setSiblingIndex(5); // 最顶层，用于反射环境光
+                sparkle.setSiblingIndex(5); // 位于最顶层，表现水面涟漪
 
                 const sTransform = sparkle.addComponent(UITransform);
-                const sW = 8 + Math.random() * 8;
-                const sH = sW * 0.35; // 扁平梭形
-                sTransform.setContentSize(sW, sH);
+                sTransform.setContentSize(30, 15);
 
-                // 使用 Graphics 绘制纯白扁平梭形波光粒子
+                // 使用 Graphics 绘制半透明白描边椭圆波纹线圈
                 const sGraphic = sparkle.addComponent(Graphics);
-                sGraphic.fillColor = new Color(255, 255, 255, 255);
-                sGraphic.ellipse(0, 0, sW / 2, sH / 2);
-                sGraphic.fill();
+                sGraphic.lineWidth = 1.5;
+                sGraphic.strokeColor = new Color(255, 255, 255, 140);
+                sGraphic.ellipse(0, 0, 15, 7);
+                sGraphic.stroke();
 
                 const sOpacity = sparkle.addComponent(UIOpacity);
                 sOpacity.opacity = 0;
 
-                const sX = -width / 2 + 15 + Math.random() * (width - 30);
-                const sY = -height / 2 + 15 + Math.random() * (height - 30);
+                const sX = -width / 2 + 20 + Math.random() * (width - 40);
+                const sY = -height / 2 + 20 + Math.random() * (height - 40);
                 sparkle.setPosition(new Vec3(sX, sY, 0));
-                sparkle.setRotationFromEuler(0, 0, -10 + Math.random() * 20);
+                sparkle.setScale(new Vec3(0.2, 0.2, 1.0));
 
-                const duration = 1.2 + Math.random() * 1.8;
-                const delay = Math.random() * 3.0;
+                const duration = 2.0 + Math.random() * 1.5;
+                const delay = Math.random() * 4.0;
 
-                // 闪烁和大小脉动交替进行
-                tween(sOpacity)
+                // 涟漪扩散：圆环从小变大，同时由实变虚
+                tween(sparkle)
                     .delay(delay)
-                    .to(duration, { opacity: 100 + Math.random() * 120 }, { easing: 'sineInOut' })
-                    .to(duration, { opacity: 0 }, { easing: 'sineInOut' })
-                    .delay(Math.random() * 2.0)
+                    .call(() => {
+                        sparkle.setScale(new Vec3(0.2, 0.2, 1.0));
+                        sOpacity.opacity = 180;
+                    })
+                    .to(duration, { scale: new Vec3(2.0, 2.0, 1.0) }, { easing: 'quadOut' })
                     .union()
                     .repeatForever()
                     .start();
 
-                tween(sparkle)
+                tween(sOpacity)
                     .delay(delay)
-                    .to(duration, { scale: new Vec3(1.4, 1.0, 1.0) }, { easing: 'sineInOut' })
-                    .to(duration, { scale: new Vec3(0.7, 1.0, 1.0) }, { easing: 'sineInOut' })
-                    .delay(Math.random() * 2.0)
+                    .to(duration, { opacity: 0 }, { easing: 'quadOut' })
                     .union()
                     .repeatForever()
                     .start();
@@ -1340,7 +1330,14 @@ export class BoardView extends Component {
     private updateTurnUI(): void {
         if (this.turnIndicator) {
             const turnCamp = this.engine.getCurrentTurn();
-            const turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+
+            let turnStr = '';
+            if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+                turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (上方)' : '🔵 蓝方行动 (下方)';
+            } else {
+                turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+            }
+
             this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
             
             // 亮眼对比度色彩
@@ -1354,6 +1351,9 @@ export class BoardView extends Component {
                     .start();
             }
         }
+
+        // 倒计时最后5秒，在需要下棋的那一方的主棋盘上显示大数字倒计时
+        this.updateScreenTimerLabel();
     }
 
     /**
@@ -1365,6 +1365,9 @@ export class BoardView extends Component {
         }
         if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
             return; // AI 正在思考或行动阶段，玩家不可操作
+        }
+        if (this.isNetworkMode && this.engine.getCurrentTurn() !== this.myCamp) {
+            return; // 联机模式下，非我方回合不可操作
         }
         console.log("BoardView: onPieceClicked called for piece:", piece.id, "camp:", piece.camp);
         const turn = this.engine.getCurrentTurn();
@@ -1387,7 +1390,7 @@ export class BoardView extends Component {
                     this.playPieceShowAction(piece);
                 }
             }, 0.16);
-        } 
+        }
         // 2. 如果点击的是敌方棋子，且当前已有选中棋子，则尝试吃子
         else if (this.selectedPiece) {
             this.tryMovePiece(this.selectedPiece.x, this.selectedPiece.y, piece.x, piece.y);
@@ -1413,6 +1416,9 @@ export class BoardView extends Component {
     private onCellClicked(x: number, y: number): void {
         if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
             return; // AI 正在思考或行动阶段，玩家不可操作
+        }
+        if (this.isNetworkMode && this.engine.getCurrentTurn() !== this.myCamp) {
+            return; // 联机模式下，非我方回合不可操作
         }
         if (this.selectedPiece) {
             this.tryMovePiece(this.selectedPiece.x, this.selectedPiece.y, x, y);
@@ -1512,14 +1518,45 @@ export class BoardView extends Component {
      * 尝试移动棋子 (核心逻辑跳转)
      */
     private tryMovePiece(fromX: number, fromY: number, toX: number, toY: number): void {
-        if (!this.engine.validateMove(fromX, fromY, toX, toY)) {
-            // 非法移动，清除选中
+        console.log(`[BoardView] tryMovePiece: (${fromX},${fromY}) -> (${toX},${toY}), isNetwork=${this.isNetworkMode}, isApplyingNetwork=${this.isApplyingNetworkMove}`);
+
+        // 如果是应用网络走子，说明这是来自服务器的强行同步，直接跳过校验以防本地状态微小不一致引发卡死
+        if (!this.isApplyingNetworkMove) {
+            if (!this.engine.validateMove(fromX, fromY, toX, toY)) {
+                const piece = this.engine.getPieceAt(fromX, fromY);
+                console.warn(`[BoardView] tryMovePiece 校验失败！` +
+                    `起点存在棋子: ${piece ? piece.id : "否"}, ` +
+                    `棋子阵营: ${piece ? piece.camp : "无"}, ` +
+                    `当前回合: ${this.engine.getCurrentTurn()}`);
+                this.clearSelection();
+                return;
+            }
+        }
+
+        const activePiece = this.engine.getPieceAt(fromX, fromY);
+        if (!activePiece) {
+            console.warn(`[BoardView] tryMovePiece 失败：起点 (${fromX},${fromY}) 不存在棋子！`);
             this.clearSelection();
             return;
         }
 
-        const activePiece = this.engine.getPieceAt(fromX, fromY)!;
-        const activeView = this.pieceViews.get(activePiece.id)!;
+        const activeView = this.pieceViews.get(activePiece.id);
+        if (!activeView) {
+            console.warn(`[BoardView] tryMovePiece 失败：找不到棋子 ${activePiece.id} 的视图！`);
+            this.clearSelection();
+            return;
+        }
+
+        if (this.isNetworkMode && !this.isApplyingNetworkMove) {
+            console.log(`[Network] 本地走棋，准备发送到服务器: ${activePiece.id} 从 (${fromX},${fromY}) 到 (${toX},${toY})`);
+            NetworkManager.getInstance().send('move', {
+                piece_id: activePiece.id,
+                from_x: fromX,
+                from_y: fromY,
+                to_x: toX,
+                to_y: toY
+            });
+        }
 
         // 执行逻辑移动并获取被吃掉的棋子
         const eatenPiece = this.engine.makeMove(fromX, fromY, toX, toY);
@@ -1527,6 +1564,9 @@ export class BoardView extends Component {
         // 清除高亮
         this.clearHighlights();
         this.selectedPiece = null;
+
+        // 标记上一手移动残影（起点与终点高亮）
+        this.showLastMoveHighlight(fromX, fromY, toX, toY);
 
         // 视图层执行移动动画
         const targetWorldPos = this.gridToWorldPos(toX, toY);
@@ -1548,6 +1588,20 @@ export class BoardView extends Component {
                     // 播放击中波光与爪击特写特效，并触发棋盘震屏
                     this.playImpactEffect(targetWorldPos);
                     
+                    // 触发手机震动 (兼容 Web 和微信小游戏等环境)
+                    try {
+                        if (typeof window !== 'undefined') {
+                            const win = window as any;
+                            if (win.wx && win.wx.vibrateShort) {
+                                win.wx.vibrateShort({ type: 'heavy' }); // 吃子用重震动效果更好
+                            } else if (win.navigator && win.navigator.vibrate) {
+                                win.navigator.vibrate(100); // 震动 100ms
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Vibration not supported', e);
+                    }
+
                     // 被吃方播放旋转击飞淡出动画
                     eatenView.playBeatenAnimation(() => {
                         // 结束销毁回调已经在 playBeatenAnimation 中调用 node.destroy
@@ -1674,6 +1728,16 @@ export class BoardView extends Component {
         // 检查胜负
         const status = this.engine.checkGameOver();
         if (status.isGameOver) {
+            if (this.isNetworkMode) {
+                // 如果是网络模式，并且是当前玩家刚刚完成了走子
+                const prevTurnWasMe = this.engine.getCurrentTurn() !== this.myCamp;
+                if (prevTurnWasMe) {
+                    NetworkManager.getInstance().send('game_over', {
+                        winner: status.winner,
+                        reason: status.reason
+                    });
+                }
+            }
             this.showGameOver(status.winner, status.reason);
             this.stopTurnTimer();
             return;
@@ -1786,12 +1850,69 @@ export class BoardView extends Component {
         this.highlightNodes = [];
     }
 
+    private clearLastMoveHighlight(): void {
+        this.lastMoveHighlightNodes.forEach(node => {
+            if (node && node.isValid) node.destroy();
+        });
+        this.lastMoveHighlightNodes = [];
+    }
+
+    private showLastMoveHighlight(fromX: number, fromY: number, toX: number, toY: number): void {
+        this.clearLastMoveHighlight();
+
+        const createHighlightBox = (x: number, y: number, isStart: boolean) => {
+            const hlNode = new Node(`LastMoveHighlight_${x}_${y}`);
+            hlNode.parent = this.boardContainer;
+            hlNode.setPosition(this.gridToWorldPos(x, y));
+            hlNode.layer = this.boardContainer!.layer || 33554432;
+
+            const g = hlNode.addComponent(Graphics);
+            // 醒目的亮黄色边框
+            g.strokeColor = new Color(255, 230, 50, 200);
+            g.lineWidth = 6;
+
+            // 绘制稍微比格子小一点的方框
+            const hw = this.cellWidth / 2 - 2;
+            const hh = this.cellHeight / 2 - 2;
+            g.roundRect(-hw, -hh, hw * 2, hh * 2, 8);
+            g.stroke();
+
+            if (isStart) {
+                // 起点可以用半透明填充增强辨识度，表示棋子是从这里离开的
+                g.fillColor = new Color(255, 230, 50, 40);
+                g.fill();
+            }
+
+            // 加入呼吸透明度动画
+            const opacityComp = hlNode.addComponent(UIOpacity);
+            tween(opacityComp)
+                .to(0.7, { opacity: 120 })
+                .to(0.7, { opacity: 255 })
+                .union()
+                .repeatForever()
+                .start();
+
+            this.lastMoveHighlightNodes.push(hlNode);
+        };
+
+        createHighlightBox(fromX, fromY, true);
+        createHighlightBox(toX, toY, false);
+    }
+
     /**
      * 结算并展示游戏结束弹窗
      */
     private showGameOver(winner: Camp | null, reason: GameOverReason | null): void {
+        this.isGameOverState = true;
         this.gameOverWinner = winner;
         this.gameOverReason = reason;
+
+        if (this.undoButtonNode) this.undoButtonNode.active = false;
+        if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
+
+        // 对局结束，清除本地暂存的对局房间号
+        sys.localStorage.removeItem('animal_chess_room_id');
 
         if (this.customGameOverPanel && this.customGameOverPanel.isValid) {
             this.customGameOverPanel.destroy();
@@ -1834,23 +1955,57 @@ export class BoardView extends Component {
         this.customGameOverPanel.addChild(dialogNode);
 
         // 3. 胜利标志
+        let isMeWinner = false;
+        let isNetworkOrAI = false;
+        if (this.isNetworkMode) {
+            isNetworkOrAI = true;
+            isMeWinner = (winner === this.myCamp);
+        } else if (this.isAIMode) {
+            isNetworkOrAI = true;
+            isMeWinner = (winner === Camp.RED);
+        }
+
         const resultBadgeNode = new Node("ResultBadge");
         resultBadgeNode.layer = 33554432;
         resultBadgeNode.addComponent(UITransform).setContentSize(92 * scaleFactor, 92 * scaleFactor);
         const badgeGraphics = resultBadgeNode.addComponent(Graphics);
-        badgeGraphics.fillColor = winner === null ? new Color(230, 232, 226, 255) : new Color(248, 228, 54, 255);
+
+        let badgeColor = new Color(248, 228, 54, 255); // 赢方高亮黄
+        if (winner === null) {
+            badgeColor = new Color(230, 232, 226, 255); // 和棋灰色
+        } else if (isNetworkOrAI && !isMeWinner) {
+            badgeColor = new Color(190, 195, 190, 255); // 败方暗灰色
+        }
+
+        badgeGraphics.fillColor = badgeColor;
         badgeGraphics.circle(0, 0, 46 * scaleFactor);
         badgeGraphics.fill();
         badgeGraphics.lineWidth = 3 * scaleFactor;
         badgeGraphics.strokeColor = new Color(255, 255, 255, 255);
         badgeGraphics.circle(0, 0, 46 * scaleFactor);
         badgeGraphics.stroke();
+
         const badgeText = new Node("BadgeText");
         badgeText.layer = 33554432;
         const badgeLabel = badgeText.addComponent(Label);
-        badgeLabel.string = winner === null ? "和" : "胜";
+
+        let badgeStr = "胜";
+        if (winner === null) {
+            badgeStr = "和";
+        } else if (isNetworkOrAI && !isMeWinner) {
+            badgeStr = "败";
+        }
+        badgeLabel.string = badgeStr;
         badgeLabel.fontSize = Math.round(48 * scaleFactor);
-        badgeLabel.color = winner === null ? new Color(102, 102, 102, 255) : new Color(110, 78, 0, 255);
+        badgeLabel.lineHeight = badgeLabel.fontSize;
+
+        let badgeTextColor = new Color(110, 78, 0, 255);
+        if (winner === null) {
+            badgeTextColor = new Color(102, 102, 102, 255);
+        } else if (isNetworkOrAI && !isMeWinner) {
+            badgeTextColor = new Color(80, 80, 80, 255); // 败方暗文字
+        }
+        badgeLabel.color = badgeTextColor;
         badgeLabel.isBold = true;
         badgeText.addComponent(UITransform);
         resultBadgeNode.addChild(badgeText);
@@ -1879,17 +2034,34 @@ export class BoardView extends Component {
             case GameOverReason.REPETITION_DRAW:
                 reasonStr = '连续 5 次出现相同局面，判定为和棋！';
                 break;
+            case GameOverReason.SURRENDER:
+                reasonStr = '一方投降认输！';
+                break;
+            case GameOverReason.TIMEOUT:
+                reasonStr = '当前回合走棋超时！';
+                break;
         }
 
         if (winner === null) {
             titleLabel.string = "握手言和";
             titleLabel.color = new Color(102, 102, 102, 255); // 灰色
         } else {
-            const winnerName = winner === Camp.RED ? '红方' : '蓝方';
-            titleLabel.string = `${winnerName} 获得胜利！`;
-            titleLabel.color = winner === Camp.RED ? new Color(214, 48, 49, 255) : new Color(9, 132, 227, 255);
+            if (isNetworkOrAI) {
+                if (isMeWinner) {
+                    titleLabel.string = "恭喜你，获得胜利！";
+                    titleLabel.color = winner === Camp.RED ? new Color(214, 48, 49, 255) : new Color(9, 132, 227, 255);
+                } else {
+                    titleLabel.string = "你已阵败，请再接再厉";
+                    titleLabel.color = new Color(120, 125, 120, 255); // 输家显示深灰色
+                }
+            } else {
+                const winnerName = winner === Camp.RED ? '红方' : '蓝方';
+                titleLabel.string = `${winnerName} 获得胜利！`;
+                titleLabel.color = winner === Camp.RED ? new Color(214, 48, 49, 255) : new Color(9, 132, 227, 255);
+            }
         }
         titleLabel.fontSize = Math.round(38 * scaleFactor);
+        titleLabel.lineHeight = titleLabel.fontSize;
         dialogNode.addChild(titleNode);
 
         // 5. 具体获胜原因
@@ -1898,6 +2070,7 @@ export class BoardView extends Component {
         const reasonLabel = reasonNode.addComponent(Label);
         reasonLabel.string = reasonStr;
         reasonLabel.fontSize = Math.round(22 * scaleFactor);
+        reasonLabel.lineHeight = reasonLabel.fontSize;
         reasonLabel.color = new Color(100, 115, 90, 255); // 温和深草绿字
         reasonNode.addComponent(UITransform);
         reasonNode.setPosition(new Vec3(0, dialogH / 2 - 236 * scaleFactor, 0));
@@ -1925,6 +2098,7 @@ export class BoardView extends Component {
         const restartLabel = restartText.addComponent(Label);
         restartLabel.string = "再来一局";
         restartLabel.fontSize = Math.round(24 * scaleFactor);
+        restartLabel.lineHeight = restartLabel.fontSize;
         restartLabel.color = Color.WHITE;
         restartLabel.isBold = true;
         restartText.addComponent(UITransform);
@@ -1936,7 +2110,11 @@ export class BoardView extends Component {
             restartBtn.setScale(new Vec3(1.0, 1.0, 1.0));
             AudioSynth.playClick();
             this.hideCustomGameOverPanel();
-            this.restartGame();
+            if (this.isNetworkMode) {
+                this.requestOnlineRematch();
+            } else {
+                this.restartGame();
+            }
         }, this);
         restartBtn.on(Node.EventType.TOUCH_CANCEL, () => { restartBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
         dialogNode.addChild(restartBtn);
@@ -1958,6 +2136,7 @@ export class BoardView extends Component {
         const exitLabel = exitText.addComponent(Label);
         exitLabel.string = "返回菜单";
         exitLabel.fontSize = Math.round(24 * scaleFactor);
+        exitLabel.lineHeight = exitLabel.fontSize;
         exitLabel.color = Color.WHITE;
         exitLabel.isBold = true;
         exitText.addComponent(UITransform);
@@ -1977,6 +2156,19 @@ export class BoardView extends Component {
         // 挂载到父节点
         this.node.parent!.addChild(this.customGameOverPanel);
 
+        // 播放对应的音效/音乐并抛洒特效
+        if (winner !== null) {
+            if (isNetworkOrAI && !isMeWinner) {
+                // 败方：播放悲凉的失败音效与萧瑟凋零落叶特效
+                AudioSynth.playLoseSound();
+                this.spawnLoseDecayEffect();
+            } else {
+                // 胜方（或单机对决）：播放胜利欢呼与喜庆彩带特效
+                this.playCheerSound();
+                this.spawnConfettiEffect();
+            }
+        }
+
         // 弹出缓动效果 (backOut)
         dialogNode.setScale(new Vec3(0.82, 0.82, 1.0));
         tween(dialogNode)
@@ -1991,6 +2183,303 @@ export class BoardView extends Component {
         }
     }
 
+    /**
+     * 动态绘制落叶/凋零冷灰色粒子，模拟“阵败”后的落寞萧瑟特效
+     */
+    private spawnLoseDecayEffect(): void {
+        if (!this.customGameOverPanel) return;
+
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+
+        const colors = [
+            '#7f8c8d', // 泥土灰
+            '#95a5a6', // 萧瑟灰
+            '#bdc3c7', // 冰霜银
+            '#2c3e50', // 暗蓝灰
+            '#57606f', // 深石墨灰
+            '#a5b1c2', // 寒风冷灰
+            '#d2dae2'  // 残雪白
+        ];
+
+        const count = 50; // 50颗萧瑟落叶粒子
+        for (let i = 0; i < count; i++) {
+            const leaf = new Node('LoseLeaf');
+            leaf.layer = 33554432; // UI_2D
+
+            // 粒子形状：0 = 扁圆落叶, 1 = 小冰晶
+            const shapeType = Math.random() < 0.6 ? 0 : 1;
+            let w = 8 + Math.random() * 12;
+            let h = w * (1.3 + Math.random() * 0.5);
+
+            const trans = leaf.addComponent(UITransform);
+            trans.setContentSize(w, h);
+
+            const opacityComp = leaf.addComponent(UIOpacity);
+            opacityComp.opacity = 120 + Math.random() * 100; // 半透明，展现冰霜落叶质感
+
+            const g = leaf.addComponent(Graphics);
+            const colorHex = colors[Math.floor(Math.random() * colors.length)];
+            const color = new Color();
+            Color.fromHEX(color, colorHex);
+            g.fillColor = color;
+
+            if (shapeType === 0) {
+                // 扁圆叶子形状
+                g.ellipse(0, 0, w / 2, h / 2);
+                g.fill();
+            } else {
+                // 小菱形冰晶
+                g.moveTo(0, -h / 2);
+                g.lineTo(w / 2, 0);
+                g.lineTo(0, h / 2);
+                g.lineTo(-w / 2, 0);
+                g.close();
+                g.fill();
+            }
+
+            // 发射源：屏幕顶部随机 X，且添加随机高度延迟，以便粒子分批落下
+            const startX = -cw / 2 + Math.random() * cw;
+            const startY = ch / 2 + 50 + Math.random() * 200; // 随机顶部高度
+
+            leaf.setPosition(new Vec3(startX, startY, 0));
+
+            // 设定随机角度
+            leaf.setRotationFromEuler(0, 0, Math.random() * 360);
+
+            this.customGameOverPanel.addChild(leaf);
+
+            // 缓动动画：
+            // 1. Y 轴：从上往下飘落
+            const duration = 2.5 + Math.random() * 2.5;
+            const targetY = -ch / 2 - 50;
+
+            tween(leaf)
+                .to(duration, { y: targetY }, { easing: 'sineIn' })
+                .call(() => {
+                    leaf.destroy();
+                })
+                .start();
+
+            // 2. X 轴：左右正弦摇晃飘落
+            const waveWidth = 30 + Math.random() * 40;
+            const waveDuration = 0.8 + Math.random() * 0.8;
+
+            tween(leaf)
+                .by(waveDuration, { x: waveWidth }, { easing: 'sineInOut' })
+                .by(waveDuration, { x: -waveWidth }, { easing: 'sineInOut' })
+                .union()
+                .repeatForever()
+                .start();
+
+            // 3. 自转：旋转动画
+            const rotSpeed = (Math.random() < 0.5 ? 1 : -1) * (180 + Math.random() * 360);
+            tween(leaf)
+                .by(duration, { angle: rotSpeed })
+                .start();
+        }
+    }
+
+    /**
+     * 播放欢呼与鼓掌音效
+     */
+    private playCheerSound() {
+        if (!this.audioSource) return;
+
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        resources.load('sounds/cheer', AudioClip, (err, clip) => {
+            if (err) {
+                console.warn("未找到欢呼音效 (sounds/cheer)，请确认已放入音频文件。");
+                return;
+            }
+            if (clip && this.audioSource) {
+                this.audioSource.playOneShot(clip, 1.0);
+            }
+        });
+    }
+
+    /**
+     * 动态绘制彩色喷纸碎屑，模拟极其逼真的欢庆彩带散落特效 (Confetti Effect)
+     * 融入：4种形状、多发射源（底角+中心圆周爆炸）、X轴正弦飘动摇曳、3D折射反光闪烁
+     */
+    private spawnConfettiEffect(): void {
+        if (!this.customGameOverPanel) return;
+
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+
+        const colors = [
+            '#FF2A6D', // 荧光桃红
+            '#05D9E8', // 荧光青蓝
+            '#F5A623', // 亮丽橙黄
+            '#7ED321', // 鲜活草绿
+            '#BD10E0', // 绚丽魅紫
+            '#FF5E62', // 枫叶橘红
+            '#FFD700', // 黄金灿烂
+            '#F8E71C', // 明亮柠檬黄
+            '#FFFFFF'  // 晶莹亮白
+        ];
+
+        // 提升纸屑数量到 120 颗，制造更宏大的欢庆雨幕
+        const count = 120;
+        for (let i = 0; i < count; i++) {
+            const confetti = new Node('Confetti');
+            confetti.layer = 33554432; // UI_2D
+
+            // 1. 形状多样化：0 = 矩形纸片, 1 = 圆形亮片, 2 = 细长条彩带, 3 = 十字亮星
+            const shapeType = Math.floor(Math.random() * 4);
+            let w = 8;
+            let h = 8;
+            if (shapeType === 0) {
+                w = 8 + Math.random() * 10;
+                h = w * (1.2 + Math.random() * 0.4);
+            } else if (shapeType === 1) {
+                w = h = 6 + Math.random() * 8;
+            } else if (shapeType === 2) {
+                w = 3 + Math.random() * 3;
+                h = 24 + Math.random() * 16;
+            } else {
+                w = h = 12 + Math.random() * 8;
+            }
+
+            const trans = confetti.addComponent(UITransform);
+            trans.setContentSize(w, h);
+
+            // 挂载透明度组件以便下落后期渐隐
+            const opacityComp = confetti.addComponent(UIOpacity);
+            opacityComp.opacity = 255;
+
+            // 绘制彩色纸屑图形
+            const g = confetti.addComponent(Graphics);
+            const colorHex = colors[Math.floor(Math.random() * colors.length)];
+            const color = new Color();
+            Color.fromHEX(color, colorHex);
+            g.fillColor = color;
+
+            if (shapeType === 0) {
+                g.roundRect(-w / 2, -h / 2, w, h, 2);
+                g.fill();
+            } else if (shapeType === 1) {
+                g.circle(0, 0, w / 2);
+                g.fill();
+            } else if (shapeType === 2) {
+                g.roundRect(-w / 2, -h / 2, w, h, 1.5);
+                g.fill();
+            } else {
+                // 绘制十字星芒
+                const arm = w / 2;
+                const thick = w * 0.25;
+                g.moveTo(-thick / 2, -arm);
+                g.lineTo(thick / 2, -arm);
+                g.lineTo(thick / 2, -thick / 2);
+                g.lineTo(arm, -thick / 2);
+                g.lineTo(arm, thick / 2);
+                g.lineTo(thick / 2, thick / 2);
+                g.lineTo(thick / 2, arm);
+                g.lineTo(-thick / 2, arm);
+                g.lineTo(-thick / 2, thick / 2);
+                g.lineTo(-arm, thick / 2);
+                g.lineTo(-arm, -thick / 2);
+                g.lineTo(-thick / 2, -thick / 2);
+                g.close();
+                g.fill();
+            }
+
+            // 2. 发射源多样化：0 = 左底角, 1 = 右底角, 2 = 中央结算中心圆周爆发
+            const source = Math.random() < 0.4 ? 0 : (Math.random() < 0.66 ? 1 : 2);
+            let startX = 0;
+            let startY = 0;
+
+            if (source === 0) {
+                startX = -cw / 2 - 30;
+                startY = -ch / 2 + 100;
+            } else if (source === 1) {
+                startX = cw / 2 + 30;
+                startY = -ch / 2 + 100;
+            } else {
+                startX = 0;
+                startY = ch * 0.15; // 弹窗结算中心
+            }
+
+            confetti.setPosition(new Vec3(startX, startY, 0));
+            this.customGameOverPanel.addChild(confetti);
+
+            // 3. 物理抛物线与运动参数计算
+            const t1 = source === 2 ? 0.3 + Math.random() * 0.25 : 0.45 + Math.random() * 0.45; // 冲出向上时间
+            const t2 = 1.6 + Math.random() * 1.5;  // 下落旋转时间
+
+            const targetY = -ch / 2 + ch * (0.6 + Math.random() * 0.35); // 上升最高点
+
+            let targetX = 0;
+            if (source === 0) {
+                targetX = -cw / 2 + cw * (0.2 + Math.random() * 0.55); // 向中右喷
+            } else if (source === 1) {
+                targetX = cw / 2 - cw * (0.2 + Math.random() * 0.55); // 向中左喷
+            } else {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 120 + Math.random() * 180; // 环形四散扩散距离
+                targetX = startX + Math.cos(angle) * dist;
+            }
+
+            const fallX = targetX + (-60 + Math.random() * 120); // 摇晃偏移
+            const bottomY = -ch / 2 - 100; // 落出屏幕
+
+            // 4. 并列 Tween 模拟逼真物理轨迹
+            // (A) Y 轴二阶段移动：快速冲高 -> 重力加速平滑下降
+            tween(confetti)
+                .to(t1, { y: targetY }, { easing: 'quadOut' })
+                .to(t2, { y: bottomY }, { easing: 'sineIn' })
+                .call(() => {
+                    confetti.destroy();
+                })
+                .start();
+
+            // (B) X 轴摇摆：上升期走直线，下落期执行钟摆式正弦左右晃动飘零 (落叶效果)
+            const swayRange = 25 + Math.random() * 45; // 左右摇摆幅度 (像素)
+            const swaySpeed = 0.25 + Math.random() * 0.25; // 每次摇摆时长
+
+            tween(confetti)
+                .to(t1, { x: targetX }, { easing: 'quadOut' })
+                .call(() => {
+                    if (confetti.isValid) {
+                        // 进入飘落期，执行正弦钟摆摇晃
+                        tween(confetti)
+                            .to(swaySpeed, { x: targetX + swayRange }, { easing: 'sineInOut' })
+                            .to(swaySpeed, { x: targetX - swayRange }, { easing: 'sineInOut' })
+                            .union()
+                            .repeat(Math.ceil(t2 / (swaySpeed * 2)))
+                            .start();
+                    }
+                })
+                .start();
+
+            // (C) 翻滚自转动画
+            const rotAngle = 360 * (3 + Math.floor(Math.random() * 6));
+            tween(confetti)
+                .to(t1 + t2, { angle: rotAngle })
+                .start();
+
+            // (D) 3D 横轴自翻转折射闪烁 (scaleX 从 1 往复变化到 0.01)
+            const flipTime = 0.08 + Math.random() * 0.12;
+            tween(confetti)
+                .to(flipTime, { scale: new Vec3(0.01, 1.0, 1.0) })
+                .to(flipTime, { scale: new Vec3(1.0, 1.0, 1.0) })
+                .union()
+                .repeatForever()
+                .start();
+
+            // (E) 中后期优雅淡出
+            tween(opacityComp)
+                .delay(t1 + t2 * 0.4)
+                .to(t2 * 0.6, { opacity: 0 })
+                .start();
+        }
+    }
+
     private layoutCustomGameOverPanel() {
         if (this.customGameOverPanel) {
             this.showGameOver(this.gameOverWinner, this.gameOverReason);
@@ -2001,6 +2490,11 @@ export class BoardView extends Component {
      * 核心计算：将 7x9 网格坐标映射到 Cocos Creator 的本地节点 2D 坐标系 (以棋盘中心为 0,0)
      */
     public gridToWorldPos(x: number, y: number): Vec3 {
+        // 如果是在线对战且自身被分配为蓝方，将物理显示坐标翻转 180 度，实现“自己永远在下方”的对战视角
+        if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+            x = 6 - x;
+            y = 8 - y;
+        }
         // x 从 0..6，y 从 0..8
         // 棋盘中心列为 x = 3，中心行为 y = 4
         const posX = (x - 3) * this.cellWidth;
@@ -2058,11 +2552,14 @@ export class BoardView extends Component {
                                     return;
                                 }
                                 try {
-                                    const sf = SpriteFrame.createWithImage(imgAsset);
+                                    const tex = new Texture2D();
+                                    tex.image = imgAsset;
+                                    const sf = new SpriteFrame();
+                                    sf.texture = tex;
                                     this.pieceArtByCampAndType.set(key, sf);
                                     console.log(`BoardView: registered art (ImageAsset->SF) for key: ${key} from ${path}`);
                                 } catch (e) {
-                                    console.error(`BoardView: createWithImage failed for ${path}:`, e);
+                                    console.error(`BoardView: manual SpriteFrame creation failed for ${path}:`, e);
                                 }
                                 resolve();
                             });
@@ -2126,12 +2623,21 @@ export class BoardView extends Component {
         // 如果已经创建，则只需将其激活并执行布局更新即可
         if (this.backButtonNode) {
             this.backButtonNode.active = showUI;
-            this.undoButtonNode.active = showUI;
+            this.undoButtonNode.active = showUI && !this.isNetworkMode;
+            if (this.surrenderButtonNode) {
+                this.surrenderButtonNode.active = showUI;
+            }
+            if (this.switchBattlefieldButtonNode) {
+                this.switchBattlefieldButtonNode.active = showUI;
+            }
             if (this.turnIndicatorBgNode) {
                 this.turnIndicatorBgNode.active = showUI;
             }
             if (this.turnIndicator) {
                 this.turnIndicator.node.active = showUI;
+            }
+            if (this.boardTitleNode) {
+                this.boardTitleNode.active = showUI;
             }
             this.decorateTurnIndicator();
             this.adjustBoardScale();
@@ -2190,17 +2696,86 @@ export class BoardView extends Component {
 
         this.node.parent!.addChild(this.undoButtonNode);
 
+        // 2.5 创建底部认输投降按钮
+        this.surrenderButtonNode = new Node("SurrenderButton");
+        this.surrenderButtonNode.layer = 33554432;
+        this.surrenderButtonNode.addComponent(UITransform);
+        this.surrenderButtonNode.addComponent(Graphics);
+
+        // 投降文字
+        const surrenderLabelNode = new Node("Label");
+        surrenderLabelNode.layer = 33554432;
+        surrenderLabelNode.addComponent(UITransform);
+        const surrenderLabel = surrenderLabelNode.addComponent(Label);
+        surrenderLabel.string = "认输投降";
+        surrenderLabel.color = Color.WHITE;
+        surrenderLabel.isBold = true;
+        this.surrenderButtonNode.addChild(surrenderLabelNode);
+
+        // 绑定投降事件与触摸微动反馈
+        this.surrenderButtonNode.on(Node.EventType.TOUCH_START, () => {
+            this.surrenderButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
+        this.surrenderButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.surrenderButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.onSurrenderButtonClicked();
+        }, this);
+        this.surrenderButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            this.surrenderButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        this.node.parent!.addChild(this.surrenderButtonNode);
+
+        // 2.7 创建一键切换战场按钮
+        this.switchBattlefieldButtonNode = new Node("SwitchBattlefieldButton");
+        this.switchBattlefieldButtonNode.layer = 33554432;
+        this.switchBattlefieldButtonNode.addComponent(UITransform);
+        this.switchBattlefieldButtonNode.addComponent(Graphics);
+
+        // 按钮文字
+        const switchLabelNode = new Node("Label");
+        switchLabelNode.layer = 33554432;
+        switchLabelNode.addComponent(UITransform);
+        const switchLabel = switchLabelNode.addComponent(Label);
+        switchLabel.string = "一键切换战场";
+        switchLabel.color = Color.WHITE;
+        switchLabel.isBold = true;
+        this.switchBattlefieldButtonNode.addChild(switchLabelNode);
+
+        // 绑定事件与触摸微动反馈
+        this.switchBattlefieldButtonNode.on(Node.EventType.TOUCH_START, () => {
+            this.switchBattlefieldButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
+        this.switchBattlefieldButtonNode.on(Node.EventType.TOUCH_END, () => {
+            this.switchBattlefieldButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.onSwitchBattlefieldClicked();
+        }, this);
+        this.switchBattlefieldButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            this.switchBattlefieldButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        this.node.parent!.addChild(this.switchBattlefieldButtonNode);
+
         // 3. 修饰回合文字组件
         this.decorateTurnIndicator();
 
         // 绑定当前的 active 状态
         this.backButtonNode.active = showUI;
-        this.undoButtonNode.active = showUI;
+        this.undoButtonNode.active = showUI && !this.isNetworkMode;
+        this.surrenderButtonNode.active = showUI;
+        if (this.switchBattlefieldButtonNode) {
+            this.switchBattlefieldButtonNode.active = showUI;
+        }
         if (this.turnIndicatorBgNode) {
             this.turnIndicatorBgNode.active = showUI;
         }
         if (this.turnIndicator) {
             this.turnIndicator.node.active = showUI;
+        }
+        if (this.boardTitleNode) {
+            this.boardTitleNode.active = showUI;
         }
 
         // 刷新一次位置布局
@@ -2211,34 +2786,58 @@ export class BoardView extends Component {
         if (!this.turnIndicator) return;
         const showUI = this.node.active;
         this.turnIndicator.node.active = showUI; // 确保仅在对局激活时显示
-        if (this.turnIndicatorBgNode) {
-            this.turnIndicatorBgNode.active = showUI;
-            return;
+
+        // 动态创建并挂载顶部的游戏标题
+        const parentNode = this.turnIndicator.node.parent!;
+        if (!this.boardTitleNode) {
+            this.boardTitleNode = new Node("BoardTitle");
+            this.boardTitleNode.layer = 33554432;
+            this.boardTitleNode.addComponent(UITransform);
+            const titleLabel = this.boardTitleNode.addComponent(Label);
+            titleLabel.string = "勇者来斗兽";
+            titleLabel.isBold = true;
+            const color = new Color();
+            Color.fromHEX(color, '#ffca28'); // 亮金黄色，非常显眼
+            titleLabel.color = color;
+            parentNode.addChild(this.boardTitleNode);
+        }
+        this.boardTitleNode.active = showUI;
+
+        if (!this.turnIndicatorBgNode) {
+            // 创建背景板
+            this.turnIndicatorBgNode = new Node("TurnIndicatorBg");
+            this.turnIndicatorBgNode.layer = 33554432;
+            this.turnIndicatorBgNode.addComponent(UITransform);
+            this.turnIndicatorBgNode.addComponent(Graphics);
+
+            // 插入父节点下
+            parentNode.addChild(this.turnIndicatorBgNode);
+
+            // 绑定位置：它的初始位置应该和 turnIndicator 保持完全一致
+            this.turnIndicatorBgNode.setPosition(this.turnIndicator.node.position);
         }
 
-        const parentNode = this.turnIndicator.node.parent!;
-        
-        // 创建背景板
-        this.turnIndicatorBgNode = new Node("TurnIndicatorBg");
-        this.turnIndicatorBgNode.layer = 33554432;
-        this.turnIndicatorBgNode.addComponent(UITransform);
-        this.turnIndicatorBgNode.addComponent(Graphics);
-
-        // 插入父节点下
-        parentNode.addChild(this.turnIndicatorBgNode);
-        
-        // 绑定位置：它的初始位置应该和 turnIndicator 保持完全一致
-        this.turnIndicatorBgNode.setPosition(this.turnIndicator.node.position);
-        
-        // 确保 turnIndicator 挂在其之上显示
-        this.turnIndicator.node.setSiblingIndex(this.turnIndicatorBgNode.getSiblingIndex() + 1);
-        
         this.turnIndicatorBgNode.active = showUI;
+
+        // 确保背景板在最底层，标题和回合文本在其上方显示
+        const bgIdx = this.turnIndicatorBgNode.getSiblingIndex();
+        this.boardTitleNode.setSiblingIndex(bgIdx + 1);
+        this.turnIndicator.node.setSiblingIndex(bgIdx + 2);
     }
 
     private onBackButtonClicked() {
+        if (!this.isGameOverState) {
+            this.showToast("正在游戏中，请勿退出");
+            return;
+        }
+
         this.stopTurnTimer();
         this.node.active = false;
+
+        if (this.isNetworkMode) {
+            this.cleanupNetworkEvents();
+            this.isNetworkMode = false;
+        }
 
         // 返回菜单恢复 70% 音量
         if (this.bgmSource) {
@@ -2248,21 +2847,195 @@ export class BoardView extends Component {
         // 手动关闭动态 UI 节点以防残留
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
+        if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
+        if (this.boardTitleNode) this.boardTitleNode.active = false;
 
         if (this.gameOverPanel) {
             this.gameOverPanel.active = false;
         }
         this.hideCustomGameOverPanel();
 
+        if (this.surrenderConfirmPanel) {
+            this.surrenderConfirmPanel.destroy();
+            this.surrenderConfirmPanel = null;
+        }
+
+        if (this.screenTimerLabelNode) {
+            this.screenTimerLabelNode.destroy();
+            this.screenTimerLabelNode = null;
+        }
+
         this.showModeSelection();
+    }
+
+    private onSurrenderButtonClicked() {
+        if (this.isGameOverState) return;
+        this.showSurrenderConfirmDialog();
+    }
+
+    private executeSurrender() {
+        if (this.isGameOverState) return;
+
+        if (this.isNetworkMode) {
+            NetworkManager.getInstance().send('surrender', '');
+        } else {
+            const currentTurn = this.engine.getCurrentTurn();
+            const winner = currentTurn === Camp.RED ? Camp.BLUE : Camp.RED;
+            this.showGameOver(winner, GameOverReason.SURRENDER);
+            this.stopTurnTimer();
+        }
+    }
+
+    private showSurrenderConfirmDialog() {
+        if (this.surrenderConfirmPanel) {
+            this.surrenderConfirmPanel.destroy();
+            this.surrenderConfirmPanel = null;
+        }
+
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1334;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.max(0.6, Math.min(cw / refW, ch / refH));
+
+        this.surrenderConfirmPanel = new Node("SurrenderConfirmPanel");
+        this.surrenderConfirmPanel.layer = 33554432;
+        const panelTrans = this.surrenderConfirmPanel.addComponent(UITransform);
+        panelTrans.setContentSize(cw, ch);
+
+        const bgNode = new Node("BlackBg");
+        bgNode.layer = 33554432;
+        bgNode.addComponent(UITransform).setContentSize(cw, ch);
+        const bgGraphics = bgNode.addComponent(Graphics);
+        bgGraphics.fillColor = new Color(0, 0, 0, 160);
+        bgGraphics.rect(-cw/2, -ch/2, cw, ch);
+        bgGraphics.fill();
+        bgNode.addComponent(Button); // 拦截事件
+        this.surrenderConfirmPanel.addChild(bgNode);
+
+        const dialogNode = new Node("Dialog");
+        dialogNode.layer = 33554432;
+        const dialogW = Math.min(cw * 0.86, 540 * scaleFactor);
+        const dialogH = 320 * scaleFactor;
+        dialogNode.addComponent(UITransform).setContentSize(dialogW, dialogH);
+        const dialogGraphics = dialogNode.addComponent(Graphics);
+        dialogGraphics.lineWidth = 3 * scaleFactor;
+        dialogGraphics.strokeColor = new Color(245, 240, 235, 255); // 象牙白边
+        dialogGraphics.fillColor = new Color(255, 248, 223, 250); // 丛林温馨淡黄色底
+        dialogGraphics.roundRect(-dialogW/2, -dialogH/2, dialogW, dialogH, 24 * scaleFactor);
+        dialogGraphics.fill();
+        dialogGraphics.stroke();
+        this.surrenderConfirmPanel.addChild(dialogNode);
+
+        const titleNode = new Node("Title");
+        titleNode.layer = 33554432;
+        const titleLabel = titleNode.addComponent(Label);
+        titleLabel.string = "认输投降";
+        titleLabel.fontSize = Math.round(30 * scaleFactor);
+        titleLabel.lineHeight = titleLabel.fontSize;
+        titleLabel.color = new Color(214, 48, 49, 255); // 优雅红色
+        titleLabel.isBold = true;
+        titleNode.addComponent(UITransform);
+        titleNode.setPosition(new Vec3(0, dialogH / 2 - 55 * scaleFactor, 0));
+        dialogNode.addChild(titleNode);
+
+        const contentNode = new Node("Content");
+        contentNode.layer = 33554432;
+        const contentLabel = contentNode.addComponent(Label);
+        contentLabel.string = "确定认输吗？";
+        contentLabel.fontSize = Math.round(24 * scaleFactor);
+        contentLabel.lineHeight = Math.round(34 * scaleFactor);
+        contentLabel.color = new Color(102, 87, 45, 255); // 丛林风深木色字
+        contentLabel.isBold = true;
+        contentNode.addComponent(UITransform);
+        contentNode.setPosition(new Vec3(0, 10 * scaleFactor, 0));
+        dialogNode.addChild(contentNode);
+
+        const btnW = dialogW * 0.4;
+        const btnH = 76 * scaleFactor;
+        const btnY = -dialogH / 2 + 65 * scaleFactor;
+
+        // (1) 确定认输按钮
+        const confirmBtn = new Node("ConfirmBtn");
+        confirmBtn.layer = 33554432;
+        confirmBtn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const confirmGraphics = confirmBtn.addComponent(Graphics);
+        confirmGraphics.lineWidth = 1.5 * scaleFactor;
+        confirmGraphics.strokeColor = new Color(255, 255, 255, 255);
+        confirmGraphics.fillColor = new Color(214, 48, 49, 255); // 红色
+        confirmGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 16 * scaleFactor);
+        confirmGraphics.fill();
+        confirmGraphics.stroke();
+
+        const confirmText = new Node("Label");
+        confirmText.layer = 33554432;
+        const confirmLabel = confirmText.addComponent(Label);
+        confirmLabel.string = "确定";
+        confirmLabel.fontSize = Math.round(24 * scaleFactor);
+        confirmLabel.lineHeight = confirmLabel.fontSize;
+        confirmLabel.color = Color.WHITE;
+        confirmLabel.isBold = true;
+        confirmText.addComponent(UITransform);
+        confirmBtn.addChild(confirmText);
+        confirmBtn.setPosition(new Vec3(-dialogW / 4, btnY, 0));
+
+        confirmBtn.on(Node.EventType.TOUCH_START, () => { confirmBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
+        confirmBtn.on(Node.EventType.TOUCH_END, () => {
+            confirmBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.surrenderConfirmPanel?.destroy();
+            this.surrenderConfirmPanel = null;
+            this.executeSurrender();
+        }, this);
+        confirmBtn.on(Node.EventType.TOUCH_CANCEL, () => { confirmBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
+        dialogNode.addChild(confirmBtn);
+
+        // (2) 取消按钮
+        const cancelBtn = new Node("CancelBtn");
+        cancelBtn.layer = 33554432;
+        cancelBtn.addComponent(UITransform).setContentSize(btnW, btnH);
+        const cancelGraphics = cancelBtn.addComponent(Graphics);
+        cancelGraphics.lineWidth = 1.5 * scaleFactor;
+        cancelGraphics.strokeColor = new Color(255, 255, 255, 255);
+        cancelGraphics.fillColor = new Color(22, 143, 37, 255); // 翠绿
+        cancelGraphics.roundRect(-btnW/2, -btnH/2, btnW, btnH, 16 * scaleFactor);
+        cancelGraphics.fill();
+        cancelGraphics.stroke();
+
+        const cancelText = new Node("Label");
+        cancelText.layer = 33554432;
+        const cancelLabel = cancelText.addComponent(Label);
+        cancelLabel.string = "取消";
+        cancelLabel.fontSize = Math.round(24 * scaleFactor);
+        cancelLabel.lineHeight = cancelLabel.fontSize;
+        cancelLabel.color = Color.WHITE;
+        cancelLabel.isBold = true;
+        cancelText.addComponent(UITransform);
+        cancelBtn.addChild(cancelText);
+        cancelBtn.setPosition(new Vec3(dialogW / 4, btnY, 0));
+
+        cancelBtn.on(Node.EventType.TOUCH_START, () => { cancelBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
+        cancelBtn.on(Node.EventType.TOUCH_END, () => {
+            cancelBtn.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.surrenderConfirmPanel?.destroy();
+            this.surrenderConfirmPanel = null;
+        }, this);
+        cancelBtn.on(Node.EventType.TOUCH_CANCEL, () => { cancelBtn.setScale(new Vec3(1.0, 1.0, 1.0)); }, this);
+        dialogNode.addChild(cancelBtn);
+
+        this.node.parent!.addChild(this.surrenderConfirmPanel);
     }
 
     private startTurnTimer() {
         this.stopTurnTimer();
         this.remainingTime = 30;
         this.updateTurnUI();
+        // 无论何种模式均启动本地计时器，以防在网络波动或丢包时界面倒计时停滞
         this.schedule(this.onTimerTick, 1.0);
     }
 
@@ -2270,7 +3043,7 @@ export class BoardView extends Component {
         this.unschedule(this.onTimerTick);
     }
 
-    private onTimerTick() {
+    private onTimerTick = () => {
         if (!this.node.active) {
             this.stopTurnTimer();
             return;
@@ -2281,17 +3054,127 @@ export class BoardView extends Component {
 
         if (this.remainingTime <= 0) {
             this.stopTurnTimer();
+
+            // 网络对战模式下，走棋超时应由服务端权威判定并广播 game_over，本地仅做展示防卡死，不主动触发 GameOver 弹窗
+            if (this.isNetworkMode) {
+                console.log("[Network] 本地倒计时归零，等待服务器超时结算判定...");
+                return;
+            }
+
             const currentTurn = this.engine.getCurrentTurn();
             const winner = currentTurn === Camp.RED ? Camp.BLUE : Camp.RED;
-            this.showGameOver(winner, null);
-            const winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
+            this.showGameOver(winner, GameOverReason.TIMEOUT);
+
+            let winnerName = '';
+            if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+                winnerName = winner === Camp.RED ? '红方 (上方)' : '蓝方 (下方)';
+            } else {
+                winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
+            }
+
             if (this.gameOverText) {
                 this.gameOverText.string = `时间到！恭喜 ${winnerName} 获胜！\n当前回合方走棋超时。`;
             }
         }
     }
 
+    private isMyTurn(): boolean {
+        if (this.isGameOverState) return false;
+
+        // 1. 网络模式：当前回合必须等于我的阵营
+        if (this.isNetworkMode) {
+            return this.engine.getCurrentTurn() === this.myCamp;
+        }
+
+        // 2. 人机模式：当前回合必须是玩家回合（RED），且 AI 没有在移动中
+        if (this.isAIMode) {
+            return this.engine.getCurrentTurn() === Camp.RED && !this.isAIMoving;
+        }
+
+        // 3. 单机双人模式：两方都是人类玩家在同屏下棋，所以当前不管是红还是蓝，都是需要下棋的人在操作
+        return true;
+    }
+
+    private updateScreenTimerLabel() {
+        // 只有在我的回合，且剩余时间在 1 到 5 秒之间，且游戏未结束时才显示
+        if (this.isMyTurn() && this.remainingTime <= 5 && this.remainingTime > 0) {
+            const cw = view.getVisibleSize().width;
+            const ch = view.getVisibleSize().height;
+            const isPortrait = ch > cw;
+            const refW = isPortrait ? 750 : 1334;
+            const refH = isPortrait ? 1334 : 720;
+            const scaleFactor = Math.max(0.6, Math.min(cw / refW, ch / refH));
+
+            if (!this.screenTimerLabelNode) {
+                this.screenTimerLabelNode = new Node("ScreenTimerLabel");
+                this.screenTimerLabelNode.layer = 33554432; // UI_2D
+
+                // 将大数字节点直接添加到 this.node (即棋盘容器上)，这样可以精确在棋盘中央自适应
+                this.node.addChild(this.screenTimerLabelNode);
+
+                const labelTrans = this.screenTimerLabelNode.addComponent(UITransform);
+                // 棋盘中央
+                this.screenTimerLabelNode.setPosition(new Vec3(0, 0, 0));
+
+                const labelComp = this.screenTimerLabelNode.addComponent(Label);
+                labelComp.fontSize = Math.round(180 * scaleFactor);
+                labelComp.lineHeight = labelComp.fontSize;
+                labelComp.color = new Color(231, 76, 60, 255); // 鲜艳红 (#e74c3c)
+                labelComp.isBold = true;
+
+                this.screenTimerLabelNode.addComponent(UIOpacity);
+            }
+
+            // 更新显示数字
+            const labelComp = this.screenTimerLabelNode.getComponent(Label);
+            if (labelComp) {
+                // 如果秒数相同，不要重复播放动画
+                if (labelComp.string === String(this.remainingTime)) {
+                    return;
+                }
+                labelComp.string = String(this.remainingTime);
+            }
+
+            // 每次数字更新，播放缩放与渐隐动画
+            this.screenTimerLabelNode.setScale(new Vec3(2.0, 2.0, 1.0));
+            const opacityComp = this.screenTimerLabelNode.getComponent(UIOpacity);
+            if (opacityComp) {
+                opacityComp.opacity = 255;
+
+                // 停止可能正在运行的缓动
+                Tween.stopAllByTarget(this.screenTimerLabelNode);
+                Tween.stopAllByTarget(opacityComp);
+
+                tween(this.screenTimerLabelNode)
+                    .to(0.15, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'quadOut' })
+                    .start();
+
+                tween(opacityComp)
+                    .to(0.85, { opacity: 0 }, { easing: 'quadIn' })
+                    .start();
+            }
+        } else {
+            this.hideScreenTimerLabel();
+        }
+    }
+
+    private hideScreenTimerLabel() {
+        if (this.screenTimerLabelNode) {
+            Tween.stopAllByTarget(this.screenTimerLabelNode);
+            const opacityComp = this.screenTimerLabelNode.getComponent(UIOpacity);
+            if (opacityComp) {
+                Tween.stopAllByTarget(opacityComp);
+            }
+            this.screenTimerLabelNode.destroy();
+            this.screenTimerLabelNode = null;
+        }
+    }
+
     private onUndoButtonClicked() {
+        if (this.isNetworkMode) {
+            this.showToast("在线联机模式不支持悔棋！");
+            return;
+        }
         if (this.isAIMoving) {
             this.showToast("正在行棋中，请稍后...");
             return;
@@ -2394,6 +3277,7 @@ export class BoardView extends Component {
         const titleLabel = titleNode.addComponent(Label);
         titleLabel.string = "悔棋申请";
         titleLabel.fontSize = Math.round(30 * scaleFactor);
+        titleLabel.lineHeight = titleLabel.fontSize;
         titleLabel.color = new Color(139, 80, 0, 255); // 森林橙黄/深茶色
         titleLabel.isBold = true;
         titleNode.addComponent(UITransform);
@@ -2436,6 +3320,7 @@ export class BoardView extends Component {
         const agreeLabel = agreeText.addComponent(Label);
         agreeLabel.string = "同意";
         agreeLabel.fontSize = Math.round(24 * scaleFactor);
+        agreeLabel.lineHeight = agreeLabel.fontSize;
         agreeLabel.color = Color.WHITE;
         agreeLabel.isBold = true;
         agreeText.addComponent(UITransform);
@@ -2470,6 +3355,7 @@ export class BoardView extends Component {
         const refuseLabel = refuseText.addComponent(Label);
         refuseLabel.string = "拒绝";
         refuseLabel.fontSize = Math.round(24 * scaleFactor);
+        refuseLabel.lineHeight = refuseLabel.fontSize;
         refuseLabel.color = Color.WHITE;
         refuseLabel.isBold = true;
         refuseText.addComponent(UITransform);
@@ -2639,7 +3525,10 @@ export class BoardView extends Component {
                         resources.load(path, ImageAsset, (err3, imgAsset) => {
                             if (!err3 && imgAsset) {
                                 if (sprite && sprite.isValid) {
-                                    const sf3 = SpriteFrame.createWithImage(imgAsset);
+                                    const tex = new Texture2D();
+                                    tex.image = imgAsset;
+                                    const sf3 = new SpriteFrame();
+                                    sf3.texture = tex;
                                     sprite.spriteFrame = sf3;
                                 }
                             } else {
@@ -2740,5 +3629,270 @@ export class BoardView extends Component {
                 roam(particle, pOpacity);
             }, Math.random() * 3.0);
         }
+    }
+
+    // === 网络联机核心处理方法 ===
+
+    private onOpponentMove = (dataStr: any) => {
+        let m = dataStr;
+        if (typeof dataStr === 'string') {
+            m = JSON.parse(dataStr);
+        }
+        console.log(`[BoardView] onOpponentMove 解析消息:`, m);
+        try {
+            this.isApplyingNetworkMove = true;
+            this.tryMovePiece(m.from_x, m.from_y, m.to_x, m.to_y);
+        } catch (err) {
+            console.error(`[BoardView] 执行对手走棋出现未捕获异常:`, err);
+        } finally {
+            this.isApplyingNetworkMove = false;
+        }
+    };
+
+    private onNetworkGameOver = (dataStr: string) => {
+        const data = JSON.parse(dataStr);
+        console.log(`[BoardView] 网络通知游戏结束: `, data);
+        this.showGameOver(data.winner as Camp, data.reason as GameOverReason);
+    };
+
+    private onOpponentLeft = () => {
+        console.log(`[BoardView] 对手已掉线`);
+        this.showToast("对手已掉线，正在等待重连...");
+    };
+
+    private onReconnectSuccess = (dataStr: string) => {
+        const data = JSON.parse(dataStr);
+        console.log(`[BoardView] 重连同步成功！`);
+        this.showToast("重连对局成功！");
+
+        if (data.remaining_time !== undefined) {
+            this.remainingTime = data.remaining_time;
+        }
+
+        const serverTurn = data.current_turn === 'RED' ? Camp.RED : Camp.BLUE;
+        this.syncBoardStateFromNetwork(data.board_state, serverTurn);
+    };
+
+    private onNetworkTimerSync = (dataStr: any) => {
+        let data = dataStr;
+        if (typeof dataStr === 'string') {
+            data = JSON.parse(dataStr);
+        }
+
+        const oldTime = this.remainingTime;
+        this.remainingTime = data.remaining_time;
+        if (data.current_turn) {
+            const serverTurn = data.current_turn === 'RED' ? Camp.RED : Camp.BLUE;
+            this.engine.setCurrentTurn(serverTurn);
+        }
+        this.updateTurnUI();
+
+        // 若先前因扣减至0而停止了计时器，但服务器又同步了剩余时间，则重新恢复本地计时器运行
+        if (oldTime <= 0 && this.remainingTime > 0) {
+            this.unschedule(this.onTimerTick);
+            this.schedule(this.onTimerTick, 1.0);
+        }
+    };
+
+    private cleanupNetworkEvents() {
+        NetworkManager.getInstance().off('opponent_move', this.onOpponentMove);
+        NetworkManager.getInstance().off('game_over', this.onNetworkGameOver);
+        NetworkManager.getInstance().off('opponent_left', this.onOpponentLeft);
+        NetworkManager.getInstance().off('reconnect_success', this.onReconnectSuccess);
+        NetworkManager.getInstance().off('timer_sync', this.onNetworkTimerSync);
+        NetworkManager.getInstance().disconnect();
+
+        // 主动离开游戏，清除本地暂存的对局房间号
+        sys.localStorage.removeItem('animal_chess_room_id');
+    }
+
+    private syncBoardStateFromNetwork(boardState: Record<string, {x: number, y: number}>, turnOwner: Camp) {
+        this.engine.syncBoardState(boardState, turnOwner);
+
+        this.pieceViews.forEach((view, id) => {
+            if (!boardState[id]) {
+                view.node.destroy();
+                this.pieceViews.delete(id);
+            }
+        });
+
+        for (const id in boardState) {
+            const netPos = boardState[id];
+            const view = this.pieceViews.get(id);
+            if (view) {
+                const targetWorldPos = this.gridToWorldPos(netPos.x, netPos.y);
+                if (!view.useFullPieceArt) {
+                    targetWorldPos.y -= 18;
+                }
+                view.node.setPosition(targetWorldPos);
+            }
+        }
+
+        this.clearHighlights();
+        this.clearSelection();
+        this.updateTurnUI();
+    }
+
+    private requestOnlineRematch() {
+        const roomCode = NetworkManager.getInstance().currentRoomId;
+        if (!roomCode) {
+            this.showToast("房间信息已失效，请重新建房对战！");
+            this.showModeSelection();
+            return;
+        }
+
+        this.showToast("正在请求重新匹配，等待对手就绪...");
+
+        const onRematchSuccess = (dataStr: any) => {
+            let data = dataStr;
+            if (typeof dataStr === 'string') {
+                data = JSON.parse(dataStr);
+            }
+            console.log(`[BoardView] 重新匹配成功: `, data);
+
+            NetworkManager.getInstance().currentRoomId = data.room_id;
+            NetworkManager.getInstance().myCamp = data.camp;
+            NetworkManager.getInstance().opponentId = data.opponent_id;
+
+            NetworkManager.getInstance().off('match_wait', onRematchWait);
+            NetworkManager.getInstance().off('match_success', onRematchSuccess);
+
+            // 重新激活网络状态与保存房间
+            this.isNetworkMode = true;
+            this.myCamp = NetworkManager.getInstance().myCamp as Camp;
+            sys.localStorage.setItem('animal_chess_room_id', NetworkManager.getInstance().currentRoomId);
+
+            // 重新开始游戏
+            this.restartGame();
+        };
+
+        const onRematchWait = () => {
+            this.showToast("已就绪！等待对手同意再来一局...");
+        };
+
+        // 先注销残留的局部监听器以防重复
+        NetworkManager.getInstance().off('match_wait', onRematchWait);
+        NetworkManager.getInstance().off('match_success', onRematchSuccess);
+
+        NetworkManager.getInstance().on('match_wait', onRematchWait);
+        NetworkManager.getInstance().on('match_success', onRematchSuccess);
+
+        // 向服务端重新发起 match_seek 对齐
+        NetworkManager.getInstance().send('match_seek', { room_code: roomCode, user_name: "Player" });
+    }
+
+    private joinOnlineRoomDirectly(roomCode: string) {
+        this.showToast(`正在加入房间 ${roomCode}...`);
+        NetworkManager.getInstance().connect()
+            .then(() => {
+                const onMatchSuccess = (dataStr: any) => {
+                    let data = dataStr;
+                    if (typeof dataStr === 'string') {
+                        data = JSON.parse(dataStr);
+                    }
+                    console.log(`[BoardView] 扫码/链接加入成功: `, data);
+
+                    NetworkManager.getInstance().currentRoomId = data.room_id;
+                    NetworkManager.getInstance().myCamp = data.camp;
+                    NetworkManager.getInstance().opponentId = data.opponent_id;
+
+                    NetworkManager.getInstance().off('match_wait', onMatchWait);
+                    NetworkManager.getInstance().off('match_success', onMatchSuccess);
+
+                    // 启动网络模式对局
+                    this.node.active = true;
+                    this.isAIMode = false;
+                    this.isNetworkMode = true;
+                    this.myCamp = NetworkManager.getInstance().myCamp as Camp;
+
+                    // 保存当前对局房间号以支持刷新重连
+                    sys.localStorage.setItem('animal_chess_room_id', NetworkManager.getInstance().currentRoomId);
+
+                    // 注册网络对战的广播监听
+                    NetworkManager.getInstance().on('opponent_move', this.onOpponentMove);
+                    NetworkManager.getInstance().on('game_over', this.onNetworkGameOver);
+                    NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
+                    NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
+                    NetworkManager.getInstance().on('timer_sync', this.onNetworkTimerSync);
+
+                    this.restartGame();
+                };
+
+                const onMatchWait = () => {
+                    this.showToast("房间等待中，等待另一方加入...");
+                };
+
+                NetworkManager.getInstance().on('match_wait', onMatchWait);
+                NetworkManager.getInstance().on('match_success', onMatchSuccess);
+
+                // 发送匹配包
+                NetworkManager.getInstance().send('match_seek', { room_code: roomCode, user_name: "Player" });
+            })
+            .catch((err) => {
+                console.error("直接加入房间连接服务器失败:", err);
+                this.showToast("连接服务器失败，请检查网络！");
+                this.showMainMenu();
+            });
+    }
+
+    private loadBoardStyleSpriteFrames(callback: (sf1: SpriteFrame | null, sf2: SpriteFrame | null) => void) {
+        const path1 = this.isGrassStyle ? 'textures/board_grass1' : 'textures/board_wood1';
+        const path2 = this.isGrassStyle ? 'textures/board_grass2' : 'textures/board_wood2';
+
+        const loadOne = (path: string, cb: (sf: SpriteFrame | null) => void) => {
+            resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
+                if (!err && sf) return cb(sf);
+                resources.load(path, SpriteFrame, (err2, sf2) => {
+                    if (!err2 && sf2) return cb(sf2);
+                    resources.load(path, ImageAsset, (err3, imgAsset) => {
+                        if (!err3 && imgAsset) {
+                            const tex = new Texture2D();
+                            tex.image = imgAsset;
+                            const sf = new SpriteFrame();
+                            sf.texture = tex;
+                            return cb(sf);
+                        }
+                        console.warn(`Failed to load board style texture ${path}:`, err3);
+                        cb(null);
+                    });
+                });
+            });
+        };
+
+        loadOne(path1, (sf1) => {
+            loadOne(path2, (sf2) => {
+                callback(sf1, sf2);
+            });
+        });
+    }
+
+    private updateBoardGridTextures(): void {
+        this.loadBoardStyleSpriteFrames((sf1, sf2) => {
+            if (!sf1 || !sf2) return;
+
+            for (let x = 0; x < LocalEngine.COLS; x++) {
+                for (let y = 0; y < LocalEngine.ROWS; y++) {
+                    const idx = x * LocalEngine.ROWS + y;
+                    const cellNode = this.boardGridNodes[idx];
+                    if (cellNode && cellNode.isValid) {
+                        const sprite = cellNode.getComponent(Sprite);
+                        if (sprite) {
+                            if (!this.engine.isRiver(x, y) && this.engine.getTrapCamp(x, y) === null && !this.engine.isDen(x, y)) {
+                                const useGrass1 = (x + y) % 2 === 0;
+                                sprite.spriteFrame = useGrass1 ? sf1 : sf2;
+                                sprite.color = new Color(255, 255, 255, 255);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    private onSwitchBattlefieldClicked() {
+        this.isGrassStyle = !this.isGrassStyle;
+        sys.localStorage.setItem('board_style_is_grass', this.isGrassStyle ? 'true' : 'false');
+        this.updateBoardGridTextures();
+        this.showToast(this.isGrassStyle ? "已切换至青青草地战场" : "已切换至精致木板战场");
     }
 }
