@@ -9,7 +9,7 @@ assert.equal = function(actual: any, expected: any, message?: string) {
     }
 };
 
-import { mapWeeklySummaryToSignInStatus, type WeeklySummaryResponse } from '../assets/scripts/utils/SignInWeeklySummaryMapper';
+import { mapWeeklySummaryToSignInStatus, type WeeklySummaryResponse } from '../animal-chess-client/assets/scripts/utils/SignInWeeklySummaryMapper';
 
 const summary: WeeklySummaryResponse = {
     success: true,

@@ -20,7 +20,7 @@ import {
     markSignedTodayLocally,
     shouldAutoPopupSignIn,
     type SignInStorageLike,
-} from '../assets/scripts/utils/SignInLocalState';
+} from '../animal-chess-client/assets/scripts/utils/SignInLocalState';
 
 class MemoryStorage implements SignInStorageLike {
     private readonly data = new Map<string, string>();
