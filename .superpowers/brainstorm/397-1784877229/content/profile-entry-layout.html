@@ -1,0 +1,35 @@
+<h2>选择资料授权入口</h2>
+<p class="subtitle">两种方案都只在用户主动点击后申请头像和昵称权限。</p>
+
+<div class="cards">
+  <div class="card" data-choice="profile" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">主菜单</div>
+        <div class="mockup-body" style="min-height:230px;background:#e8f4e6;padding:18px;position:relative">
+          <div style="width:78px;height:78px;border-radius:50%;background:#8fbe7c;border:3px solid #fff;box-shadow:0 2px 5px #6e8d6733"></div>
+          <div style="margin-top:10px;font-weight:700;color:#34532d">点击完善资料</div>
+          <div style="margin-top:52px;text-align:center;font-size:26px;font-weight:700;color:#34532d">斗兽棋</div>
+          <div style="margin:16px auto;width:144px;padding:10px;background:#f5a83a;border-radius:6px;color:#fff;text-align:center;font-weight:700">开始游戏</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A. 左上角玩家资料</h3><p>默认显示头像占位与“点击完善资料”；授权后展示用户头像、昵称。用户可随时再次点击修改。</p></div>
+  </div>
+
+  <div class="card" data-choice="first-login" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">首次进入</div>
+        <div class="mockup-body" style="min-height:230px;background:#e8f4e6;padding:25px;text-align:center">
+          <div style="width:72px;height:72px;border-radius:50%;margin:0 auto 13px;background:#8fbe7c;border:3px solid #fff"></div>
+          <div style="font-size:18px;font-weight:700;color:#34532d">完善游戏资料</div>
+          <div style="font-size:12px;margin:9px;color:#61775b">授权后在游戏内展示头像和昵称</div>
+          <div style="margin:18px auto;width:170px;padding:10px;background:#f5a83a;border-radius:6px;color:#fff;font-weight:700">授权并继续</div>
+          <div style="font-size:12px;color:#61775b">暂不设置</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>B. 首次进入弹层</h3><p>第一次进入菜单时主动提示；用户可跳过，之后从玩家资料入口补充。转化率较高，但多一步操作。</p></div>
+  </div>
+</div>

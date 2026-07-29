@@ -1,0 +1,4 @@
+{"type":"server-started","port":52400,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:52400","screen_dir":"D:\\work\\ai\\animal-chess\\.superpowers\\brainstorm\\397-1784877229\\content","state_dir":"D:\\work\\ai\\animal-chess\\.superpowers\\brainstorm\\397-1784877229\\state"}
+{"type":"screen-added","file":"D:\\work\\ai\\animal-chess\\.superpowers\\brainstorm\\397-1784877229\\content\\profile-entry-layout.html"}
+{"type":"screen-added","file":"D:\\work\\ai\\animal-chess\\.superpowers\\brainstorm\\397-1784877229\\content\\waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}
