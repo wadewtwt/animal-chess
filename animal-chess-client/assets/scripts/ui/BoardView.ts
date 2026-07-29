@@ -789,6 +789,7 @@ export class BoardView extends Component {
         const visibleSize = view.getVisibleSize();
         const screenWidth = visibleSize.width;
         const screenHeight = visibleSize.height;
+        const isPortrait = screenHeight > screenWidth;
         const scaleFactor = this.getScaleFactor();
         const safeArea = sys.getSafeAreaRect();
         const topInset = visibleSize.height - (safeArea.y + safeArea.height);
@@ -939,6 +940,8 @@ export class BoardView extends Component {
             this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 82 * scaleFactor, backY, 0));
         }
 
+        const btnW = 160 * scaleFactor;
+        const btnH = 56 * scaleFactor;
         const chatBtnW = (isPortrait ? 200 : 170) * scaleFactor;
         const chatBtnH = (isPortrait ? 76 : 56) * scaleFactor;
         const chatBtnRadius = chatBtnH / 2;
@@ -4764,61 +4767,98 @@ export class BoardView extends Component {
         this.chatBubbleNode.layer = 33554432;
         parentNode.addChild(this.chatBubbleNode);
 
-        const isRed = senderCamp === Camp.RED;
+        // 判断是否为我方（己方）发出的消息
+        let isMe = false;
+        if (this.isNetworkMode && this.myCamp !== null) {
+            isMe = senderCamp === this.myCamp;
+        } else {
+            isMe = senderCamp === Camp.RED; // 单机/人机模式下默认红方为玩家己方
+        }
+
         const displayTxt = emoji ? `${emoji} ${message}` : message;
-        const bubbleW = Math.max(180 * scaleFactor, Math.min(cw * 0.75, (displayTxt.length * 18 + 56) * scaleFactor));
-        const bubbleH = 64 * scaleFactor;
+        const fontSize = Math.round(18 * scaleFactor);
+        const paddingX = 24 * scaleFactor;
+        const bubbleW = Math.max(140 * scaleFactor, Math.min(cw * 0.70, displayTxt.length * (fontSize * 0.95) + paddingX * 2));
+        const bubbleH = 54 * scaleFactor;
+        const radius = 16 * scaleFactor;
 
         this.chatBubbleNode.addComponent(UITransform).setContentSize(bubbleW, bubbleH);
         const bubbleG = this.chatBubbleNode.addComponent(Graphics);
 
-        // 现代化 3D 浮雕气泡框
-        bubbleG.lineWidth = 3 * scaleFactor;
-        bubbleG.strokeColor = isRed ? new Color(230, 81, 0, 255) : new Color(21, 101, 192, 255);
-        bubbleG.fillColor = isRed ? new Color(255, 248, 243, 253) : new Color(243, 248, 255, 253);
-        bubbleG.roundRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 20 * scaleFactor);
+        // 微信风格颜色：我方为微信绿 (#95ec69)，对方为纯白 (#ffffff)
+        const greenBg = new Color(149, 236, 105, 255);
+        const greenStroke = new Color(123, 197, 84, 255);
+        const whiteBg = new Color(255, 255, 255, 255);
+        const whiteStroke = new Color(226, 226, 226, 255);
+
+        bubbleG.lineWidth = 2 * scaleFactor;
+        bubbleG.strokeColor = isMe ? greenStroke : whiteStroke;
+        bubbleG.fillColor = isMe ? greenBg : whiteBg;
+        bubbleG.roundRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, radius);
         bubbleG.fill();
         bubbleG.stroke();
 
-        // 气泡下/上尖角小尾巴 (Pointer Arrow)
-        const arrowH = 12 * scaleFactor;
-        const arrowW = 16 * scaleFactor;
-        const pointerY = isRed ? -bubbleH / 2 : bubbleH / 2;
-        const pointerDir = isRed ? -1 : 1;
-        bubbleG.fillColor = isRed ? new Color(255, 248, 243, 253) : new Color(243, 248, 255, 253);
-        bubbleG.moveTo(-arrowW / 2, pointerY);
-        bubbleG.lineTo(0, pointerY + arrowH * pointerDir);
-        bubbleG.lineTo(arrowW / 2, pointerY);
-        bubbleG.fill();
+        // 微信风格侧边指向小尾巴 (Arrow Pointer)
+        const arrowH = 8 * scaleFactor;
+        const arrowW = 12 * scaleFactor;
+        bubbleG.fillColor = isMe ? greenBg : whiteBg;
+
+        if (isMe) {
+            // 我方：气泡右下侧尾巴，指向右下方
+            const arrowX = bubbleW / 2 - 16 * scaleFactor;
+            const arrowY = -bubbleH / 2;
+            bubbleG.moveTo(arrowX - arrowW / 2, arrowY);
+            bubbleG.lineTo(arrowX + arrowW / 2, arrowY);
+            bubbleG.lineTo(arrowX + arrowW / 4, arrowY - arrowH);
+            bubbleG.fill();
+        } else {
+            // 对方：气泡左上侧尾巴，指向左上方
+            const arrowX = -bubbleW / 2 + 16 * scaleFactor;
+            const arrowY = bubbleH / 2;
+            bubbleG.moveTo(arrowX - arrowW / 2, arrowY);
+            bubbleG.lineTo(arrowX + arrowW / 2, arrowY);
+            bubbleG.lineTo(arrowX - arrowW / 4, arrowY + arrowH);
+            bubbleG.fill();
+        }
 
         // 气泡文本节点
         const msgNode = new Node("MsgText");
         msgNode.layer = 33554432;
         const msgLbl = msgNode.addComponent(Label);
         msgLbl.string = displayTxt;
-        msgLbl.fontSize = Math.round(18 * scaleFactor);
-        msgLbl.color = isRed ? new Color(183, 28, 28, 255) : new Color(13, 71, 161, 255);
+        msgLbl.fontSize = fontSize;
+        msgLbl.color = new Color(17, 17, 17, 255); // 微信深色文字
         msgLbl.isBold = true;
         this.chatBubbleNode.addChild(msgNode);
 
-        // 设置气泡出现位置（红方在屏幕中下方，蓝方在屏幕中上方）
-        const bubbleY = isRed ? -ch / 2 + 250 * scaleFactor : ch / 2 - 250 * scaleFactor;
-        this.chatBubbleNode.setPosition(0, bubbleY, 0);
+        // 设置对角线位置：我方在右下角，对方在左上角
+        let bubbleX = 0;
+        let bubbleY = 0;
+        if (isMe) {
+            // 我方：右下角
+            bubbleX = cw / 2 - bubbleW / 2 - 30 * scaleFactor;
+            bubbleY = -ch / 2 + 200 * scaleFactor;
+        } else {
+            // 对方：左上角
+            bubbleX = -cw / 2 + bubbleW / 2 + 30 * scaleFactor;
+            bubbleY = ch / 2 - 200 * scaleFactor;
+        }
+        this.chatBubbleNode.setPosition(bubbleX, bubbleY, 0);
 
-        // 潮酷弹跳回弹 + 向上缓缓漂浮上浮淡出动效
-        this.chatBubbleNode.setScale(new Vec3(0.4, 0.4, 1.0));
+        // 弹出动效：Scale 0.5 -> 1.05 -> 1.0，停留 2.5 秒后缓缓上浮淡出
+        this.chatBubbleNode.setScale(new Vec3(0.5, 0.5, 1.0));
         const opacityComp = this.chatBubbleNode.addComponent(UIOpacity);
         opacityComp.opacity = 255;
 
         tween(this.chatBubbleNode)
-            .to(0.2, { scale: new Vec3(1.08, 1.08, 1.0) }, { easing: 'backOut' })
+            .to(0.18, { scale: new Vec3(1.05, 1.05, 1.0) }, { easing: 'backOut' })
             .to(0.08, { scale: new Vec3(1.0, 1.0, 1.0) })
-            .delay(2.2)
-            .by(0.6, { position: new Vec3(0, 30 * scaleFactor, 0) })
+            .delay(2.5)
+            .by(0.6, { position: new Vec3(0, 20 * scaleFactor, 0) })
             .start();
 
         tween(opacityComp)
-            .delay(2.2)
+            .delay(2.5)
             .to(0.6, { opacity: 0 })
             .call(() => {
                 if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
@@ -4828,40 +4868,6 @@ export class BoardView extends Component {
             })
             .start();
     }
-            const msgLbl = msgNode.addComponent(Label);
-            msgLbl.string = message;
-            msgLbl.fontSize = Math.round(22 * scaleFactor);
-            msgLbl.color = isRed ? new Color(211, 47, 47, 255) : new Color(25, 118, 210, 255);
-            msgLbl.isBold = true;
-            this.chatBubbleNode.addChild(msgNode);
-        }
-
-        const targetY = isRed ? -ch / 4 + 40 * scaleFactor : ch / 4 - 40 * scaleFactor;
-        this.chatBubbleNode.setPosition(0, targetY, 0);
-
-        const opacityComp = this.chatBubbleNode.addComponent(UIOpacity);
-        opacityComp.opacity = 0;
-        this.chatBubbleNode.setScale(new Vec3(0.5, 0.5, 1.0));
-
-        tween(this.chatBubbleNode)
-            .to(0.2, { scale: new Vec3(1.05, 1.05, 1.0) }, { easing: 'backOut' })
-            .to(0.1, { scale: Vec3.ONE })
-            .delay(2.5)
-            .start();
-
-        tween(opacityComp)
-            .to(0.2, { opacity: 255 })
-            .delay(2.3)
-            .to(0.3, { opacity: 0 })
-            .call(() => {
-                if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
-                    this.chatBubbleNode.destroy();
-                    this.chatBubbleNode = null;
-                }
-            })
-            .start();
-    }
-
     private onSwitchBattlefieldClicked() {
         this.isGrassStyle = !this.isGrassStyle;
         sys.localStorage.setItem('board_style_is_grass', this.isGrassStyle ? 'true' : 'false');
