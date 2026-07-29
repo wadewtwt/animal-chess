@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"net/http"
 	"os"
 )
 
@@ -14,9 +15,16 @@ type AppConfig struct {
 }
 
 type App struct {
-	Config AppConfig
-	DB     *sql.DB
-	Hub    *Hub
+	Config            AppConfig
+	DB                *sql.DB
+	Hub               *Hub
+	HTTPClient        *http.Client
+	UserRepository    *UserRepository
+	PointsRepository  *PointsRepository
+	SignInRepository  *SQLSignInStore
+	SignInService     *SignInService
+	TokenService      *TokenService
+	WechatAuthService *WechatAuthService
 }
 
 func loadConfig() AppConfig {

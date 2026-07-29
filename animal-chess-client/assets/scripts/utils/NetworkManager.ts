@@ -10,6 +10,7 @@ export class NetworkManager {
 
     private ws: WebSocket | null = null;
     private serverUrl: string = 'wss://animal.findfun.space/ws';
+    private httpBaseUrl: string = 'https://api.findfun.space';
     private listeners: Map<string, Set<Function>> = new Map();
     
     private isConnected: boolean = false;
@@ -35,6 +36,17 @@ export class NetworkManager {
             NetworkManager.instance = new NetworkManager();
         }
         return NetworkManager.instance;
+    }
+
+    /**
+     * 获取当前 HTTP 接口基础地址
+     */
+    public getHttpBaseUrl(): string {
+        return this.httpBaseUrl;
+    }
+
+    public setHttpBaseUrl(url: string) {
+        this.httpBaseUrl = url;
     }
 
     /**

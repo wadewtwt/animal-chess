@@ -1,14 +1,61 @@
-import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, director, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, UIOpacity, sys } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Button, director, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, UIOpacity, sys, ScrollView, Mask } from 'cc';
 import { AudioSynth } from '../utils/AudioSynth';
+import { AuthManager } from '../utils/AuthManager';
+import { HttpError } from '../utils/HttpClient';
+import { buildUserScopedSignInStorageKey, hasSignedTodayLocally, markSignedTodayLocally, shouldAutoPopupSignIn } from '../utils/SignInLocalState';
+import { SignInApi, SignInStatusResponse } from '../utils/SignInApi';
+import { MainMenuSignInOverlay } from './MainMenuSignInOverlay';
+import { SignInSuccessAnimation } from './SignInSuccessAnimation';
+import { MainMenuProfileOverlay, WechatUserInfo } from './MainMenuProfileOverlay';
+import { UserProfileApi } from '../utils/UserProfileApi';
 const { ccclass } = _decorator;
 
 @ccclass('MainMenuUI')
 export class MainMenuUI extends Component {
     private scaleFactor: number = 1.0;
     private effectsBtnLabel: Label | null = null;
+    private pointsBadgeValueLabel: Label | null = null;
+    private signInEntryButton: Node | null = null;
+    private signInEntryTitleLabel: Label | null = null;
+    private signInEntryStatusLabel: Label | null = null;
+    private signInNotifyTag: Node | null = null;
+    private signInOverlay: MainMenuSignInOverlay | null = null;
+    private signInStatus: SignInStatusResponse | null = null;
+    private signInInitializing: boolean = false;
+    private signInSubmitting: boolean = false;
+    private signInAutoPopupShown: boolean = false;
+    private signInUserId: number | null = null;
+    private profileLabel: Label | null = null;
+    private profileOverlay: MainMenuProfileOverlay | null = null;
+
+    /**
+     * 获取当前签到本地状态对应的用户标识。
+     */
+    private getSignInUserId(): number {
+        return this.signInUserId ?? 0;
+    }
+
+    /**
+     * 获取当前用户的签到展示缓存键。
+     */
+    private getSignInStorageKey(baseKey: string): string {
+        return buildUserScopedSignInStorageKey(baseKey, this.getSignInUserId());
+    }
     
     onLoad() {
         this.buildUI();
+    }
+
+    start() {
+        void this.initializeSignInFeature();
+        this.initializeProfileFeature();
+    }
+
+    onDestroy() {
+        this.signInOverlay?.destroy();
+        this.signInOverlay = null;
+        this.profileOverlay?.destroy();
+        this.profileOverlay = null;
     }
 
     private buildUI() {
@@ -66,15 +113,19 @@ export class MainMenuUI extends Component {
         // 2. Top Bar (已删除顶部个人信息模块，保留 topBarHeight 供后续排版计算使用)
         const topBarHeight = Math.max(100, Math.min(130, 130 * scaleFactor));
 
+        this.createPointsBadge(canvas, cw, ch, scaleFactor);
+        this.createSignInEntry(canvas, cw, ch, scaleFactor);
+        this.createProfileEntry(canvas, cw, ch, scaleFactor);
+
 
         // 3. Main Emblem
         // isPortrait 和 scaleFactor 已在顶部计算和初始化
-        
+
         // --- 2. 动态自适应按钮尺寸及字号 (整体缩小 20%) ---
         const startBtnHeight = (isPortrait ? 190 : 120) * scaleFactor * 0.8;
         const bottomBtnHeight = (isPortrait ? 150 : 90) * scaleFactor * 0.8;
         const bottomBtnRadius = (isPortrait ? 75 : 45) * scaleFactor * 0.8;
-        
+
         let emblemRadius: number;
         let emblemY: number;
         let titleY: number;
@@ -287,6 +338,480 @@ export class MainMenuUI extends Component {
         }, this);
     }
 
+    private createProfileEntry(canvas: Node, cw: number, ch: number, scaleFactor: number): void {
+        const profileNode = new Node('ProfileEntry');
+        profileNode.layer = 33554432;
+        profileNode.addComponent(UITransform).setContentSize(260 * scaleFactor, 54 * scaleFactor);
+        profileNode.setPosition(cw / 2 - 145 * scaleFactor, ch / 2 - 48 * scaleFactor, 0);
+        const label = profileNode.addComponent(Label);
+        label.fontSize = 18 * scaleFactor;
+        label.color = new Color(64, 89, 45, 255);
+        label.horizontalAlign = Label.HorizontalAlign.RIGHT;
+        label.string = '微信用户';
+        this.profileLabel = label;
+        profileNode.on(Node.EventType.TOUCH_END, () => this.showProfileAuthorization(), this);
+        canvas.addChild(profileNode);
+        this.updateProfileDisplay(AuthManager.getStoredUser());
+    }
+
+    private initializeProfileFeature(): void {
+        if (!AuthManager.isWechatSupported() || AuthManager.getStoredUser()?.nickname) {
+            console.log('[MainMenuUI] initializeProfileFeature skipped: unsupported environment or profile already cached');
+            return;
+        }
+        this.showProfileAuthorization();
+    }
+
+    private showProfileAuthorization(): void {
+        const wxObj = (globalThis as any).wx;
+        if (!wxObj || typeof wxObj.createUserInfoButton !== 'function') {
+            console.log('[MainMenuUI] showProfileAuthorization skipped: native user info button unavailable');
+            return;
+        }
+        if (!this.profileOverlay) {
+            this.profileOverlay = new MainMenuProfileOverlay(this.node, this.scaleFactor, (profile) => {
+                void this.submitUserProfile(profile);
+            });
+        }
+        this.profileOverlay.show();
+    }
+
+    private async submitUserProfile(profile: WechatUserInfo): Promise<void> {
+        const nickname = typeof profile.nickName === 'string' ? profile.nickName.trim() : '';
+        const avatarUrl = typeof profile.avatarUrl === 'string' ? profile.avatarUrl.trim() : '';
+        this.profileOverlay?.hide();
+        if (!nickname && !avatarUrl) {
+            console.log('[MainMenuUI] submitUserProfile skipped: empty user info');
+            return;
+        }
+        try {
+            if (!AuthManager.getToken()) {
+                await AuthManager.ensureLogin();
+            }
+            const user = await UserProfileApi.updateProfile({ nickname, avatarUrl });
+            this.updateProfileDisplay(user ?? AuthManager.getStoredUser());
+        } catch (error) {
+            console.warn('[MainMenuUI] submitUserProfile failed:', error);
+            this.showToast('资料保存失败，请重试');
+            this.profileOverlay?.show();
+        }
+    }
+
+    private updateProfileDisplay(user: { nickname?: string } | null): void {
+        if (this.profileLabel?.isValid && user?.nickname) {
+            this.profileLabel.string = user.nickname;
+        }
+    }
+
+    /**
+     * 创建首页积分展示（重绘：羊皮纸木纹底座 + 金币徽章）
+     */
+    private createPointsBadge(canvas: Node, cw: number, ch: number, scaleFactor: number) {
+        const badgeWidth = Math.min(cw * 0.32, 220 * scaleFactor);
+        const badgeHeight = 84 * scaleFactor;
+        const badgeRadius = 24 * scaleFactor;
+
+        // 主体卡片（古朴羊皮纸底座）
+        const badge = this.createRectNode('PointsBadge', '#fcf6e8', badgeWidth, badgeHeight, badgeRadius, 255);
+        badge.setPosition(-cw / 2 + badgeWidth / 2 + 24 * scaleFactor, ch / 2 - badgeHeight / 2 - 58 * scaleFactor, 0);
+
+        // 双层精致边框绘制
+        const badgeG = badge.getComponent(Graphics)!;
+        badgeG.lineWidth = 3 * scaleFactor;
+        badgeG.strokeColor = new Color(219, 185, 114, 255); // 暖金木描边
+        badgeG.roundRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, badgeRadius);
+        badgeG.stroke();
+
+        badgeG.lineWidth = 1.5 * scaleFactor;
+        badgeG.strokeColor = new Color(255, 255, 255, 160); // 内衬微亮光
+        badgeG.roundRect(-badgeWidth / 2 + 4 * scaleFactor, -badgeHeight / 2 + 4 * scaleFactor, badgeWidth - 8 * scaleFactor, badgeHeight - 8 * scaleFactor, badgeRadius - 4 * scaleFactor);
+        badgeG.stroke();
+
+        // 左侧金币图标徽章
+        const iconSize = 50 * scaleFactor;
+        const iconCircle = this.createCircleNode('CoinIcon', '#f5b025', iconSize / 2, 255);
+        iconCircle.setPosition(-badgeWidth / 2 + 36 * scaleFactor, 0, 0);
+
+        const iconG = iconCircle.getComponent(Graphics)!;
+        iconG.lineWidth = 2 * scaleFactor;
+        iconG.strokeColor = new Color(255, 248, 220, 255);
+        iconG.circle(0, 0, iconSize / 2);
+        iconG.stroke();
+
+        const coinSymbol = this.createLabelNode('CoinSymbol', '🪙', 24 * scaleFactor, '#ffffff', true);
+        coinSymbol.setPosition(0, 0, 0);
+        iconCircle.addChild(coinSymbol);
+        badge.addChild(iconCircle);
+
+        // 右侧文字区（左对齐）
+        const textX = -badgeWidth / 2 + 70 * scaleFactor;
+
+        const titleNode = this.createLabelNode('PointsBadgeTitle', '当前积分', 16 * scaleFactor, '#7c5c24', true);
+        const titleTrans = titleNode.getComponent(UITransform)!;
+        titleTrans.setAnchorPoint(0, 0.5);
+        titleNode.setPosition(textX, 15 * scaleFactor, 0);
+        badge.addChild(titleNode);
+
+        const valueNode = this.createLabelNode('PointsBadgeValue', '加载中...', 24 * scaleFactor, '#167a28', true);
+        const valueTrans = valueNode.getComponent(UITransform)!;
+        valueTrans.setAnchorPoint(0, 0.5);
+        valueNode.setPosition(textX, -15 * scaleFactor, 0);
+        this.pointsBadgeValueLabel = valueNode.getComponent(Label);
+        badge.addChild(valueNode);
+
+        canvas.addChild(badge);
+    }
+
+    /**
+     * 创建主菜单签到入口（重绘：深森林绿卡片 + 礼物盒徽章 + 提醒 Tag）
+     */
+    private createSignInEntry(canvas: Node, cw: number, ch: number, scaleFactor: number) {
+        if (this.signInEntryButton && this.signInEntryButton.isValid) {
+            this.signInEntryButton.destroy();
+            this.signInEntryButton = null;
+        }
+
+        const entryWidth = Math.min(cw * 0.32, 220 * scaleFactor);
+        const entryHeight = 84 * scaleFactor;
+        const entryRadius = 24 * scaleFactor;
+
+        const badgeY = ch / 2 - entryHeight / 2 - 58 * scaleFactor;
+        const entryY = badgeY - entryHeight - 14 * scaleFactor;
+
+        const entry = this.createRectNode('SignInEntry', '#1e6024', entryWidth, entryHeight, entryRadius, 245);
+        entry.setPosition(-cw / 2 + entryWidth / 2 + 24 * scaleFactor, entryY, 0);
+        entry.active = true;
+
+        // 双描边与 3D 高光
+        const entryG = entry.getComponent(Graphics)!;
+        entryG.lineWidth = 3 * scaleFactor;
+        entryG.strokeColor = new Color(255, 215, 105, 255); // 辉煌金描边
+        entryG.roundRect(-entryWidth / 2, -entryHeight / 2, entryWidth, entryHeight, entryRadius);
+        entryG.stroke();
+
+        entryG.lineWidth = 1.5 * scaleFactor;
+        entryG.strokeColor = new Color(140, 225, 145, 180); // 嫩绿内描边
+        entryG.roundRect(-entryWidth / 2 + 4 * scaleFactor, -entryHeight / 2 + 4 * scaleFactor, entryWidth - 8 * scaleFactor, entryHeight - 8 * scaleFactor, entryRadius - 4 * scaleFactor);
+        entryG.stroke();
+
+        // 3D 顶部微光
+        const entryShine = this.createRectNode('EntryShine', '#ffffff', entryWidth - 16 * scaleFactor, 22 * scaleFactor, 11 * scaleFactor, 35);
+        entryShine.setPosition(0, entryHeight / 2 - 16 * scaleFactor, 0);
+        entry.addChild(entryShine);
+
+        // 左侧礼物盒/签到徽章
+        const iconSize = 50 * scaleFactor;
+        const iconCircle = this.createCircleNode('GiftIcon', '#2b8735', iconSize / 2, 255);
+        iconCircle.setPosition(-entryWidth / 2 + 36 * scaleFactor, 0, 0);
+
+        const iconG = iconCircle.getComponent(Graphics)!;
+        iconG.lineWidth = 2 * scaleFactor;
+        iconG.strokeColor = new Color(255, 230, 150, 255);
+        iconG.circle(0, 0, iconSize / 2);
+        iconG.stroke();
+
+        const giftSymbol = this.createLabelNode('GiftSymbol', '🎁', 24 * scaleFactor, '#ffffff', true);
+        giftSymbol.setPosition(0, 0, 0);
+        iconCircle.addChild(giftSymbol);
+        entry.addChild(iconCircle);
+
+        // 右侧文字区（左对齐）
+        const textX = -entryWidth / 2 + 70 * scaleFactor;
+
+        const titleNode = this.createLabelNode('SignInEntryTitle', '森林签到', 20 * scaleFactor, '#fffde7', true);
+        const titleTrans = titleNode.getComponent(UITransform)!;
+        titleTrans.setAnchorPoint(0, 0.5);
+        titleNode.setPosition(textX, 14 * scaleFactor, 0);
+        this.signInEntryTitleLabel = titleNode.getComponent(Label);
+        entry.addChild(titleNode);
+
+        const statusNode = this.createLabelNode('SignInEntryStatus', '加载中...', 15 * scaleFactor, '#c8e6c9', false);
+        const statusTrans = statusNode.getComponent(UITransform)!;
+        statusTrans.setAnchorPoint(0, 0.5);
+        statusNode.setPosition(textX, -15 * scaleFactor, 0);
+        this.signInEntryStatusLabel = statusNode.getComponent(Label);
+        entry.addChild(statusNode);
+
+        // 未签到高亮红色/金红红点 Notify Tag
+        const tagW = 48 * scaleFactor;
+        const tagH = 26 * scaleFactor;
+        const notifyTag = this.createRectNode('SignInNotifyTag', '#e74c3c', tagW, tagH, 13 * scaleFactor, 255);
+        notifyTag.setPosition(entryWidth / 2 - 14 * scaleFactor, entryHeight / 2 - 4 * scaleFactor, 0);
+
+        const tagG = notifyTag.getComponent(Graphics)!;
+        tagG.lineWidth = 1.5 * scaleFactor;
+        tagG.strokeColor = new Color(255, 224, 130, 255);
+        tagG.roundRect(-tagW / 2, -tagH / 2, tagW, tagH, 13 * scaleFactor);
+        tagG.stroke();
+
+        const tagLabel = this.createLabelNode('TagText', '+10', 13 * scaleFactor, '#ffffff', true);
+        notifyTag.addChild(tagLabel);
+        notifyTag.active = false;
+        entry.addChild(notifyTag);
+        this.signInNotifyTag = notifyTag;
+
+        // 按钮触控动效
+        entry.addComponent(Button);
+        entry.on(Node.EventType.TOUCH_START, () => {
+            entry.setScale(new Vec3(0.95, 0.95, 1));
+        });
+        entry.on(Node.EventType.TOUCH_END, () => {
+            entry.setScale(new Vec3(1, 1, 1));
+            AudioSynth.playClick();
+            this.openSignInOverlay();
+        }, this);
+        entry.on(Node.EventType.TOUCH_CANCEL, () => {
+            entry.setScale(new Vec3(1, 1, 1));
+        });
+
+        canvas.addChild(entry);
+        this.signInEntryButton = entry;
+    }
+
+    /**
+     * 初始化签到功能
+     */
+    private async initializeSignInFeature(): Promise<void> {
+        if (this.signInInitializing) {
+            return;
+        }
+        this.signInInitializing = true;
+
+        if (this.signInEntryButton) {
+            this.signInEntryButton.active = true;
+        }
+
+        // 优先根据本地存储预加载 UI 状态，避免因异步接口请求延迟导致误弹或界面闪烁
+        const cachedSignedToday = hasSignedTodayLocally(sys.localStorage, this.getSignInUserId());
+        const savedPoints = parseInt(sys.localStorage.getItem(this.getSignInStorageKey('animal_chess_total_points')) || '0', 10);
+        const savedWeekSignedDays = parseInt(sys.localStorage.getItem(this.getSignInStorageKey('animal_chess_week_signed_days')) || '0', 10);
+        const savedWeekContinuousDays = parseInt(sys.localStorage.getItem(this.getSignInStorageKey('animal_chess_week_continuous_days')) || '0', 10);
+
+        if (cachedSignedToday || savedPoints > 0) {
+            const initialStatus: SignInStatusResponse = {
+                signedToday: cachedSignedToday,
+                rewardPoints: 10,
+                totalPoints: savedPoints,
+                weekSignedDays: savedWeekSignedDays,
+                weekContinuousDays: savedWeekContinuousDays,
+                signedDates: [],
+            };
+            this.applySignInStatus(initialStatus);
+        } else {
+            this.updateSignInEntryState('加载中...');
+            this.updatePointsBadge(null, '加载中...');
+        }
+
+        if (!AuthManager.isWechatSupported()) {
+            console.log('[MainMenuUI] 非微信环境，启用本地预览签到模式');
+            const signedToday = hasSignedTodayLocally(sys.localStorage, this.getSignInUserId());
+            const mockStatus: SignInStatusResponse = {
+                signedToday,
+                rewardPoints: 10,
+                totalPoints: savedPoints || 100,
+                weekSignedDays: savedWeekSignedDays || (signedToday ? 1 : 0),
+                weekContinuousDays: savedWeekContinuousDays || (signedToday ? 1 : 0),
+                signedDates: [],
+            };
+            this.applySignInStatus(mockStatus);
+            if (shouldAutoPopupSignIn(mockStatus.signedToday, sys.localStorage, this.getSignInUserId()) && !this.signInAutoPopupShown) {
+                this.signInAutoPopupShown = true;
+                this.openSignInOverlay();
+            }
+            this.signInInitializing = false;
+            return;
+        }
+
+        try {
+            const user = await AuthManager.ensureLogin();
+            this.signInUserId = user.id;
+            const status = await this.fetchSignInStatus();
+            this.applySignInStatus(status);
+            if (shouldAutoPopupSignIn(status.signedToday, sys.localStorage, this.getSignInUserId()) && !this.signInAutoPopupShown) {
+                this.signInAutoPopupShown = true;
+                this.openSignInOverlay();
+            }
+        } catch (error) {
+            console.warn('[MainMenuUI] initializeSignInFeature error load sign-in status failed:', error);
+            if (!cachedSignedToday) {
+                this.updatePointsBadge(null, '--');
+                this.updateSignInEntryState('签到状态加载失败');
+            }
+        } finally {
+            this.signInInitializing = false;
+        }
+    }
+
+    /**
+     * 拉载签到状态，遇到 token 失效时自动刷新一次
+     */
+    private async fetchSignInStatus(forceRefresh: boolean = false): Promise<SignInStatusResponse> {
+        if (forceRefresh) {
+            AuthManager.clear();
+        }
+
+        const user = await AuthManager.ensureLogin(forceRefresh);
+        this.signInUserId = user.id;
+        try {
+            return await SignInApi.fetchStatus();
+        } catch (error) {
+            if (!forceRefresh && this.isUnauthorizedError(error)) {
+                return this.fetchSignInStatus(true);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 打开签到弹层
+     */
+    private openSignInOverlay() {
+        if (!this.signInStatus) {
+            const savedPoints = parseInt(sys.localStorage.getItem(this.getSignInStorageKey('animal_chess_total_points')) || '0', 10);
+            const savedWeekSignedDays = parseInt(sys.localStorage.getItem(this.getSignInStorageKey('animal_chess_week_signed_days')) || '0', 10);
+            const savedWeekContinuousDays = parseInt(sys.localStorage.getItem(this.getSignInStorageKey('animal_chess_week_continuous_days')) || '0', 10);
+            const signedToday = hasSignedTodayLocally(sys.localStorage, this.getSignInUserId());
+            this.signInStatus = {
+                signedToday,
+                rewardPoints: 10,
+                totalPoints: savedPoints,
+                weekSignedDays: savedWeekSignedDays,
+                weekContinuousDays: savedWeekContinuousDays,
+                signedDates: [],
+            };
+        }
+
+        if (!this.signInOverlay) {
+            this.signInOverlay = new MainMenuSignInOverlay(
+                this.node,
+                this.scaleFactor,
+                () => {
+                    void this.handleSignInAction();
+                },
+                () => undefined,
+            );
+        }
+        this.signInOverlay.show(this.signInStatus);
+    }
+
+    /**
+     * 执行签到动作
+     */
+    private async handleSignInAction(): Promise<void> {
+        if (!this.signInStatus || this.signInSubmitting) {
+            return;
+        }
+        if (this.signInStatus.signedToday) {
+            this.signInStatus.signedToday = true;
+            this.showToast('每日只能签到一次哦');
+            this.signInOverlay?.hide();
+            return;
+        }
+
+        this.signInSubmitting = true;
+        try {
+            let result: SignInStatusResponse;
+            if (AuthManager.isWechatSupported()) {
+                result = await this.submitSignIn();
+            } else {
+                // 非微信/本地测试模式下的 Mock 签到逻辑
+                result = {
+                    signedToday: true,
+                    rewardPoints: 10,
+                    totalPoints: this.signInStatus.totalPoints + 10,
+                    weekSignedDays: this.signInStatus.weekSignedDays + 1,
+                    weekContinuousDays: this.signInStatus.weekContinuousDays + 1,
+                    signedDates: [],
+                };
+            }
+            markSignedTodayLocally(sys.localStorage, this.getSignInUserId());
+            this.applySignInStatus(result);
+            this.signInOverlay?.hide();
+            SignInSuccessAnimation.play(this.node, result.rewardPoints, this.scaleFactor);
+        } catch (error) {
+            console.warn('[MainMenuUI] handleSignInAction error sign-in request failed:', error);
+            this.showToast('签到失败，请稍后重试');
+            return;
+        } finally {
+            this.signInSubmitting = false;
+        }
+    }
+
+    /**
+     * 提交签到请求，遇到 token 失效时自动刷新一次
+     */
+    private async submitSignIn(forceRefresh: boolean = false): Promise<SignInStatusResponse> {
+        if (forceRefresh) {
+            AuthManager.clear();
+        }
+
+        const user = await AuthManager.ensureLogin(forceRefresh);
+        this.signInUserId = user.id;
+        try {
+            return await SignInApi.signIn();
+        } catch (error) {
+            if (!forceRefresh && this.isUnauthorizedError(error)) {
+                return this.submitSignIn(true);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 同步签到状态到主菜单 UI
+     */
+    private applySignInStatus(status: SignInStatusResponse) {
+        this.signInStatus = status;
+        if (status.signedToday) {
+            markSignedTodayLocally(sys.localStorage, this.getSignInUserId());
+        }
+        sys.localStorage.setItem(this.getSignInStorageKey('animal_chess_total_points'), String(status.totalPoints));
+        sys.localStorage.setItem(this.getSignInStorageKey('animal_chess_week_signed_days'), String(status.weekSignedDays));
+        sys.localStorage.setItem(this.getSignInStorageKey('animal_chess_week_continuous_days'), String(status.weekContinuousDays));
+
+        if (this.signInEntryButton) {
+            this.signInEntryButton.active = true;
+        }
+
+        if (this.signInNotifyTag) {
+            this.signInNotifyTag.active = !status.signedToday;
+        }
+
+        if (this.signInEntryTitleLabel) {
+            this.signInEntryTitleLabel.string = status.signedToday ? '今日已签到' : '森林签到';
+        }
+        this.updatePointsBadge(status.totalPoints);
+        this.updateSignInEntryState(status.signedToday ? `已领奖励` : `可领 +${status.rewardPoints} 积分`);
+        this.signInOverlay?.updateState(status);
+    }
+
+    /**
+     * 更新首页积分展示文案
+     */
+    private updatePointsBadge(totalPoints: number | null, fallbackText?: string) {
+        if (this.pointsBadgeValueLabel) {
+            this.pointsBadgeValueLabel.string = totalPoints === null
+                ? (fallbackText ?? '--')
+                : `${totalPoints}`;
+        }
+    }
+
+    /**
+     * 更新主菜单签到入口文案
+     */
+    private updateSignInEntryState(statusText: string) {
+        if (this.signInEntryStatusLabel) {
+            this.signInEntryStatusLabel.string = statusText;
+        }
+    }
+
+    /**
+     * 判断是否为未授权错误
+     */
+    private isUnauthorizedError(error: unknown): boolean {
+        return error instanceof HttpError && error.status === 401;
+    }
+
     private onStartGame() {
         console.log('Start Game Clicked!');
         this.node.emit('start-game');
@@ -301,6 +826,9 @@ export class MainMenuUI extends Component {
     private rulesPanel: Node | null = null;
     private musicBtnLabel: Label | null = null;
     private soundBtnLabel: Label | null = null;
+    private musicToggleUpdater: ((isOn: boolean, animate?: boolean) => void) | null = null;
+    private soundToggleUpdater: ((isOn: boolean, animate?: boolean) => void) | null = null;
+    private effectsToggleUpdater: ((isOn: boolean, animate?: boolean) => void) | null = null;
 
     private onRulesClicked() {
         console.log('Rules Clicked!');
@@ -321,109 +849,286 @@ export class MainMenuUI extends Component {
             this.rulesPanel = null;
         }
 
-        // 1. 创建全屏遮罩防穿透
+        // 1. 创建全屏遮罩防穿透 (深色高质感半透明蒙层)
         this.rulesPanel = new Node('RulesPanel');
         this.rulesPanel.layer = 33554432; // UI_2D
         this.rulesPanel.addComponent(UITransform).setContentSize(cw, ch);
         canvas.addChild(this.rulesPanel);
 
-        // 灰色半透明背景，添加 Button 拦截触摸事件
-        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        // 深半透明背景，添加 Button 拦截触摸事件
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 180);
         mask.name = 'Mask';
         mask.addComponent(Button); // 吞噬事件
         this.rulesPanel.addChild(mask);
 
-        // 2. 创建弹窗主体
+        // 2. 创建弹窗主体 (外框架 + 象牙纸张内衬)
         const dialogWidth = Math.min(cw * 0.92, 650 * scaleFactor);
-        const dialogHeight = Math.min(ch * 0.85, 920 * scaleFactor);
-        const dialogRadius = 40 * scaleFactor;
-        const dialog = this.createRectNode('Dialog', '#efe6c8', dialogWidth, dialogHeight, dialogRadius);
-        dialog.name = 'DialogNode';
-        this.rulesPanel.addChild(dialog);
+        const dialogHeight = Math.min(ch * 0.88, 880 * scaleFactor);
+        const dialogRadius = 36 * scaleFactor;
 
-        // 3. 弹窗标题
-        const titleFontSize = 38 * scaleFactor;
-        const title = this.createLabelNode('Title', '玩法规则说明', titleFontSize, '#11751e', true);
-        title.setPosition(0, dialogHeight / 2 - 64 * scaleFactor, 0);
-        dialog.addChild(title);
+        // 弹窗外框 (深色木纹/深林边框感)
+        const outerBorderWidth = dialogWidth + 12 * scaleFactor;
+        const outerBorderHeight = dialogHeight + 12 * scaleFactor;
+        const outerFrame = this.createRectNode('OuterFrame', '#23371f', outerBorderWidth, outerBorderHeight, dialogRadius + 6 * scaleFactor);
+        outerFrame.name = 'DialogNode';
+        this.rulesPanel.addChild(outerFrame);
 
-        // 分割线
-        const line = this.createRectNode('Line', '#11751e', dialogWidth - 64 * scaleFactor, 3 * scaleFactor, 0, 40);
-        line.setPosition(0, dialogHeight / 2 - 100 * scaleFactor, 0);
-        dialog.addChild(line);
+        // 主弹窗面板
+        const dialog = this.createRectNode('Dialog', '#FDFBF7', dialogWidth, dialogHeight, dialogRadius);
+        outerFrame.addChild(dialog);
 
-        // 4. 玩法内容文本 (配置为左对齐且自动多行换行)
-        const rulesTextNode = new Node('RulesText');
-        rulesTextNode.layer = 33554432;
-        const txtTrans = rulesTextNode.addComponent(UITransform);
-        txtTrans.setContentSize(dialogWidth - 60 * scaleFactor, dialogHeight - 240 * scaleFactor);
-        
-        const label = rulesTextNode.addComponent(Label);
-        
-        const rulesString = 
-            "一、棋子大小（克制关系）\n" +
-            "象 > 狮 > 虎 > 豹 > 狼 > 狗 > 猫 > 鼠\n" +
-            "★ 特殊：最小的【鼠】可以吃最大的【象】！\n\n" +
-            "二、河道规则（小河）\n" +
-            "1.【鼠】可以游入河中。在河里的鼠不能吃岸上的象，岸上的棋子也不能吃河里的鼠。\n" +
-            "2.【狮、虎】可以横向或纵向跃过河道。若河道中没有敌方的鼠阻挡，则可直接吃掉河对岸更小的棋子。\n\n" +
-            "三、特殊地形\n" +
-            "1.【陷阱】：棋子走入敌方陷阱后战力归零，任何敌方棋子皆可直接将其吃掉。\n" +
-            "2.【兽穴】：己方棋子无法进入己方兽穴。若成功将任何棋子走入敌方【兽穴】，即获得本局胜利！";
+        // 3. 顶栏 (Header Ribbon)
+        const headerHeight = 90 * scaleFactor;
+        const headerRibbon = this.createRectNode('HeaderRibbon', '#1b5e20', dialogWidth, headerHeight, 0);
+        headerRibbon.setPosition(0, dialogHeight / 2 - headerHeight / 2, 0);
 
-        label.string = rulesString;
-        label.fontSize = (isPortrait ? 22 : 18) * scaleFactor;
-        label.lineHeight = (isPortrait ? 32 : 25) * scaleFactor;
-        label.isBold = true;
-        label.overflow = Label.Overflow.CLAMP;
-        label.horizontalAlign = Label.HorizontalAlign.LEFT;
-        label.verticalAlign = Label.VerticalAlign.TOP;
-        
-        const color = new Color();
-        Color.fromHEX(color, '#3f3600'); // 深褐色字
-        label.color = color;
-        
-        rulesTextNode.setPosition(0, (isPortrait ? 15 : 25) * scaleFactor, 0);
-        dialog.addChild(rulesTextNode);
+        // 剪裁顶栏上边圆角
+        const headerG = headerRibbon.getComponent(Graphics);
+        if (headerG) {
+            headerG.clear();
+            headerG.fillColor = new Color(27, 94, 32, 255);
+            headerG.roundRect(-dialogWidth / 2, -headerHeight / 2, dialogWidth, headerHeight, dialogRadius);
+            headerG.fill();
+            // 底部平直矩形填充覆盖
+            headerG.rect(-dialogWidth / 2, -headerHeight / 2, dialogWidth, headerHeight / 2);
+            headerG.fill();
+        }
+        dialog.addChild(headerRibbon);
 
-        // 5. 确定/关闭按钮
-        const btnFontSize = 30 * scaleFactor;
-        const closeBtnWidth = dialogWidth - 160 * scaleFactor;
-        const closeBtnHeight = 84 * scaleFactor;
-        const closeBtnRadius = 42 * scaleFactor;
-        const closeBtn = this.createRectNode('CloseBtn', '#168f25', closeBtnWidth, closeBtnHeight, closeBtnRadius);
-        closeBtn.setPosition(0, -dialogHeight / 2 + 76 * scaleFactor, 0);
-        dialog.addChild(closeBtn);
+        // 顶栏标题
+        const titleFontSize = 36 * scaleFactor;
+        const title = this.createLabelNode('Title', '玩法规则说明', titleFontSize, '#ffffff', true);
+        title.setPosition(0, 0, 0);
+        headerRibbon.addChild(title);
 
-        const closeTxt = this.createLabelNode('CloseTxt', '确 定', btnFontSize, '#ffffff', true);
-        closeBtn.addChild(closeTxt);
+        // 右上角关闭按钮 (✕)
+        const closeIconRadius = 22 * scaleFactor;
+        const closeIconBtn = this.createCircleNode('CloseIconBtn', '#e74c3c', closeIconRadius);
+        closeIconBtn.setPosition(dialogWidth / 2 - 42 * scaleFactor, dialogHeight / 2 - headerHeight / 2, 0);
+        dialog.addChild(closeIconBtn);
 
-        closeBtn.addComponent(Button);
-        closeBtn.on(Node.EventType.TOUCH_END, () => {
+        const closeCrossLabel = this.createLabelNode('CloseCross', '✕', 22 * scaleFactor, '#ffffff', true);
+        closeIconBtn.addChild(closeCrossLabel);
+
+        const closeDialogFunc = () => {
             AudioSynth.playClick();
-            const dialogNode = this.rulesPanel!.getChildByName('DialogNode');
-            if (dialogNode) {
-                tween(dialogNode)
-                    .to(0.2, { scale: new Vec3(0.78, 0.78, 1.0) }, { easing: 'backIn' })
+            if (outerFrame) {
+                tween(outerFrame)
+                    .to(0.18, { scale: new Vec3(0.8, 0.8, 1.0) }, { easing: 'backIn' })
                     .call(() => {
-                        this.rulesPanel!.active = false;
+                        if (this.rulesPanel) this.rulesPanel.active = false;
                     })
                     .start();
             } else {
-                this.rulesPanel!.active = false;
+                if (this.rulesPanel) this.rulesPanel.active = false;
             }
-        }, this);
+        };
+
+        closeIconBtn.addComponent(Button);
+        closeIconBtn.on(Node.EventType.TOUCH_END, closeDialogFunc, this);
+
+        // 4. 内容区域滚动容器 (ScrollView)
+        const scrollWidth = dialogWidth - 32 * scaleFactor;
+        const scrollHeight = dialogHeight - headerHeight - 110 * scaleFactor;
+
+        const scrollNode = new Node('RulesScrollView');
+        scrollNode.layer = 33554432;
+        scrollNode.addComponent(UITransform).setContentSize(scrollWidth, scrollHeight);
+        scrollNode.setPosition(0, (dialogHeight / 2 - headerHeight) - scrollHeight / 2 - 10 * scaleFactor, 0);
+        dialog.addChild(scrollNode);
+
+        const scrollView = scrollNode.addComponent(ScrollView);
+        scrollView.horizontal = false;
+        scrollView.vertical = true;
+        scrollView.inertia = true;
+
+        const viewPort = new Node('ViewPort');
+        viewPort.layer = 33554432;
+        viewPort.addComponent(UITransform).setContentSize(scrollWidth, scrollHeight);
+        viewPort.addComponent(Mask);
+        scrollNode.addChild(viewPort);
+
+        const content = new Node('Content');
+        content.layer = 33554432;
+        const contentTrans = content.addComponent(UITransform);
+        contentTrans.setAnchorPoint(0.5, 1);
+        viewPort.addChild(content);
+        scrollView.content = content;
+
+        // 4.1 构建规则卡片
+        const cardWidth = scrollWidth - 20 * scaleFactor;
+
+        const card1 = this.createRuleBlockCard(
+            'RuleCard1',
+            '🦁',
+            '一、棋子大小（克制关系）',
+            [
+                '象 > 狮 > 虎 > 豹 > 狼 > 狗 > 猫 > 鼠',
+                '★ 特殊：最小的【鼠】可以吃最大的【象】！'
+            ],
+            cardWidth,
+            scaleFactor
+        );
+
+        const card2 = this.createRuleBlockCard(
+            'RuleCard2',
+            '🌊',
+            '二、河道规则（小河）',
+            [
+                '1.【鼠】可游入河中，在河里不能攻击岸上的象，岸上也无法吃河里的鼠。',
+                '2.【狮、虎】可横向或纵向跃过河道，河道无敌鼠阻挡时可吃对岸棋子。'
+            ],
+            cardWidth,
+            scaleFactor
+        );
+
+        const card3 = this.createRuleBlockCard(
+            'RuleCard3',
+            '🏰',
+            '三、特殊地形（陷阱与兽穴）',
+            [
+                '1.【陷阱】：走入敌方陷阱后战力归零，任何敌方棋子皆可直接将其吃掉。',
+                '2.【兽穴】：己方无法进入己方兽穴。成功将任何棋子走入敌方兽穴即获胜！'
+            ],
+            cardWidth,
+            scaleFactor
+        );
+
+        const cards = [card1, card2, card3];
+        const cardGap = 16 * scaleFactor;
+
+        let totalContentHeight = 16 * scaleFactor;
+        cards.forEach((card) => {
+            const cardTrans = card.getComponent(UITransform);
+            const ch = cardTrans ? cardTrans.height : 120 * scaleFactor;
+            card.setPosition(0, -totalContentHeight - ch / 2, 0);
+            content.addChild(card);
+            totalContentHeight += ch + cardGap;
+        });
+
+        totalContentHeight += 8 * scaleFactor;
+        contentTrans.setContentSize(scrollWidth, totalContentHeight);
+        content.setPosition(0, scrollHeight / 2, 0);
+
+        // 5. 底部“确 定”按钮
+        const confirmBtnWidth = dialogWidth - 140 * scaleFactor;
+        const confirmBtnHeight = 80 * scaleFactor;
+        const confirmBtnRadius = 40 * scaleFactor;
+        const confirmBtn = this.createRectNode('ConfirmBtn', '#27ae60', confirmBtnWidth, confirmBtnHeight, confirmBtnRadius);
+        confirmBtn.setPosition(0, -dialogHeight / 2 + 65 * scaleFactor, 0);
+        dialog.addChild(confirmBtn);
+
+        // 按钮亮边描边
+        const confirmG = confirmBtn.getComponent(Graphics);
+        if (confirmG) {
+            confirmG.strokeColor = new Color(255, 255, 255, 100);
+            confirmG.lineWidth = 2 * scaleFactor;
+            confirmG.roundRect(-confirmBtnWidth / 2, -confirmBtnHeight / 2, confirmBtnWidth, confirmBtnHeight, confirmBtnRadius);
+            confirmG.stroke();
+        }
+
+        const confirmTxt = this.createLabelNode('ConfirmTxt', '确 定', 30 * scaleFactor, '#ffffff', true);
+        confirmBtn.addChild(confirmTxt);
+
+        confirmBtn.addComponent(Button);
+        confirmBtn.on(Node.EventType.TOUCH_END, closeDialogFunc, this);
 
         // 显示并执行弹出动画
         this.rulesPanel.active = true;
 
-        const dialogNode = this.rulesPanel.getChildByName('DialogNode');
-        if (dialogNode) {
-            dialogNode.setScale(new Vec3(0.78, 0.78, 1.0));
-            tween(dialogNode)
-                .to(0.3, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
-                .start();
+        outerFrame.setScale(new Vec3(0.78, 0.78, 1.0));
+        tween(outerFrame)
+            .to(0.3, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
+    }
+
+    private createRuleBlockCard(
+        name: string,
+        icon: string,
+        title: string,
+        contentLines: string[],
+        cardWidth: number,
+        scaleFactor: number
+    ): Node {
+        const titleFontSize = 24 * scaleFactor;
+        const iconFontSize = 28 * scaleFactor;
+        const lineFontSize = 19 * scaleFactor;
+        const textLineWidth = cardWidth - 48 * scaleFactor;
+
+        // 1. 创建标题与图标节点
+        const iconNode = this.createLabelNode('Icon', icon, iconFontSize, '#1b5e20', true);
+        const titleNode = this.createLabelNode('Title', title, titleFontSize, '#1b5e20', true);
+        const titleTrans = titleNode.getComponent(UITransform);
+        if (titleTrans) {
+            titleTrans.setAnchorPoint(0, 0.5);
         }
+        const titleLabel = titleNode.getComponent(Label);
+        if (titleLabel) {
+            titleLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
+        }
+
+        // 2. 依次生成每一行规则文本并计算高度
+        const lineNodes: Node[] = [];
+        const lineHeights: number[] = [];
+        const lineSpacing = 10 * scaleFactor;
+
+        contentLines.forEach((lineText, idx) => {
+            const lineNode = this.createLabelNode(`Line_${idx}`, lineText, lineFontSize, '#3a2d1d', false);
+            const lineTrans = lineNode.getComponent(UITransform);
+            if (lineTrans) {
+                lineTrans.setAnchorPoint(0, 1);
+                lineTrans.setContentSize(textLineWidth, 0);
+            }
+            const lineLabel = lineNode.getComponent(Label);
+            if (lineLabel) {
+                lineLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
+                lineLabel.overflow = Label.Overflow.RESIZE_HEIGHT;
+                lineLabel.enableWrapText = true;
+                lineLabel.updateRenderData(true);
+            }
+            let h = lineTrans ? lineTrans.height : lineFontSize + 6;
+            if (h < lineFontSize) {
+                h = lineFontSize + 6;
+            }
+            lineNodes.push(lineNode);
+            lineHeights.push(h);
+        });
+
+        // 3. 计算卡片总高度
+        const headerHeight = 36 * scaleFactor;
+        const topPadding = 18 * scaleFactor;
+        const bottomPadding = 18 * scaleFactor;
+        const linesTotalHeight = lineHeights.reduce((acc, curr) => acc + curr, 0) + (lineNodes.length - 1) * lineSpacing;
+        const cardHeight = topPadding + headerHeight + 12 * scaleFactor + linesTotalHeight + bottomPadding;
+
+        // 4. 创建卡片主节点并绘制背景与描边
+        const cardNode = this.createRectNode(name, '#FAF7F0', cardWidth, cardHeight, 18 * scaleFactor);
+        const borderG = cardNode.getComponent(Graphics);
+        if (borderG) {
+            borderG.strokeColor = new Color(215, 200, 175, 255);
+            borderG.lineWidth = 2 * scaleFactor;
+            borderG.roundRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 18 * scaleFactor);
+            borderG.stroke();
+        }
+
+        // 5. 将各节点排版定位在卡片内
+        const topY = cardHeight / 2;
+        const headerCenterY = topY - topPadding - headerHeight / 2;
+
+        iconNode.setPosition(-cardWidth / 2 + 32 * scaleFactor, headerCenterY, 0);
+        cardNode.addChild(iconNode);
+
+        titleNode.setPosition(-cardWidth / 2 + 58 * scaleFactor, headerCenterY, 0);
+        cardNode.addChild(titleNode);
+
+        let currentY = topY - topPadding - headerHeight - 12 * scaleFactor;
+        lineNodes.forEach((lineNode, idx) => {
+            lineNode.setPosition(-cardWidth / 2 + 26 * scaleFactor, currentY, 0);
+            cardNode.addChild(lineNode);
+            currentY -= (lineHeights[idx] + lineSpacing);
+        });
+
+        return cardNode;
     }
 
     private onSettingsGame() {
@@ -445,144 +1150,186 @@ export class MainMenuUI extends Component {
             this.settingsPanel = null;
         }
 
-        // 1. 创建全屏遮罩防穿透
+        // 1. 创建全屏遮罩防穿透 (深色高质感半透明蒙层)
         this.settingsPanel = new Node('SettingsPanel');
         this.settingsPanel.layer = 33554432; // UI_2D
         this.settingsPanel.addComponent(UITransform).setContentSize(cw, ch);
         canvas.addChild(this.settingsPanel);
 
-        // 灰色半透明背景，添加 Button 拦截触摸事件
-        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        // 深半透明背景，添加 Button 拦截触摸事件
+        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 180);
         mask.name = 'Mask';
         mask.addComponent(Button); // 吞噬事件
         this.settingsPanel.addChild(mask);
 
-        // 2. 创建弹窗主体 (自适应放大)
-        const dialogWidth = Math.min(cw * 0.9, 620 * scaleFactor);
-        const dialogHeight = Math.min(ch * 0.8, 760 * scaleFactor);
-        const dialogRadius = 40 * scaleFactor;
-        const dialog = this.createRectNode('Dialog', '#efe6c8', dialogWidth, dialogHeight, dialogRadius);
-        dialog.name = 'DialogNode';
-        this.settingsPanel.addChild(dialog);
+        // 2. 创建弹窗主体 (外框架 + 象牙纸张内衬)
+        const dialogWidth = Math.min(cw * 0.9, 640 * scaleFactor);
+        const dialogHeight = Math.min(ch * 0.85, 780 * scaleFactor);
+        const dialogRadius = 36 * scaleFactor;
 
-        // 3. 弹窗标题 (字号放大至 40)
-        const titleFontSize = 40 * scaleFactor;
-        const title = this.createLabelNode('Title', '系统设置', titleFontSize, '#11751e', true);
-        title.setPosition(0, dialogHeight / 2 - 64 * scaleFactor, 0);
-        dialog.addChild(title);
+        // 弹窗外框 (深色木纹/深林边框感)
+        const outerBorderWidth = dialogWidth + 12 * scaleFactor;
+        const outerBorderHeight = dialogHeight + 12 * scaleFactor;
+        const outerFrame = this.createRectNode('OuterFrame', '#23371f', outerBorderWidth, outerBorderHeight, dialogRadius + 6 * scaleFactor);
+        outerFrame.name = 'DialogNode';
+        this.settingsPanel.addChild(outerFrame);
 
-        // 分割线
-        const line = this.createRectNode('Line', '#11751e', dialogWidth - 96 * scaleFactor, 3 * scaleFactor, 0, 40);
-        line.setPosition(0, dialogHeight / 2 - 100 * scaleFactor, 0);
-        dialog.addChild(line);
+        // 主弹窗面板
+        const dialog = this.createRectNode('Dialog', '#FDFBF7', dialogWidth, dialogHeight, dialogRadius);
+        outerFrame.addChild(dialog);
 
-        // 4. 背景音乐开关按钮 (高宽及字号放大)
-        const btnWidth = dialogWidth - 80 * scaleFactor;
-        const btnHeight = 96 * scaleFactor;
-        const btnGap = 28 * scaleFactor;
-        const musicBtnY = dialogHeight / 2 - 190 * scaleFactor;
-        const musicBtnRadius = 28 * scaleFactor;
-        const btnFontSize = 30 * scaleFactor;
+        // 3. 顶栏 (Header Ribbon)
+        const headerHeight = 90 * scaleFactor;
+        const headerRibbon = this.createRectNode('HeaderRibbon', '#1b5e20', dialogWidth, headerHeight, 0);
+        headerRibbon.setPosition(0, dialogHeight / 2 - headerHeight / 2, 0);
 
-        const musicBtn = this.createRectNode('MusicBtn', '#f6ebbf', btnWidth, btnHeight, musicBtnRadius);
-        musicBtn.setPosition(0, musicBtnY, 0);
-        dialog.addChild(musicBtn);
+        // 剪裁顶栏上边圆角
+        const headerG = headerRibbon.getComponent(Graphics);
+        if (headerG) {
+            headerG.clear();
+            headerG.fillColor = new Color(27, 94, 32, 255);
+            headerG.roundRect(-dialogWidth / 2, -headerHeight / 2, dialogWidth, headerHeight, dialogRadius);
+            headerG.fill();
+            // 底部平直矩形填充覆盖
+            headerG.rect(-dialogWidth / 2, -headerHeight / 2, dialogWidth, headerHeight / 2);
+            headerG.fill();
+        }
+        dialog.addChild(headerRibbon);
 
-        const musicLabelNode = this.createLabelNode('MusicLabel', '', btnFontSize, '#5b4b1c', true);
-        this.musicBtnLabel = musicLabelNode.getComponent(Label);
-        musicBtn.addChild(musicLabelNode);
+        // 顶栏标题
+        const titleFontSize = 36 * scaleFactor;
+        const title = this.createLabelNode('Title', '系统设置', titleFontSize, '#ffffff', true);
+        title.setPosition(0, 0, 0);
+        headerRibbon.addChild(title);
 
-        musicBtn.addComponent(Button);
-        musicBtn.on(Node.EventType.TOUCH_END, () => {
+        // 右上角关闭按钮 (✕)
+        const closeIconRadius = 22 * scaleFactor;
+        const closeIconBtn = this.createCircleNode('CloseIconBtn', '#e74c3c', closeIconRadius);
+        closeIconBtn.setPosition(dialogWidth / 2 - 42 * scaleFactor, dialogHeight / 2 - headerHeight / 2, 0);
+        dialog.addChild(closeIconBtn);
+
+        const closeCrossLabel = this.createLabelNode('CloseCross', '✕', 22 * scaleFactor, '#ffffff', true);
+        closeIconBtn.addChild(closeCrossLabel);
+
+        const closeDialogFunc = () => {
             AudioSynth.playClick();
-            let musicOn = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
-            musicOn = !musicOn;
-            sys.localStorage.setItem('jungle_music_enabled', musicOn ? 'true' : 'false');
-            this.updateSettingsUI();
-            // 触发音乐开关事件
-            this.node.emit('music-toggle', musicOn);
-        }, this);
-
-        // 5. 游戏音效开关按钮
-        const soundBtn = this.createRectNode('SoundBtn', '#f6ebbf', btnWidth, btnHeight, musicBtnRadius);
-        soundBtn.setPosition(0, musicBtnY - btnHeight - btnGap, 0);
-        dialog.addChild(soundBtn);
-
-        const soundLabelNode = this.createLabelNode('SoundLabel', '', btnFontSize, '#5b4b1c', true);
-        this.soundBtnLabel = soundLabelNode.getComponent(Label);
-        soundBtn.addChild(soundLabelNode);
-
-        soundBtn.addComponent(Button);
-        soundBtn.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
-            let soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
-            soundOn = !soundOn;
-            sys.localStorage.setItem('jungle_sound_enabled', soundOn ? 'true' : 'false');
-            this.updateSettingsUI();
-        }, this);
-
-        // 5.1 画面特效开关按钮
-        const effectsBtn = this.createRectNode('EffectsBtn', '#f6ebbf', btnWidth, btnHeight, musicBtnRadius);
-        effectsBtn.setPosition(0, musicBtnY - (btnHeight + btnGap) * 2, 0);
-        dialog.addChild(effectsBtn);
-
-        const effectsLabelNode = this.createLabelNode('EffectsLabel', '', btnFontSize, '#5b4b1c', true);
-        this.effectsBtnLabel = effectsLabelNode.getComponent(Label);
-        effectsBtn.addChild(effectsLabelNode);
-
-        effectsBtn.addComponent(Button);
-        effectsBtn.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
-            let effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
-            effectsOn = !effectsOn;
-            sys.localStorage.setItem('jungle_effects_enabled', effectsOn ? 'true' : 'false');
-            this.updateSettingsUI();
-            this.updateBackgroundEffects();
-            this.updateFirefliesEffect(scaleFactor);
-            // 触发画面特效开关事件
-            this.node.emit('effects-toggle', effectsOn);
-        }, this);
-
-        // 6. 关闭按钮 (确定按钮已放大)
-        const closeBtnWidth = dialogWidth - 160 * scaleFactor;
-        const closeBtnHeight = 84 * scaleFactor;
-        const closeBtnRadius = 42 * scaleFactor;
-        const closeBtn = this.createRectNode('CloseBtn', '#168f25', closeBtnWidth, closeBtnHeight, closeBtnRadius);
-        closeBtn.setPosition(0, -dialogHeight / 2 + 76 * scaleFactor, 0);
-        dialog.addChild(closeBtn);
-
-        const closeTxt = this.createLabelNode('CloseTxt', '确 定', btnFontSize, '#ffffff', true);
-        closeBtn.addChild(closeTxt);
-
-        closeBtn.addComponent(Button);
-        closeBtn.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
-            const dialogNode = this.settingsPanel!.getChildByName('DialogNode');
-            if (dialogNode) {
-                tween(dialogNode)
-                    .to(0.2, { scale: new Vec3(0.78, 0.78, 1.0) }, { easing: 'backIn' })
+            if (outerFrame) {
+                tween(outerFrame)
+                    .to(0.18, { scale: new Vec3(0.8, 0.8, 1.0) }, { easing: 'backIn' })
                     .call(() => {
-                        this.settingsPanel!.active = false;
+                        if (this.settingsPanel) this.settingsPanel.active = false;
                     })
                     .start();
             } else {
-                this.settingsPanel!.active = false;
+                if (this.settingsPanel) this.settingsPanel.active = false;
             }
-        }, this);
+        };
+
+        closeIconBtn.addComponent(Button);
+        closeIconBtn.on(Node.EventType.TOUCH_END, closeDialogFunc, this);
+
+        // 4. 读取当前设置状态
+        const musicOn = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+        const soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        const effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
+
+        // 5. 设置项列表 (卡片 Row)
+        const rowWidth = dialogWidth - 56 * scaleFactor;
+        const rowHeight = 104 * scaleFactor;
+        const startY = dialogHeight / 2 - headerHeight - 80 * scaleFactor;
+        const rowGap = 124 * scaleFactor;
+
+        // 5.1 背景音乐 Row
+        const musicRowInfo = this.createSettingRow(
+            'MusicRow',
+            '🎵',
+            '背景音乐',
+            '背景旋律与森林氛围音效',
+            rowWidth,
+            rowHeight,
+            scaleFactor,
+            musicOn,
+            (newVal) => {
+                sys.localStorage.setItem('jungle_music_enabled', newVal ? 'true' : 'false');
+                this.node.emit('music-toggle', newVal);
+            }
+        );
+        musicRowInfo.rowNode.setPosition(0, startY, 0);
+        dialog.addChild(musicRowInfo.rowNode);
+        this.musicToggleUpdater = musicRowInfo.updateState;
+
+        // 5.2 游戏音效 Row
+        const soundRowInfo = this.createSettingRow(
+            'SoundRow',
+            '🔊',
+            '游戏音效',
+            '按键点击与棋子移动吃子音效',
+            rowWidth,
+            rowHeight,
+            scaleFactor,
+            soundOn,
+            (newVal) => {
+                sys.localStorage.setItem('jungle_sound_enabled', newVal ? 'true' : 'false');
+            }
+        );
+        soundRowInfo.rowNode.setPosition(0, startY - rowGap, 0);
+        dialog.addChild(soundRowInfo.rowNode);
+        this.soundToggleUpdater = soundRowInfo.updateState;
+
+        // 5.3 画面特效 Row
+        const effectsRowInfo = this.createSettingRow(
+            'EffectsRow',
+            '✨',
+            '画面特效',
+            '光影萤火虫与高阶模糊特效',
+            rowWidth,
+            rowHeight,
+            scaleFactor,
+            effectsOn,
+            (newVal) => {
+                sys.localStorage.setItem('jungle_effects_enabled', newVal ? 'true' : 'false');
+                this.updateBackgroundEffects();
+                this.updateFirefliesEffect(scaleFactor);
+                this.node.emit('effects-toggle', newVal);
+            }
+        );
+        effectsRowInfo.rowNode.setPosition(0, startY - rowGap * 2, 0);
+        dialog.addChild(effectsRowInfo.rowNode);
+        this.effectsToggleUpdater = effectsRowInfo.updateState;
+
+        // 6. 底部“确 定”按钮
+        const confirmBtnWidth = dialogWidth - 140 * scaleFactor;
+        const confirmBtnHeight = 80 * scaleFactor;
+        const confirmBtnRadius = 40 * scaleFactor;
+        const confirmBtn = this.createRectNode('ConfirmBtn', '#27ae60', confirmBtnWidth, confirmBtnHeight, confirmBtnRadius);
+        confirmBtn.setPosition(0, -dialogHeight / 2 + 65 * scaleFactor, 0);
+        dialog.addChild(confirmBtn);
+
+        // 按钮亮边描边
+        const confirmG = confirmBtn.getComponent(Graphics);
+        if (confirmG) {
+            confirmG.strokeColor = new Color(255, 255, 255, 100);
+            confirmG.lineWidth = 2 * scaleFactor;
+            confirmG.roundRect(-confirmBtnWidth / 2, -confirmBtnHeight / 2, confirmBtnWidth, confirmBtnHeight, confirmBtnRadius);
+            confirmG.stroke();
+        }
+
+        const confirmTxt = this.createLabelNode('ConfirmTxt', '确 定', 30 * scaleFactor, '#ffffff', true);
+        confirmBtn.addChild(confirmTxt);
+
+        confirmBtn.addComponent(Button);
+        confirmBtn.on(Node.EventType.TOUCH_END, closeDialogFunc, this);
 
         // 显示并执行弹出动画
         this.settingsPanel.active = true;
         this.updateSettingsUI();
 
-        const dialogNode = this.settingsPanel.getChildByName('DialogNode');
-        if (dialogNode) {
-            dialogNode.setScale(new Vec3(0.78, 0.78, 1.0));
-            tween(dialogNode)
-                .to(0.3, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
-                .start();
-        }
+        outerFrame.setScale(new Vec3(0.78, 0.78, 1.0));
+        tween(outerFrame)
+            .to(0.3, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
 
-        // 同时派发原始事件供外部兼容
+        // 派发原始事件供外部兼容
         this.node.emit('settings-game');
     }
 
@@ -591,15 +1338,166 @@ export class MainMenuUI extends Component {
         const soundOn = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
         const effectsOn = sys.localStorage.getItem('jungle_effects_enabled') !== 'false';
 
-        if (this.musicBtnLabel) {
+        if (this.musicToggleUpdater) {
+            this.musicToggleUpdater(musicOn, false);
+        }
+        if (this.soundToggleUpdater) {
+            this.soundToggleUpdater(soundOn, false);
+        }
+        if (this.effectsToggleUpdater) {
+            this.effectsToggleUpdater(effectsOn, false);
+        }
+
+        if (this.musicBtnLabel && this.musicBtnLabel.isValid) {
             this.musicBtnLabel.string = `背景音乐: ${musicOn ? '开启' : '关闭'}`;
         }
-        if (this.soundBtnLabel) {
+        if (this.soundBtnLabel && this.soundBtnLabel.isValid) {
             this.soundBtnLabel.string = `游戏音效: ${soundOn ? '开启' : '关闭'}`;
         }
-        if (this.effectsBtnLabel) {
+        if (this.effectsBtnLabel && this.effectsBtnLabel.isValid) {
             this.effectsBtnLabel.string = `画面特效: ${effectsOn ? '开启' : '关闭'}`;
         }
+    }
+
+    private createToggleSwitch(
+        scaleFactor: number,
+        initialOn: boolean,
+        onToggle: (isOn: boolean) => void
+    ): { toggleNode: Node; updateState: (isOn: boolean, animate?: boolean) => void } {
+        const trackW = 84 * scaleFactor;
+        const trackH = 44 * scaleFactor;
+        const trackRadius = 22 * scaleFactor;
+        const knobRadius = 18 * scaleFactor;
+        const knobOffX = -20 * scaleFactor;
+        const knobOnX = 20 * scaleFactor;
+
+        const toggleNode = new Node('ToggleSwitch');
+        toggleNode.layer = 33554432;
+        const uiTrans = toggleNode.addComponent(UITransform);
+        uiTrans.width = trackW;
+        uiTrans.height = trackH;
+
+        const trackGraphics = toggleNode.addComponent(Graphics);
+
+        const knobNode = new Node('Knob');
+        knobNode.layer = 33554432;
+        const knobTrans = knobNode.addComponent(UITransform);
+        knobTrans.width = knobRadius * 2;
+        knobTrans.height = knobRadius * 2;
+
+        const knobGraphics = knobNode.addComponent(Graphics);
+        const knobBorderColor = new Color();
+        Color.fromHEX(knobBorderColor, '#e2e8f0');
+        knobGraphics.fillColor = knobBorderColor;
+        knobGraphics.circle(0, 0, knobRadius);
+        knobGraphics.fill();
+
+        const knobInnerColor = new Color();
+        Color.fromHEX(knobInnerColor, '#ffffff');
+        knobGraphics.fillColor = knobInnerColor;
+        knobGraphics.circle(0, 0, knobRadius - 2 * scaleFactor);
+        knobGraphics.fill();
+
+        toggleNode.addChild(knobNode);
+
+        let currentOn = initialOn;
+
+        const drawTrack = (isOn: boolean) => {
+            trackGraphics.clear();
+            const colorHex = isOn ? '#2ecc71' : '#bdc3c7';
+            const color = new Color();
+            Color.fromHEX(color, colorHex);
+            trackGraphics.fillColor = color;
+            trackGraphics.roundRect(-trackW / 2, -trackH / 2, trackW, trackH, trackRadius);
+            trackGraphics.fill();
+        };
+
+        const updateState = (isOn: boolean, animate: boolean = true) => {
+            currentOn = isOn;
+            drawTrack(isOn);
+            const targetX = isOn ? knobOnX : knobOffX;
+            if (animate) {
+                tween(knobNode)
+                    .to(0.15, { position: new Vec3(targetX, 0, 0) }, { easing: 'sineOut' })
+                    .start();
+            } else {
+                knobNode.setPosition(targetX, 0, 0);
+            }
+        };
+
+        updateState(initialOn, false);
+
+        return { toggleNode, updateState };
+    }
+
+    private createSettingRow(
+        name: string,
+        icon: string,
+        title: string,
+        subtitle: string,
+        rowWidth: number,
+        rowHeight: number,
+        scaleFactor: number,
+        initialOn: boolean,
+        onToggle: (isOn: boolean) => void
+    ): { rowNode: Node; updateState: (isOn: boolean, animate?: boolean) => void } {
+        const rowNode = this.createRectNode(name, '#FAF7F0', rowWidth, rowHeight, 20 * scaleFactor);
+
+        const borderG = rowNode.getComponent(Graphics);
+        if (borderG) {
+            borderG.strokeColor = new Color(215, 200, 175, 255);
+            borderG.lineWidth = 2 * scaleFactor;
+            borderG.roundRect(-rowWidth / 2, -rowHeight / 2, rowWidth, rowHeight, 20 * scaleFactor);
+            borderG.stroke();
+        }
+
+        const iconNode = this.createLabelNode('Icon', icon, 32 * scaleFactor, '#2c3e50', true);
+        iconNode.setPosition(-rowWidth / 2 + 45 * scaleFactor, 0, 0);
+        rowNode.addChild(iconNode);
+
+        const textStartX = -rowWidth / 2 + 85 * scaleFactor;
+
+        const titleNode = this.createLabelNode('Title', title, 24 * scaleFactor, '#2d3748', true);
+        const titleTrans = titleNode.getComponent(UITransform);
+        if (titleTrans) {
+            titleTrans.setAnchorPoint(0, 0.5);
+        }
+        const titleLabel = titleNode.getComponent(Label);
+        if (titleLabel) {
+            titleLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
+        }
+        titleNode.setPosition(textStartX, 13 * scaleFactor, 0);
+        rowNode.addChild(titleNode);
+
+        const subNode = this.createLabelNode('Subtitle', subtitle, 16 * scaleFactor, '#718096', false);
+        const subTrans = subNode.getComponent(UITransform);
+        if (subTrans) {
+            subTrans.setAnchorPoint(0, 0.5);
+        }
+        const subLabel = subNode.getComponent(Label);
+        if (subLabel) {
+            subLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
+        }
+        subNode.setPosition(textStartX, -14 * scaleFactor, 0);
+        rowNode.addChild(subNode);
+
+        let isOn = initialOn;
+        const { toggleNode, updateState } = this.createToggleSwitch(scaleFactor, initialOn, (newState) => {
+            isOn = newState;
+            onToggle(isOn);
+        });
+        toggleNode.setPosition(rowWidth / 2 - 65 * scaleFactor, 0, 0);
+        rowNode.addChild(toggleNode);
+
+        rowNode.addComponent(Button);
+        rowNode.on(Node.EventType.TOUCH_END, () => {
+            AudioSynth.playClick();
+            isOn = !isOn;
+            updateState(isOn, true);
+            onToggle(isOn);
+        }, this);
+
+        return { rowNode, updateState };
     }
 
     private updateBackgroundEffects() {
@@ -848,5 +1746,45 @@ export class MainMenuUI extends Component {
                 roam(particle, pOpacity);
             }, Math.random() * 3.0);
         }
+    }
+
+    /**
+     * 浮条消息 Toast 提示
+     */
+    private showToast(message: string) {
+        const toast = new Node('ToastNode');
+        toast.layer = 33554432;
+        const uiTrans = toast.addComponent(UITransform);
+        uiTrans.setContentSize(320 * this.scaleFactor, 54 * this.scaleFactor);
+
+        const bg = toast.addComponent(Graphics);
+        bg.fillColor = new Color(20, 48, 22, 235);
+        bg.roundRect(-160 * this.scaleFactor, -27 * this.scaleFactor, 320 * this.scaleFactor, 54 * this.scaleFactor, 27 * this.scaleFactor);
+        bg.fill();
+        bg.strokeColor = new Color(255, 220, 120, 220);
+        bg.lineWidth = 2 * this.scaleFactor;
+        bg.roundRect(-160 * this.scaleFactor, -27 * this.scaleFactor, 320 * this.scaleFactor, 54 * this.scaleFactor, 27 * this.scaleFactor);
+        bg.stroke();
+
+        const labelNode = new Node('ToastLabel');
+        labelNode.layer = 33554432;
+        const label = labelNode.addComponent(Label);
+        label.string = message;
+        label.fontSize = 22 * this.scaleFactor;
+        label.lineHeight = 26 * this.scaleFactor;
+        label.color = new Color(255, 245, 210, 255);
+        label.isBold = true;
+        toast.addChild(labelNode);
+
+        toast.setPosition(0, 50 * this.scaleFactor, 0);
+        toast.setScale(new Vec3(0.5, 0.5, 1));
+        this.node.addChild(toast);
+
+        tween(toast)
+            .to(0.2, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+            .delay(1.5)
+            .to(0.2, { scale: new Vec3(0.6, 0.6, 1) })
+            .call(() => toast.destroy())
+            .start();
     }
 }

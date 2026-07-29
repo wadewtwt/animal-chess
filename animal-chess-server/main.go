@@ -24,6 +24,8 @@ func buildHTTPHandler(app *App) (http.Handler, error) {
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWs(app.Hub, w, r)
 	})
+	RegisterAuthRoutes(mux, app)
+	RegisterSignInRoutes(mux, app)
 	return mux, nil
 }
 

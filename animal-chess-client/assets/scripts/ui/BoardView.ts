@@ -7,6 +7,7 @@ import { AudioSynth } from '../utils/AudioSynth';
 import { ANIMAL_ACTION_CONFIGS, getActionFramePaths, getAnimalActionConfig } from './PieceActionConfig';
 import { BOARD_TRANSITION_CONFIG, getPieceCascadeDelay, getTransitionTitle } from './BoardTransitionConfig';
 import { NetworkManager } from '../utils/NetworkManager';
+import { QUICK_CHAT_PHRASES, QUICK_CHAT_STICKERS, QuickChatItem, QuickChatKind } from './QuickChatConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -100,20 +101,42 @@ export class BoardView extends Component {
     private bgNode: Node | null = null;
     private bgWashNode: Node | null = null;
     private switchBattlefieldButtonNode: Node | null = null;
+    private quickChatButtonNode: Node | null = null;
+    private quickChatDialogNode: Node | null = null;
+    private currentQuickChatTab: QuickChatKind = 'phrase';
+    private chatBubbleNode: Node | null = null;
     private isGrassStyle: boolean = true;
     private boardTransitionOverlayNode: Node | null = null;
     private isBoardTransitioning: boolean = false;
+    private waitingOverlayNode: Node | null = null;
+    private waitingMessageLabel: Label | null = null;
+    private wxShowHandler: ((options: any) => void) | null = null;
+    private pendingDirectJoinRoomCode: string = '';
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
         view.on('canvas-resize', this.adjustBoardScale, this);
+        this.registerWxShareEntryHandler();
     }
 
     onDestroy() {
         view.off('canvas-resize', this.adjustBoardScale, this);
+        this.unregisterWxShareEntryHandler();
         this.stopTurnTimer();
         if (this.isNetworkMode) {
             this.cleanupNetworkEvents();
+        }
+        if (this.quickChatButtonNode) {
+            this.quickChatButtonNode.destroy();
+            this.quickChatButtonNode = null;
+        }
+        if (this.quickChatDialogNode) {
+            this.quickChatDialogNode.destroy();
+            this.quickChatDialogNode = null;
+        }
+        if (this.chatBubbleNode) {
+            this.chatBubbleNode.destroy();
+            this.chatBubbleNode = null;
         }
         if (this.undoRequestPanel) {
             this.undoRequestPanel.destroy();
@@ -160,6 +183,11 @@ export class BoardView extends Component {
             this.switchBattlefieldButtonNode = null;
         }
         this.clearBoardTransitionOverlay();
+        if (this.waitingOverlayNode) {
+            this.waitingOverlayNode.destroy();
+            this.waitingOverlayNode = null;
+            this.waitingMessageLabel = null;
+        }
     }
 
     start(): void {
@@ -178,10 +206,7 @@ export class BoardView extends Component {
             this.initAudioSource();
             
             const roomCode = this.getRoomFromLaunch();
-            if (roomCode) {
-                console.log("Directly joining room from launch:", roomCode);
-                this.joinOnlineRoomDirectly(roomCode);
-            } else {
+            if (!this.handleSharedRoomCode(roomCode, 'launch')) {
                 // 自动检测并重连上一次断线/刷新的网络对局
                 const savedRoomId = sys.localStorage.getItem('animal_chess_room_id') || '';
                 if (savedRoomId) {
@@ -212,15 +237,104 @@ export class BoardView extends Component {
         const wxObj = (window as any).wx;
         if (typeof wxObj !== 'undefined') {
             try {
-                const launchOpts = wxObj.getLaunchOptionsSync();
-                if (launchOpts && launchOpts.query && launchOpts.query.room) {
-                    roomCode = launchOpts.query.room;
+                if (typeof wxObj.getEnterOptionsSync === 'function') {
+                    const enterRoomCode = this.extractRoomCodeFromWxOptions(wxObj.getEnterOptionsSync());
+                    if (enterRoomCode) {
+                        roomCode = enterRoomCode;
+                    }
+                }
+            } catch (e) {
+                console.warn("wx.getEnterOptionsSync error:", e);
+            }
+            try {
+                if (!roomCode && typeof wxObj.getLaunchOptionsSync === 'function') {
+                    const launchRoomCode = this.extractRoomCodeFromWxOptions(wxObj.getLaunchOptionsSync());
+                    if (launchRoomCode) {
+                        roomCode = launchRoomCode;
+                    }
                 }
             } catch (e) {
                 console.warn("wx.getLaunchOptionsSync error:", e);
             }
         }
         return roomCode;
+    }
+
+    /**
+     * 注册微信前台唤醒监听，处理从分享链接进入房间的场景。
+     */
+    private registerWxShareEntryHandler(): void {
+        const wxObj = (window as any).wx;
+        if (typeof wxObj === 'undefined' || typeof wxObj.onShow !== 'function') {
+            return;
+        }
+
+        this.wxShowHandler = (options: any) => {
+            const roomCode = this.extractRoomCodeFromWxOptions(options);
+            this.handleSharedRoomCode(roomCode, 'wx.onShow');
+        };
+        wxObj.onShow(this.wxShowHandler);
+    }
+
+    /**
+     * 注销微信前台唤醒监听，避免场景销毁后重复触发。
+     */
+    private unregisterWxShareEntryHandler(): void {
+        if (!this.wxShowHandler) {
+            return;
+        }
+
+        const wxObj = (window as any).wx;
+        if (typeof wxObj !== 'undefined' && typeof wxObj.offShow === 'function') {
+            wxObj.offShow(this.wxShowHandler);
+        }
+        this.wxShowHandler = null;
+    }
+
+    /**
+     * 从微信进入参数中提取房间号。
+     */
+    private extractRoomCodeFromWxOptions(options: any): string {
+        if (!options || !options.query || !options.query.room) {
+            return '';
+        }
+        return String(options.query.room).trim();
+    }
+
+    /**
+     * 统一处理分享链接携带的房间号，避免冷启动和前台唤醒路径不一致。
+     */
+    private handleSharedRoomCode(roomCode: string, source: string): boolean {
+        const normalizedRoomCode = (roomCode || '').trim();
+        if (!normalizedRoomCode) {
+            return false;
+        }
+
+        const currentRoomId = NetworkManager.getInstance().currentRoomId;
+        if (this.pendingDirectJoinRoomCode === normalizedRoomCode || (this.isNetworkMode && currentRoomId === normalizedRoomCode)) {
+            return true;
+        }
+
+        console.log(`Directly joining room from ${source}:`, normalizedRoomCode);
+        this.pendingDirectJoinRoomCode = normalizedRoomCode;
+        this.clearMenuOverlaysBeforeDirectJoin();
+        this.joinOnlineRoomDirectly(normalizedRoomCode);
+        return true;
+    }
+
+    /**
+     * 直连房间前清理菜单层，防止旧页面遮住等待页面。
+     */
+    private clearMenuOverlaysBeforeDirectJoin(): void {
+        if (this.mainMenuNode) {
+            this.mainMenuNode.destroy();
+            this.mainMenuNode = null;
+        }
+        if (this.modeSelectionNode) {
+            this.modeSelectionNode.destroy();
+            this.modeSelectionNode = null;
+        }
+        this.node.active = false;
     }
 
     private mainMenuNode: Node | null = null;
@@ -235,6 +349,7 @@ export class BoardView extends Component {
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
         if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
+        this.hideWaitingOverlay();
 
         // Ensure clean recreation
         if (this.mainMenuNode) {
@@ -281,6 +396,7 @@ export class BoardView extends Component {
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
         if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
+        this.hideWaitingOverlay();
 
         // Ensure clean recreation
         if (this.modeSelectionNode) {
@@ -349,6 +465,7 @@ export class BoardView extends Component {
             NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
             NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
             NetworkManager.getInstance().on('timer_sync', this.onNetworkTimerSync);
+            NetworkManager.getInstance().on('quick_chat', this.onNetworkQuickChat);
 
             this.restartGame();
         });
@@ -600,6 +717,72 @@ export class BoardView extends Component {
     /**
      * 动态计算并缩放棋盘容器，使其完美适配当前画布视口大小
      */
+    private drawBackButtonBadge(backGraphics: Graphics, scaleFactor: number): void {
+        const r = 40 * scaleFactor;
+        const outerR = 44 * scaleFactor;
+        const innerR = 34 * scaleFactor;
+        const ringR = 29 * scaleFactor;
+
+        backGraphics.fillColor = new Color(28, 18, 6, 108);
+        backGraphics.circle(0, -5 * scaleFactor, outerR);
+        backGraphics.fill();
+
+        backGraphics.fillColor = new Color(255, 214, 92, 48);
+        backGraphics.circle(0, 0, outerR);
+        backGraphics.fill();
+
+        backGraphics.fillColor = new Color(229, 176, 45, 255);
+        backGraphics.circle(0, 0, r);
+        backGraphics.fill();
+
+        backGraphics.fillColor = new Color(246, 205, 90, 255);
+        backGraphics.circle(0, 0, innerR);
+        backGraphics.fill();
+
+        backGraphics.lineWidth = 2.5 * scaleFactor;
+        backGraphics.strokeColor = new Color(255, 248, 230, 255);
+        backGraphics.circle(0, 0, r);
+        backGraphics.stroke();
+
+        backGraphics.lineWidth = 1.6 * scaleFactor;
+        backGraphics.strokeColor = new Color(130, 82, 18, 185);
+        backGraphics.circle(0, -0.5 * scaleFactor, ringR);
+        backGraphics.stroke();
+
+        backGraphics.fillColor = new Color(255, 255, 255, 62);
+        backGraphics.arc(0, 8 * scaleFactor, innerR - 3 * scaleFactor, Math.PI * 0.08, Math.PI * 0.92, false);
+        backGraphics.lineTo(-(innerR - 3 * scaleFactor) * 0.98, 8 * scaleFactor);
+        backGraphics.close();
+        backGraphics.fill();
+
+        backGraphics.lineCap = 1;
+        backGraphics.lineJoin = 1;
+
+        const arrowStartX = 12 * scaleFactor;
+        const arrowEndX = -13 * scaleFactor;
+        const arrowWing = 8.5 * scaleFactor;
+
+        backGraphics.lineWidth = 8 * scaleFactor;
+        backGraphics.strokeColor = new Color(255, 248, 220, 235);
+        backGraphics.moveTo(arrowStartX, 0);
+        backGraphics.lineTo(arrowEndX, 0);
+        backGraphics.stroke();
+        backGraphics.moveTo(-4 * scaleFactor, arrowWing);
+        backGraphics.lineTo(arrowEndX, 0);
+        backGraphics.lineTo(-4 * scaleFactor, -arrowWing);
+        backGraphics.stroke();
+
+        backGraphics.lineWidth = 5.2 * scaleFactor;
+        backGraphics.strokeColor = new Color(78, 42, 8, 255);
+        backGraphics.moveTo(arrowStartX, 0);
+        backGraphics.lineTo(arrowEndX, 0);
+        backGraphics.stroke();
+        backGraphics.moveTo(-4 * scaleFactor, arrowWing);
+        backGraphics.lineTo(arrowEndX, 0);
+        backGraphics.lineTo(-4 * scaleFactor, -arrowWing);
+        backGraphics.stroke();
+    }
+
     private adjustBoardScale(): void {
         if (!this.boardContainer) return;
 
@@ -658,19 +841,19 @@ export class BoardView extends Component {
         this.boardContainer.setScale(new Vec3(targetScale, targetScale, 1.0));
 
         // 状态栏美化位置绑定 (居中靠上)
-        const posY = screenHeight / 2 - Math.max(64 * scaleFactor, topInset + 20 * scaleFactor);
+        const posY = screenHeight / 2 - Math.max(108 * scaleFactor, topInset + 66 * scaleFactor);
         if (this.boardTitleNode) {
             const titleLabel = this.boardTitleNode.getComponent(Label);
             if (titleLabel) {
                 titleLabel.fontSize = Math.round(28 * scaleFactor);
                 titleLabel.lineHeight = Math.round(36 * scaleFactor);
             }
-            this.boardTitleNode.setPosition(new Vec3(0, posY + 22 * scaleFactor, 0));
+            this.boardTitleNode.setPosition(new Vec3(0, posY + 18 * scaleFactor, 0));
         }
         if (this.turnIndicator) {
             this.turnIndicator.fontSize = Math.round(24 * scaleFactor);
             this.turnIndicator.lineHeight = Math.round(30 * scaleFactor);
-            this.turnIndicator.node.setPosition(new Vec3(0, posY - 20 * scaleFactor, 0));
+            this.turnIndicator.node.setPosition(new Vec3(0, posY - 24 * scaleFactor, 0));
         }
         if (this.turnIndicatorBgNode) {
             const bgTrans = this.turnIndicatorBgNode.getComponent(UITransform);
@@ -697,6 +880,7 @@ export class BoardView extends Component {
             const backTrans = this.backButtonNode.getComponent(UITransform);
             if (backTrans) {
                 backTrans.setContentSize(80, 80); // 触控热区 80x80 物理像素
+                backTrans.setContentSize(92, 92);
             }
             const backGraphics = this.backButtonNode.getComponent(Graphics);
             if (backGraphics) {
@@ -743,6 +927,8 @@ export class BoardView extends Component {
                 backGraphics.lineTo(-arrowLength + 2 * scaleFactor, 0);
                 backGraphics.lineTo(-arrowLength + 2 * scaleFactor + arrowWidth * 0.8, -arrowWidth * 0.8);
                 backGraphics.stroke();
+
+                this.drawBackButtonBadge(backGraphics, scaleFactor);
             }
             // 隐藏子 Label 节点以防残留
             const labelNode = this.backButtonNode.getChildByName("Label");
@@ -750,14 +936,51 @@ export class BoardView extends Component {
                 labelNode.active = false;
             }
             const backY = screenHeight / 2 - Math.max(54 * scaleFactor, topInset + 15 * scaleFactor);
-            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 56 * scaleFactor, backY, 0));
+            this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 82 * scaleFactor, backY, 0));
+        }
+
+        const btnW = 160 * scaleFactor;
+        const btnH = 56 * scaleFactor;
+
+        // 快捷表达按钮位置绑定
+        if (this.quickChatButtonNode) {
+            const chatTrans = this.quickChatButtonNode.getComponent(UITransform);
+            if (chatTrans) {
+                chatTrans.setContentSize(btnW, btnH);
+            }
+            const chatGraphics = this.quickChatButtonNode.getComponent(Graphics);
+            if (chatGraphics) {
+                chatGraphics.clear();
+                chatGraphics.lineWidth = 3 * scaleFactor;
+                chatGraphics.strokeColor = new Color(255, 255, 255, 255);
+                chatGraphics.fillColor = new Color(39, 174, 96, 240); // 清新活力绿
+                chatGraphics.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, 16 * scaleFactor);
+                chatGraphics.fill();
+                chatGraphics.stroke();
+            }
+            const chatLabelNode = this.quickChatButtonNode.getChildByName("Label");
+            if (chatLabelNode) {
+                const chatLabelTrans = chatLabelNode.getComponent(UITransform);
+                if (chatLabelTrans) chatLabelTrans.setContentSize(btnW, btnH);
+                const chatLabelComp = chatLabelNode.getComponent(Label);
+                if (chatLabelComp) {
+                    chatLabelComp.fontSize = Math.round(20 * scaleFactor);
+                    chatLabelComp.lineHeight = Math.round(24 * scaleFactor);
+                }
+            }
+
+            if (this.isNetworkMode) {
+                this.quickChatButtonNode.setPosition(new Vec3(-100 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
+            } else {
+                this.quickChatButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
+            }
         }
 
         // 投降按钮位置绑定
         if (this.surrenderButtonNode) {
             const surrenderTrans = this.surrenderButtonNode.getComponent(UITransform);
             if (surrenderTrans) {
-                surrenderTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+                surrenderTrans.setContentSize(btnW, btnH);
             }
             const surrenderGraphics = this.surrenderButtonNode.getComponent(Graphics);
             if (surrenderGraphics) {
@@ -765,27 +988,25 @@ export class BoardView extends Component {
                 surrenderGraphics.lineWidth = 3 * scaleFactor;
                 surrenderGraphics.strokeColor = new Color(255, 255, 255, 255);
                 surrenderGraphics.fillColor = new Color(211, 47, 47, 240); // 优雅红色
-                const w = 190 * scaleFactor;
-                const h = 56 * scaleFactor;
-                surrenderGraphics.roundRect(-w/2, -h/2, w, h, 16 * scaleFactor);
+                surrenderGraphics.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, 16 * scaleFactor);
                 surrenderGraphics.fill();
                 surrenderGraphics.stroke();
             }
             const surrenderLabelNode = this.surrenderButtonNode.getChildByName("Label");
             if (surrenderLabelNode) {
                 const surrenderLabelTrans = surrenderLabelNode.getComponent(UITransform);
-                if (surrenderLabelTrans) surrenderLabelTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+                if (surrenderLabelTrans) surrenderLabelTrans.setContentSize(btnW, btnH);
                 const surrenderLabelComp = surrenderLabelNode.getComponent(Label);
                 if (surrenderLabelComp) {
-                    surrenderLabelComp.fontSize = Math.round(22 * scaleFactor);
-                    surrenderLabelComp.lineHeight = Math.round(26 * scaleFactor);
+                    surrenderLabelComp.fontSize = Math.round(20 * scaleFactor);
+                    surrenderLabelComp.lineHeight = Math.round(24 * scaleFactor);
                 }
             }
 
             if (this.isNetworkMode) {
-                this.surrenderButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
+                this.surrenderButtonNode.setPosition(new Vec3(100 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
             } else {
-                this.surrenderButtonNode.setPosition(new Vec3(110 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
+                this.surrenderButtonNode.setPosition(new Vec3(175 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
             }
         }
 
@@ -793,7 +1014,7 @@ export class BoardView extends Component {
         if (this.undoButtonNode) {
             const undoTrans = this.undoButtonNode.getComponent(UITransform);
             if (undoTrans) {
-                undoTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+                undoTrans.setContentSize(btnW, btnH);
             }
             const undoGraphics = this.undoButtonNode.getComponent(Graphics);
             if (undoGraphics) {
@@ -801,28 +1022,22 @@ export class BoardView extends Component {
                 undoGraphics.lineWidth = 3 * scaleFactor;
                 undoGraphics.strokeColor = new Color(255, 255, 255, 255);
                 undoGraphics.fillColor = new Color(230, 130, 20, 240); // 暖金橙色
-                const w = 190 * scaleFactor;
-                const h = 56 * scaleFactor;
-                undoGraphics.roundRect(-w/2, -h/2, w, h, 16 * scaleFactor);
+                undoGraphics.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, 16 * scaleFactor);
                 undoGraphics.fill();
                 undoGraphics.stroke();
             }
             const undoLabelNode = this.undoButtonNode.getChildByName("Label");
             if (undoLabelNode) {
                 const undoLabelTrans = undoLabelNode.getComponent(UITransform);
-                if (undoLabelTrans) undoLabelTrans.setContentSize(190 * scaleFactor, 56 * scaleFactor);
+                if (undoLabelTrans) undoLabelTrans.setContentSize(btnW, btnH);
                 const undoLabelComp = undoLabelNode.getComponent(Label);
                 if (undoLabelComp) {
-                    undoLabelComp.fontSize = Math.round(22 * scaleFactor);
-                    undoLabelComp.lineHeight = Math.round(26 * scaleFactor);
+                    undoLabelComp.fontSize = Math.round(20 * scaleFactor);
+                    undoLabelComp.lineHeight = Math.round(24 * scaleFactor);
                 }
             }
 
-            if (this.isNetworkMode) {
-                this.undoButtonNode.setPosition(new Vec3(0, -screenHeight / 2 + 145 * scaleFactor, 0));
-            } else {
-                this.undoButtonNode.setPosition(new Vec3(-110 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
-            }
+            this.undoButtonNode.setPosition(new Vec3(-175 * scaleFactor, -screenHeight / 2 + 145 * scaleFactor, 0));
         }
 
         // 一键切换战场按钮位置绑定
@@ -1558,6 +1773,9 @@ export class BoardView extends Component {
             });
         }
 
+        // 停止当前回合的倒计时，防止走子动画播放期间触发上一回合的超时判定
+        this.stopTurnTimer();
+
         // 执行逻辑移动并获取被吃掉的棋子
         const eatenPiece = this.engine.makeMove(fromX, fromY, toX, toY);
 
@@ -2021,25 +2239,75 @@ export class BoardView extends Component {
         titleNode.setPosition(new Vec3(0, dialogH / 2 - 170 * scaleFactor, 0));
 
         let reasonStr = '';
-        switch (reason) {
-            case GameOverReason.DEN_CAPTURED:
-                reasonStr = '成功占领对方兽穴！';
-                break;
-            case GameOverReason.ELIMINATED:
-                reasonStr = '将对方棋子全部消灭！';
-                break;
-            case GameOverReason.NO_MOVE:
-                reasonStr = '对方已无路可走（困毙）！';
-                break;
-            case GameOverReason.REPETITION_DRAW:
-                reasonStr = '连续 5 次出现相同局面，判定为和棋！';
-                break;
-            case GameOverReason.SURRENDER:
-                reasonStr = '一方投降认输！';
-                break;
-            case GameOverReason.TIMEOUT:
-                reasonStr = '当前回合走棋超时！';
-                break;
+        if (winner === null) {
+            reasonStr = '连续 5 次出现相同局面，判定为和棋！';
+        } else if (isNetworkOrAI) {
+            if (isMeWinner) {
+                switch (reason) {
+                    case GameOverReason.DEN_CAPTURED:
+                        reasonStr = '成功占领对方兽穴！';
+                        break;
+                    case GameOverReason.ELIMINATED:
+                        reasonStr = '将对方棋子全部消灭！';
+                        break;
+                    case GameOverReason.NO_MOVE:
+                        reasonStr = '对方已无路可走（困毙）！';
+                        break;
+                    case GameOverReason.SURRENDER:
+                        reasonStr = '对方已投降认输！';
+                        break;
+                    case GameOverReason.TIMEOUT:
+                        reasonStr = '对方走棋超时！';
+                        break;
+                    default:
+                        reasonStr = '对局结束！';
+                        break;
+                }
+            } else {
+                switch (reason) {
+                    case GameOverReason.DEN_CAPTURED:
+                        reasonStr = '己方兽穴已被对方占领！';
+                        break;
+                    case GameOverReason.ELIMINATED:
+                        reasonStr = '己方棋子已被全部消灭！';
+                        break;
+                    case GameOverReason.NO_MOVE:
+                        reasonStr = '己方已无路可走（困毙）！';
+                        break;
+                    case GameOverReason.SURRENDER:
+                        reasonStr = '你已投降认输！';
+                        break;
+                    case GameOverReason.TIMEOUT:
+                        reasonStr = '己方走棋超时！';
+                        break;
+                    default:
+                        reasonStr = '对局结束！';
+                        break;
+                }
+            }
+        } else {
+            const winnerName = winner === Camp.RED ? '红方' : '蓝方';
+            const loserName = winner === Camp.RED ? '蓝方' : '红方';
+            switch (reason) {
+                case GameOverReason.DEN_CAPTURED:
+                    reasonStr = `${winnerName}成功占领对方兽穴！`;
+                    break;
+                case GameOverReason.ELIMINATED:
+                    reasonStr = `${winnerName}将对方棋子全部消灭！`;
+                    break;
+                case GameOverReason.NO_MOVE:
+                    reasonStr = `${loserName}已无路可走（困毙）！`;
+                    break;
+                case GameOverReason.SURRENDER:
+                    reasonStr = `${loserName}投降认输！`;
+                    break;
+                case GameOverReason.TIMEOUT:
+                    reasonStr = `${loserName}走棋超时！`;
+                    break;
+                default:
+                    reasonStr = `${winnerName}获得胜利！`;
+                    break;
+            }
         }
 
         if (winner === null) {
@@ -2620,12 +2888,48 @@ export class BoardView extends Component {
     private createInGameUI() {
         const showUI = this.node.active;
 
+        // 确保快捷表达按钮被创建与激活
+        if (!this.quickChatButtonNode) {
+            this.quickChatButtonNode = new Node("QuickChatButton");
+            this.quickChatButtonNode.layer = 33554432;
+            this.quickChatButtonNode.addComponent(UITransform);
+            this.quickChatButtonNode.addComponent(Graphics);
+
+            const chatLabelNode = new Node("Label");
+            chatLabelNode.layer = 33554432;
+            chatLabelNode.addComponent(UITransform);
+            const chatLabel = chatLabelNode.addComponent(Label);
+            chatLabel.string = "💬 快捷表达";
+            chatLabel.color = Color.WHITE;
+            chatLabel.isBold = true;
+            this.quickChatButtonNode.addChild(chatLabelNode);
+
+            this.quickChatButtonNode.on(Node.EventType.TOUCH_START, () => {
+                if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+            }, this);
+            this.quickChatButtonNode.on(Node.EventType.TOUCH_END, () => {
+                if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+                AudioSynth.playClick();
+                this.showQuickChatDialog();
+            }, this);
+            this.quickChatButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+                if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            }, this);
+
+            if (this.node.parent) {
+                this.node.parent.addChild(this.quickChatButtonNode);
+            }
+        }
+
         // 如果已经创建，则只需将其激活并执行布局更新即可
         if (this.backButtonNode) {
             this.backButtonNode.active = showUI;
             this.undoButtonNode.active = showUI && !this.isNetworkMode;
             if (this.surrenderButtonNode) {
                 this.surrenderButtonNode.active = showUI;
+            }
+            if (this.quickChatButtonNode) {
+                this.quickChatButtonNode.active = showUI;
             }
             if (this.switchBattlefieldButtonNode) {
                 this.switchBattlefieldButtonNode.active = showUI;
@@ -2727,6 +3031,35 @@ export class BoardView extends Component {
 
         this.node.parent!.addChild(this.surrenderButtonNode);
 
+        // 2.6 创建底部快捷表达按钮
+        this.quickChatButtonNode = new Node("QuickChatButton");
+        this.quickChatButtonNode.layer = 33554432;
+        this.quickChatButtonNode.addComponent(UITransform);
+        this.quickChatButtonNode.addComponent(Graphics);
+
+        const chatLabelNode = new Node("Label");
+        chatLabelNode.layer = 33554432;
+        chatLabelNode.addComponent(UITransform);
+        const chatLabel = chatLabelNode.addComponent(Label);
+        chatLabel.string = "💬 快捷表达";
+        chatLabel.color = Color.WHITE;
+        chatLabel.isBold = true;
+        this.quickChatButtonNode.addChild(chatLabelNode);
+
+        this.quickChatButtonNode.on(Node.EventType.TOUCH_START, () => {
+            if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
+        this.quickChatButtonNode.on(Node.EventType.TOUCH_END, () => {
+            if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            this.showQuickChatDialog();
+        }, this);
+        this.quickChatButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        this.node.parent!.addChild(this.quickChatButtonNode);
+
         // 2.7 创建一键切换战场按钮
         this.switchBattlefieldButtonNode = new Node("SwitchBattlefieldButton");
         this.switchBattlefieldButtonNode.layer = 33554432;
@@ -2765,6 +3098,9 @@ export class BoardView extends Component {
         this.backButtonNode.active = showUI;
         this.undoButtonNode.active = showUI && !this.isNetworkMode;
         this.surrenderButtonNode.active = showUI;
+        if (this.quickChatButtonNode) {
+            this.quickChatButtonNode.active = showUI;
+        }
         if (this.switchBattlefieldButtonNode) {
             this.switchBattlefieldButtonNode.active = showUI;
         }
@@ -3044,7 +3380,7 @@ export class BoardView extends Component {
     }
 
     private onTimerTick = () => {
-        if (!this.node.active) {
+        if (!this.node.active || this.isGameOverState) {
             this.stopTurnTimer();
             return;
         }
@@ -3428,6 +3764,118 @@ export class BoardView extends Component {
             .start();
     }
 
+    /**
+     * 显示等待对手加入的遮罩层。
+     */
+    private showWaitingOverlay(title: string, subtitle: string) {
+        const parent = this.node.parent;
+        if (!parent) {
+            return;
+        }
+
+        const visibleSize = view.getVisibleSize();
+        const cw = visibleSize.width;
+        const ch = visibleSize.height;
+        const scaleFactor = this.getScaleFactor();
+
+        if (this.waitingOverlayNode && this.waitingOverlayNode.isValid) {
+            if (this.waitingMessageLabel) {
+                this.waitingMessageLabel.string = subtitle;
+            }
+            this.waitingOverlayNode.active = true;
+            return;
+        }
+
+        const overlay = new Node('WaitingOverlay');
+        overlay.layer = 33554432;
+        overlay.addComponent(UITransform).setContentSize(cw, ch);
+        parent.addChild(overlay);
+
+        const bgNode = new Node('WaitingBackground');
+        bgNode.layer = 33554432;
+        bgNode.addComponent(UITransform).setContentSize(cw, ch);
+        const bgSprite = bgNode.addComponent(Sprite);
+        bgSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.safeLoadSprite('textures/main_menu_bg', bgSprite);
+        overlay.addChild(bgNode);
+
+        const wash = new Node('WaitingWash');
+        wash.layer = 33554432;
+        wash.addComponent(UITransform).setContentSize(cw, ch);
+        const washGraphics = wash.addComponent(Graphics);
+        washGraphics.fillColor = new Color(243, 255, 227, 68);
+        washGraphics.rect(-cw / 2, -ch / 2, cw, ch);
+        washGraphics.fill();
+        overlay.addChild(wash);
+
+        const panelW = Math.min(cw * 0.84, 560 * scaleFactor);
+        const panelH = Math.min(ch * 0.3, 280 * scaleFactor);
+        const panelRadius = 32 * scaleFactor;
+        const panel = new Node('WaitingPanel');
+        panel.layer = 33554432;
+        panel.addComponent(UITransform).setContentSize(panelW, panelH);
+        const panelGraphics = panel.addComponent(Graphics);
+        panelGraphics.fillColor = new Color(255, 248, 223, 238);
+        panelGraphics.roundRect(-panelW / 2, -panelH / 2, panelW, panelH, panelRadius);
+        panelGraphics.fill();
+        panelGraphics.lineWidth = 2 * scaleFactor;
+        panelGraphics.strokeColor = new Color(205, 187, 140, 255);
+        panelGraphics.roundRect(-panelW / 2, -panelH / 2, panelW, panelH, panelRadius);
+        panelGraphics.stroke();
+        overlay.addChild(panel);
+
+        const titleNode = new Node('WaitingTitle');
+        titleNode.layer = 33554432;
+        titleNode.addComponent(UITransform).setContentSize(panelW - 64 * scaleFactor, 56 * scaleFactor);
+        const titleLabel = titleNode.addComponent(Label);
+        titleLabel.string = title;
+        titleLabel.fontSize = Math.round(Math.max(28, 34 * scaleFactor));
+        titleLabel.lineHeight = Math.round(Math.max(36, 42 * scaleFactor));
+        titleLabel.isBold = true;
+        titleLabel.color = new Color(24, 106, 45, 255);
+        titleNode.setPosition(0, 52 * scaleFactor, 0);
+        panel.addChild(titleNode);
+
+        const subtitleNode = new Node('WaitingSubtitle');
+        subtitleNode.layer = 33554432;
+        subtitleNode.addComponent(UITransform).setContentSize(panelW - 88 * scaleFactor, 84 * scaleFactor);
+        const subtitleLabel = subtitleNode.addComponent(Label);
+        subtitleLabel.string = subtitle;
+        subtitleLabel.fontSize = Math.round(Math.max(18, 21 * scaleFactor));
+        subtitleLabel.lineHeight = Math.round(Math.max(28, 30 * scaleFactor));
+        subtitleLabel.color = new Color(98, 80, 39, 255);
+        subtitleNode.setPosition(0, -6 * scaleFactor, 0);
+        panel.addChild(subtitleNode);
+        this.waitingMessageLabel = subtitleLabel;
+
+        const tipNode = new Node('WaitingTip');
+        tipNode.layer = 33554432;
+        tipNode.addComponent(UITransform).setContentSize(panelW - 88 * scaleFactor, 48 * scaleFactor);
+        const tipLabel = tipNode.addComponent(Label);
+        tipLabel.string = '请保持页面开启，匹配成功后会自动进入对局';
+        tipLabel.fontSize = Math.round(Math.max(15, 17 * scaleFactor));
+        tipLabel.lineHeight = Math.round(Math.max(22, 24 * scaleFactor));
+        tipLabel.color = new Color(132, 118, 84, 255);
+        tipNode.setPosition(0, -76 * scaleFactor, 0);
+        panel.addChild(tipNode);
+
+        this.waitingOverlayNode = overlay;
+    }
+
+    /**
+     * 隐藏等待对手加入的遮罩层。
+     */
+    private hideWaitingOverlay() {
+        if (!this.waitingOverlayNode) {
+            return;
+        }
+        if (this.waitingOverlayNode.isValid) {
+            this.waitingOverlayNode.destroy();
+        }
+        this.waitingOverlayNode = null;
+        this.waitingMessageLabel = null;
+    }
+
     private makeAIMove(): void {
         if (!this.node.active || !this.isAIMode) {
             this.isAIMoving = false;
@@ -3665,6 +4113,12 @@ export class BoardView extends Component {
         console.log(`[BoardView] 重连同步成功！`);
         this.showToast("重连对局成功！");
 
+        if (data.camp) {
+            NetworkManager.getInstance().myCamp = data.camp;
+            this.myCamp = data.camp as Camp;
+            this.isNetworkMode = true;
+        }
+
         if (data.remaining_time !== undefined) {
             this.remainingTime = data.remaining_time;
         }
@@ -3700,6 +4154,7 @@ export class BoardView extends Component {
         NetworkManager.getInstance().off('opponent_left', this.onOpponentLeft);
         NetworkManager.getInstance().off('reconnect_success', this.onReconnectSuccess);
         NetworkManager.getInstance().off('timer_sync', this.onNetworkTimerSync);
+        NetworkManager.getInstance().off('quick_chat', this.onNetworkQuickChat);
         NetworkManager.getInstance().disconnect();
 
         // 主动离开游戏，清除本地暂存的对局房间号
@@ -3783,6 +4238,7 @@ export class BoardView extends Component {
 
     private joinOnlineRoomDirectly(roomCode: string) {
         this.showToast(`正在加入房间 ${roomCode}...`);
+        this.showWaitingOverlay('等待对手加入', `房间号 ${roomCode} 已打开，正在等待另一位玩家进入`);
         NetworkManager.getInstance().connect()
             .then(() => {
                 const onMatchSuccess = (dataStr: any) => {
@@ -3798,6 +4254,8 @@ export class BoardView extends Component {
 
                     NetworkManager.getInstance().off('match_wait', onMatchWait);
                     NetworkManager.getInstance().off('match_success', onMatchSuccess);
+                    this.pendingDirectJoinRoomCode = '';
+                    this.hideWaitingOverlay();
 
                     // 启动网络模式对局
                     this.node.active = true;
@@ -3814,11 +4272,13 @@ export class BoardView extends Component {
                     NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
                     NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
                     NetworkManager.getInstance().on('timer_sync', this.onNetworkTimerSync);
+                    NetworkManager.getInstance().on('quick_chat', this.onNetworkQuickChat);
 
                     this.restartGame();
                 };
 
                 const onMatchWait = () => {
+                    this.showWaitingOverlay('等待对手加入', `房间号 ${roomCode} 已建立，正在等待另一位玩家加入`);
                     this.showToast("房间等待中，等待另一方加入...");
                 };
 
@@ -3830,6 +4290,8 @@ export class BoardView extends Component {
             })
             .catch((err) => {
                 console.error("直接加入房间连接服务器失败:", err);
+                this.pendingDirectJoinRoomCode = '';
+                this.hideWaitingOverlay();
                 this.showToast("连接服务器失败，请检查网络！");
                 this.showMainMenu();
             });
@@ -3887,6 +4349,389 @@ export class BoardView extends Component {
                 }
             }
         });
+    }
+
+    // === 快捷短语与表情包功能实现 ===
+    private showQuickChatDialog() {
+        if (this.quickChatDialogNode && this.quickChatDialogNode.isValid) {
+            this.hideQuickChatDialog();
+            return;
+        }
+
+        const parentNode = this.node.parent!;
+        const parentTrans = parentNode.getComponent(UITransform);
+        const cw = parentTrans ? parentTrans.width : 750;
+        const ch = parentTrans ? parentTrans.height : 1334;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
+        this.quickChatDialogNode = new Node("QuickChatDialog");
+        this.quickChatDialogNode.layer = 33554432;
+        this.quickChatDialogNode.addComponent(UITransform).setContentSize(cw, ch);
+        parentNode.addChild(this.quickChatDialogNode);
+
+        const mask = new Node("Mask");
+        mask.layer = 33554432;
+        mask.addComponent(UITransform).setContentSize(cw, ch);
+        const maskG = mask.addComponent(Graphics);
+        maskG.fillColor = new Color(0, 0, 0, 120);
+        maskG.rect(-cw / 2, -ch / 2, cw, ch);
+        maskG.fill();
+        mask.addComponent(Button);
+        mask.on(Node.EventType.TOUCH_END, () => this.hideQuickChatDialog(), this);
+        this.quickChatDialogNode.addChild(mask);
+
+        const dialogW = Math.min(cw * 0.88, 540 * scaleFactor);
+        const dialogH = 440 * scaleFactor;
+        const dialog = new Node("DialogPanel");
+        dialog.layer = 33554432;
+        dialog.addComponent(UITransform).setContentSize(dialogW, dialogH);
+        const dialogG = dialog.addComponent(Graphics);
+        dialogG.lineWidth = 3 * scaleFactor;
+        dialogG.strokeColor = new Color(225, 220, 170, 255);
+        dialogG.fillColor = new Color(255, 250, 223, 250);
+        dialogG.roundRect(-dialogW / 2, -dialogH / 2, dialogW, dialogH, 24 * scaleFactor);
+        dialogG.fill();
+        dialogG.stroke();
+        dialog.setPosition(0, -30 * scaleFactor, 0);
+        this.quickChatDialogNode.addChild(dialog);
+
+        const titleNode = new Node("Title");
+        titleNode.layer = 33554432;
+        titleNode.setPosition(0, dialogH / 2 - 38 * scaleFactor, 0);
+        const titleLbl = titleNode.addComponent(Label);
+        titleLbl.string = "快捷表达";
+        titleLbl.fontSize = Math.round(24 * scaleFactor);
+        titleLbl.color = new Color(93, 64, 55, 255);
+        titleLbl.isBold = true;
+        dialog.addChild(titleNode);
+
+        const closeBtn = new Node("CloseBtn");
+        closeBtn.layer = 33554432;
+        closeBtn.setPosition(dialogW / 2 - 28 * scaleFactor, dialogH / 2 - 28 * scaleFactor, 0);
+        closeBtn.addComponent(UITransform).setContentSize(40 * scaleFactor, 40 * scaleFactor);
+        const closeG = closeBtn.addComponent(Graphics);
+        closeG.fillColor = new Color(214, 58, 47, 255);
+        closeG.circle(0, 0, 16 * scaleFactor);
+        closeG.fill();
+        const closeTxt = new Node("Txt");
+        closeTxt.layer = 33554432;
+        const closeLbl = closeTxt.addComponent(Label);
+        closeLbl.string = "×";
+        closeLbl.fontSize = Math.round(24 * scaleFactor);
+        closeLbl.color = Color.WHITE;
+        closeLbl.isBold = true;
+        closeBtn.addChild(closeTxt);
+        closeBtn.addComponent(Button);
+        closeBtn.on(Node.EventType.TOUCH_END, () => this.hideQuickChatDialog(), this);
+        dialog.addChild(closeBtn);
+
+        const tabContainer = new Node("TabContainer");
+        tabContainer.layer = 33554432;
+        tabContainer.setPosition(0, dialogH / 2 - 82 * scaleFactor, 0);
+        dialog.addChild(tabContainer);
+
+        this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+
+        dialog.setScale(new Vec3(0.85, 0.85, 1.0));
+        tween(dialog)
+            .to(0.2, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .start();
+    }
+
+    private renderQuickChatContent(dialog: Node, dialogW: number, dialogH: number, scaleFactor: number) {
+        const oldContent = dialog.getChildByName("ContentContainer");
+        if (oldContent) oldContent.destroy();
+
+        const tabContainer = dialog.getChildByName("TabContainer");
+        if (tabContainer) {
+            tabContainer.removeAllChildren();
+            const tabW = 110 * scaleFactor;
+            const tabH = 38 * scaleFactor;
+
+            const phraseTab = new Node("PhraseTab");
+            phraseTab.layer = 33554432;
+            phraseTab.setPosition(-60 * scaleFactor, 0, 0);
+            phraseTab.addComponent(UITransform).setContentSize(tabW, tabH);
+            const phraseG = phraseTab.addComponent(Graphics);
+            const isPhraseActive = this.currentQuickChatTab === 'phrase';
+            phraseG.fillColor = isPhraseActive ? new Color(39, 174, 96, 255) : new Color(242, 233, 184, 255);
+            phraseG.roundRect(-tabW / 2, -tabH / 2, tabW, tabH, tabH / 2);
+            phraseG.fill();
+            const phraseTxt = new Node("Txt");
+            phraseTxt.layer = 33554432;
+            const phraseLbl = phraseTxt.addComponent(Label);
+            phraseLbl.string = "短语";
+            phraseLbl.fontSize = Math.round(18 * scaleFactor);
+            phraseLbl.color = isPhraseActive ? Color.WHITE : new Color(93, 64, 55, 255);
+            phraseLbl.isBold = true;
+            phraseTab.addChild(phraseTxt);
+            phraseTab.addComponent(Button);
+            phraseTab.on(Node.EventType.TOUCH_END, () => {
+                AudioSynth.playClick();
+                this.currentQuickChatTab = 'phrase';
+                this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+            }, this);
+            tabContainer.addChild(phraseTab);
+
+            const stickerTab = new Node("StickerTab");
+            stickerTab.layer = 33554432;
+            stickerTab.setPosition(60 * scaleFactor, 0, 0);
+            stickerTab.addComponent(UITransform).setContentSize(tabW, tabH);
+            const stickerG = stickerTab.addComponent(Graphics);
+            const isStickerActive = this.currentQuickChatTab === 'sticker';
+            stickerG.fillColor = isStickerActive ? new Color(39, 174, 96, 255) : new Color(242, 233, 184, 255);
+            stickerG.roundRect(-tabW / 2, -tabH / 2, tabW, tabH, tabH / 2);
+            stickerG.fill();
+            const stickerTxt = new Node("Txt");
+            stickerTxt.layer = 33554432;
+            const stickerLbl = stickerTxt.addComponent(Label);
+            stickerLbl.string = "表情";
+            stickerLbl.fontSize = Math.round(18 * scaleFactor);
+            stickerLbl.color = isStickerActive ? Color.WHITE : new Color(93, 64, 55, 255);
+            stickerLbl.isBold = true;
+            stickerTab.addChild(stickerTxt);
+            stickerTab.addComponent(Button);
+            stickerTab.on(Node.EventType.TOUCH_END, () => {
+                AudioSynth.playClick();
+                this.currentQuickChatTab = 'sticker';
+                this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+            }, this);
+            tabContainer.addChild(stickerTab);
+        }
+
+        const contentContainer = new Node("ContentContainer");
+        contentContainer.layer = 33554432;
+        contentContainer.setPosition(0, -25 * scaleFactor, 0);
+        dialog.addChild(contentContainer);
+
+        const items = this.currentQuickChatTab === 'phrase' ? QUICK_CHAT_PHRASES : QUICK_CHAT_STICKERS;
+        const itemW = 104 * scaleFactor;
+        const itemH = 64 * scaleFactor;
+        const cols = 4;
+        const gapX = 12 * scaleFactor;
+        const gapY = 12 * scaleFactor;
+        const startX = -((itemW * cols + gapX * (cols - 1)) / 2) + itemW / 2;
+        const startY = 48 * scaleFactor;
+
+        items.forEach((item, index) => {
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const posX = startX + col * (itemW + gapX);
+            const posY = startY - row * (itemH + gapY);
+
+            const card = new Node(`Item_${item.id}`);
+            card.layer = 33554432;
+            card.setPosition(posX, posY, 0);
+            card.addComponent(UITransform).setContentSize(itemW, itemH);
+            const cardG = card.addComponent(Graphics);
+            cardG.lineWidth = 1.5 * scaleFactor;
+            cardG.strokeColor = new Color(234, 223, 162, 255);
+            cardG.fillColor = Color.WHITE;
+            cardG.roundRect(-itemW / 2, -itemH / 2, itemW, itemH, 12 * scaleFactor);
+            cardG.fill();
+            cardG.stroke();
+
+            if (item.kind === 'sticker' && item.emoji) {
+                const emojiNode = new Node("Emoji");
+                emojiNode.layer = 33554432;
+                emojiNode.setPosition(0, 10 * scaleFactor, 0);
+                const emojiLbl = emojiNode.addComponent(Label);
+                emojiLbl.string = item.emoji;
+                emojiLbl.fontSize = Math.round(26 * scaleFactor);
+                card.addChild(emojiNode);
+
+                const lblNode = new Node("Label");
+                lblNode.layer = 33554432;
+                lblNode.setPosition(0, -18 * scaleFactor, 0);
+                const lbl = lblNode.addComponent(Label);
+                lbl.string = item.label;
+                lbl.fontSize = Math.round(14 * scaleFactor);
+                lbl.color = new Color(62, 39, 35, 255);
+                lbl.isBold = true;
+                card.addChild(lblNode);
+            } else {
+                const lblNode = new Node("Label");
+                lblNode.layer = 33554432;
+                lblNode.setPosition(0, 0, 0);
+                const lbl = lblNode.addComponent(Label);
+                lbl.string = item.label;
+                lbl.fontSize = Math.round(16 * scaleFactor);
+                lbl.color = new Color(62, 39, 35, 255);
+                lbl.isBold = true;
+                card.addChild(lblNode);
+            }
+
+            card.addComponent(Button);
+            card.on(Node.EventType.TOUCH_START, () => card.setScale(new Vec3(0.94, 0.94, 1.0)), this);
+            card.on(Node.EventType.TOUCH_END, () => {
+                card.setScale(new Vec3(1.0, 1.0, 1.0));
+                this.onQuickChatItemClicked(item);
+            }, this);
+            card.on(Node.EventType.TOUCH_CANCEL, () => card.setScale(new Vec3(1.0, 1.0, 1.0)), this);
+
+            contentContainer.addChild(card);
+        });
+    }
+
+    private hideQuickChatDialog() {
+        if (!this.quickChatDialogNode) return;
+        const dialog = this.quickChatDialogNode.getChildByName("DialogPanel");
+        if (dialog) {
+            tween(dialog)
+                .to(0.15, { scale: new Vec3(0.85, 0.85, 1.0) }, { easing: 'backIn' })
+                .call(() => {
+                    if (this.quickChatDialogNode && this.quickChatDialogNode.isValid) {
+                        this.quickChatDialogNode.destroy();
+                        this.quickChatDialogNode = null;
+                    }
+                })
+                .start();
+        } else {
+            this.quickChatDialogNode.destroy();
+            this.quickChatDialogNode = null;
+        }
+    }
+
+    private onQuickChatItemClicked(item: QuickChatItem) {
+        AudioSynth.playClick();
+        this.hideQuickChatDialog();
+
+        let senderCamp = this.engine.getCurrentTurn();
+        if (this.isNetworkMode && this.myCamp !== null) {
+            senderCamp = this.myCamp;
+            NetworkManager.getInstance().send('quick_chat', {
+                message: item.message,
+                emoji: item.emoji || '',
+                camp: senderCamp,
+            });
+        }
+
+        this.showChatBubble(item.message, item.emoji, senderCamp);
+
+        if (this.isAIMode && senderCamp === Camp.RED) {
+            this.scheduleOnce(() => {
+                if (this.isGameOverState) return;
+                const aiStickers = QUICK_CHAT_STICKERS;
+                const randomItem = aiStickers[Math.floor(Math.random() * aiStickers.length)];
+                this.showChatBubble(randomItem.message, randomItem.emoji, Camp.BLUE);
+            }, 1.2);
+        }
+    }
+
+    private onNetworkQuickChat = (dataStr: any) => {
+        try {
+            let data = dataStr;
+            if (typeof dataStr === 'string') {
+                data = JSON.parse(dataStr);
+            }
+            if (data && data.message) {
+                const opponentCamp = this.myCamp === Camp.RED ? Camp.BLUE : Camp.RED;
+                this.showChatBubble(data.message, data.emoji, opponentCamp);
+            }
+        } catch (e) {
+            console.error("解析网络快捷消息失败", e);
+        }
+    };
+
+    private showChatBubble(message: string, emoji?: string, senderCamp: Camp = Camp.RED) {
+        if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
+            this.chatBubbleNode.destroy();
+            this.chatBubbleNode = null;
+        }
+
+        const parentNode = this.node.parent!;
+        const parentTrans = parentNode.getComponent(UITransform);
+        const cw = parentTrans ? parentTrans.width : 750;
+        const ch = parentTrans ? parentTrans.height : 1334;
+        const isPortrait = ch > cw;
+        const refW = isPortrait ? 750 : 1280;
+        const refH = isPortrait ? 1334 : 720;
+        const scaleFactor = Math.min(cw / refW, ch / refH);
+
+        this.chatBubbleNode = new Node("ChatBubble");
+        this.chatBubbleNode.layer = 33554432;
+        parentNode.addChild(this.chatBubbleNode);
+
+        const bubbleW = Math.max(160 * scaleFactor, Math.min(cw * 0.7, (message.length * 20 + 60) * scaleFactor));
+        const bubbleH = (emoji ? 84 : 56) * scaleFactor;
+
+        this.chatBubbleNode.addComponent(UITransform).setContentSize(bubbleW, bubbleH);
+        const bubbleG = this.chatBubbleNode.addComponent(Graphics);
+        bubbleG.lineWidth = 3 * scaleFactor;
+        const isRed = senderCamp === Camp.RED;
+        bubbleG.strokeColor = isRed ? new Color(230, 81, 0, 255) : new Color(21, 101, 192, 255);
+        bubbleG.fillColor = Color.WHITE;
+        bubbleG.roundRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 18 * scaleFactor);
+        bubbleG.fill();
+        bubbleG.stroke();
+
+        const arrowH = 10 * scaleFactor;
+        const arrowW = 14 * scaleFactor;
+        const pointerY = isRed ? -bubbleH / 2 : bubbleH / 2;
+        const pointerDir = isRed ? -1 : 1;
+        bubbleG.fillColor = Color.WHITE;
+        bubbleG.moveTo(-arrowW / 2, pointerY);
+        bubbleG.lineTo(0, pointerY + arrowH * pointerDir);
+        bubbleG.lineTo(arrowW / 2, pointerY);
+        bubbleG.fill();
+
+        if (emoji) {
+            const emojiNode = new Node("Emoji");
+            emojiNode.layer = 33554432;
+            emojiNode.setPosition(0, 14 * scaleFactor, 0);
+            const emojiLbl = emojiNode.addComponent(Label);
+            emojiLbl.string = emoji;
+            emojiLbl.fontSize = Math.round(30 * scaleFactor);
+            this.chatBubbleNode.addChild(emojiNode);
+
+            const msgNode = new Node("Message");
+            msgNode.layer = 33554432;
+            msgNode.setPosition(0, -18 * scaleFactor, 0);
+            const msgLbl = msgNode.addComponent(Label);
+            msgLbl.string = message;
+            msgLbl.fontSize = Math.round(18 * scaleFactor);
+            msgLbl.color = isRed ? new Color(211, 47, 47, 255) : new Color(25, 118, 210, 255);
+            msgLbl.isBold = true;
+            this.chatBubbleNode.addChild(msgNode);
+        } else {
+            const msgNode = new Node("Message");
+            msgNode.layer = 33554432;
+            msgNode.setPosition(0, 0, 0);
+            const msgLbl = msgNode.addComponent(Label);
+            msgLbl.string = message;
+            msgLbl.fontSize = Math.round(22 * scaleFactor);
+            msgLbl.color = isRed ? new Color(211, 47, 47, 255) : new Color(25, 118, 210, 255);
+            msgLbl.isBold = true;
+            this.chatBubbleNode.addChild(msgNode);
+        }
+
+        const targetY = isRed ? -ch / 4 + 40 * scaleFactor : ch / 4 - 40 * scaleFactor;
+        this.chatBubbleNode.setPosition(0, targetY, 0);
+
+        const opacityComp = this.chatBubbleNode.addComponent(UIOpacity);
+        opacityComp.opacity = 0;
+        this.chatBubbleNode.setScale(new Vec3(0.5, 0.5, 1.0));
+
+        tween(this.chatBubbleNode)
+            .to(0.2, { scale: new Vec3(1.05, 1.05, 1.0) }, { easing: 'backOut' })
+            .to(0.1, { scale: Vec3.ONE })
+            .delay(2.5)
+            .start();
+
+        tween(opacityComp)
+            .to(0.2, { opacity: 255 })
+            .delay(2.3)
+            .to(0.3, { opacity: 0 })
+            .call(() => {
+                if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
+                    this.chatBubbleNode.destroy();
+                    this.chatBubbleNode = null;
+                }
+            })
+            .start();
     }
 
     private onSwitchBattlefieldClicked() {

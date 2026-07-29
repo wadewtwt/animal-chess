@@ -414,10 +414,10 @@ function draw() {
     gl.clear(gl.COLOR_BUFFER_BIT);
     // draw background
     useCustomBg && drawTexture(gl, programBg, bgTexture, bgVertexBuffer, 4);
-    // draw logo
-    useLogo && drawTexture(gl, program, logoTexture, vertexBuffer, 4);
-    // draw slogan
-    useLogo && useDefaultLogo && drawTexture(gl, program, sloganTexture, sloganVertexBuffer, 4);
+    // draw logo - DISABLED
+    // useLogo && drawTexture(gl, program, logoTexture, vertexBuffer, 4);
+    // draw slogan - DISABLED
+    // useLogo && useDefaultLogo && drawTexture(gl, program, sloganTexture, sloganVertexBuffer, 4);
     // draw progress bar
     drawProgressBar(gl, programProgress, vertexBufferProgress, 3, progress, progressBarColor, progressBackground);
 }
@@ -462,6 +462,8 @@ function setProgress(val) {
 }
 
 function start(alpha, antialias, useWebgl2) {
+    useLogo = false;
+    useDefaultLogo = false;
     options.alpha = alpha === 'true' ? true : false;
     options.antialias = antialias === 'false' ? false : true;
     if (useWebgl2 === 'true') {

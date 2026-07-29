@@ -2,6 +2,8 @@ package main
 
 import (
 	"database/sql"
+	"net/http"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -26,9 +28,21 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	userRepository := NewUserRepository(db)
+	pointsRepository := NewPointsRepository(db)
+	signInRepository := NewSQLSignInStore(db, userRepository, pointsRepository)
+
 	return &App{
-		Config: cfg,
-		DB:     db,
-		Hub:    NewHub(),
+		Config:            cfg,
+		DB:                db,
+		Hub:               NewHub(),
+		HTTPClient:        httpClient,
+		UserRepository:    userRepository,
+		PointsRepository:  pointsRepository,
+		SignInRepository:  signInRepository,
+		SignInService:     NewSignInService(signInRepository),
+		TokenService:      NewTokenService(cfg.TokenSigningSecret),
+		WechatAuthService: NewWechatAuthService(cfg, httpClient),
 	}, nil
 }
