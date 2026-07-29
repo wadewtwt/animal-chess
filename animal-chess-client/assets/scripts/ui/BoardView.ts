@@ -939,33 +939,41 @@ export class BoardView extends Component {
             this.backButtonNode.setPosition(new Vec3(-screenWidth / 2 + 82 * scaleFactor, backY, 0));
         }
 
-        const btnW = 160 * scaleFactor;
-        const btnH = 56 * scaleFactor;
+        const chatBtnW = (isPortrait ? 200 : 170) * scaleFactor;
+        const chatBtnH = (isPortrait ? 76 : 56) * scaleFactor;
+        const chatBtnRadius = chatBtnH / 2;
 
-        // 快捷表达按钮位置绑定
+        // 快捷表达按钮位置绑定与 3D 胶囊气泡重绘
         if (this.quickChatButtonNode) {
             const chatTrans = this.quickChatButtonNode.getComponent(UITransform);
             if (chatTrans) {
-                chatTrans.setContentSize(btnW, btnH);
+                chatTrans.setContentSize(chatBtnW, chatBtnH);
             }
             const chatGraphics = this.quickChatButtonNode.getComponent(Graphics);
             if (chatGraphics) {
                 chatGraphics.clear();
+                // 3D 暖金双描边 + 森林沉青玻璃感底座
                 chatGraphics.lineWidth = 3 * scaleFactor;
-                chatGraphics.strokeColor = new Color(255, 255, 255, 255);
-                chatGraphics.fillColor = new Color(39, 174, 96, 240); // 清新活力绿
-                chatGraphics.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, 16 * scaleFactor);
+                chatGraphics.strokeColor = new Color(255, 213, 79, 255); // 辉煌暖金
+                chatGraphics.fillColor = new Color(24, 78, 36, 245); // 森林沉青
+                chatGraphics.roundRect(-chatBtnW / 2, -chatBtnH / 2, chatBtnW, chatBtnH, chatBtnRadius);
                 chatGraphics.fill();
+                chatGraphics.stroke();
+
+                // 3D 顶部微光弧线
+                chatGraphics.lineWidth = 1.5 * scaleFactor;
+                chatGraphics.strokeColor = new Color(255, 255, 255, 140);
+                chatGraphics.roundRect(-chatBtnW / 2 + 3 * scaleFactor, -chatBtnH / 2 + 3 * scaleFactor, chatBtnW - 6 * scaleFactor, chatBtnH - 6 * scaleFactor, chatBtnRadius - 3 * scaleFactor);
                 chatGraphics.stroke();
             }
             const chatLabelNode = this.quickChatButtonNode.getChildByName("Label");
             if (chatLabelNode) {
                 const chatLabelTrans = chatLabelNode.getComponent(UITransform);
-                if (chatLabelTrans) chatLabelTrans.setContentSize(btnW, btnH);
+                if (chatLabelTrans) chatLabelTrans.setContentSize(chatBtnW, chatBtnH);
                 const chatLabelComp = chatLabelNode.getComponent(Label);
                 if (chatLabelComp) {
-                    chatLabelComp.fontSize = Math.round(20 * scaleFactor);
-                    chatLabelComp.lineHeight = Math.round(24 * scaleFactor);
+                    chatLabelComp.fontSize = Math.round((isPortrait ? 26 : 20) * scaleFactor);
+                    chatLabelComp.lineHeight = Math.round((isPortrait ? 30 : 24) * scaleFactor);
                 }
             }
 
@@ -4352,6 +4360,7 @@ export class BoardView extends Component {
     }
 
     // === 快捷短语与表情包功能实现 ===
+    // === 快捷短语与表情包功能实现 (Neo-Glassmorphism 现代潮酷版) ===
     private showQuickChatDialog() {
         if (this.quickChatDialogNode && this.quickChatDialogNode.isValid) {
             this.hideQuickChatDialog();
@@ -4372,55 +4381,68 @@ export class BoardView extends Component {
         this.quickChatDialogNode.addComponent(UITransform).setContentSize(cw, ch);
         parentNode.addChild(this.quickChatDialogNode);
 
+        // 1. 深色柔焦模糊蒙层 (Glassmorphism Wash)
         const mask = new Node("Mask");
         mask.layer = 33554432;
         mask.addComponent(UITransform).setContentSize(cw, ch);
         const maskG = mask.addComponent(Graphics);
-        maskG.fillColor = new Color(0, 0, 0, 120);
+        maskG.fillColor = new Color(15, 25, 20, 175);
         maskG.rect(-cw / 2, -ch / 2, cw, ch);
         maskG.fill();
         mask.addComponent(Button);
         mask.on(Node.EventType.TOUCH_END, () => this.hideQuickChatDialog(), this);
         this.quickChatDialogNode.addChild(mask);
 
-        const dialogW = Math.min(cw * 0.88, 540 * scaleFactor);
-        const dialogH = 440 * scaleFactor;
+        // 2. 潮酷 28px 超大圆角面板 Panel
+        const dialogW = Math.min(cw * 0.90, 560 * scaleFactor);
+        const dialogH = 460 * scaleFactor;
         const dialog = new Node("DialogPanel");
         dialog.layer = 33554432;
         dialog.addComponent(UITransform).setContentSize(dialogW, dialogH);
         const dialogG = dialog.addComponent(Graphics);
-        dialogG.lineWidth = 3 * scaleFactor;
-        dialogG.strokeColor = new Color(225, 220, 170, 255);
-        dialogG.fillColor = new Color(255, 250, 223, 250);
-        dialogG.roundRect(-dialogW / 2, -dialogH / 2, dialogW, dialogH, 24 * scaleFactor);
+
+        // 精致暖金双描边 + 羊皮纸温润底座
+        dialogG.lineWidth = 3.5 * scaleFactor;
+        dialogG.strokeColor = new Color(255, 213, 79, 255); // 辉煌暖金
+        dialogG.fillColor = new Color(254, 250, 238, 253);
+        dialogG.roundRect(-dialogW / 2, -dialogH / 2, dialogW, dialogH, 28 * scaleFactor);
         dialogG.fill();
         dialogG.stroke();
-        dialog.setPosition(0, -30 * scaleFactor, 0);
+
+        // 内部双层亮色衬线
+        dialogG.lineWidth = 1.5 * scaleFactor;
+        dialogG.strokeColor = new Color(255, 255, 255, 180);
+        dialogG.roundRect(-dialogW / 2 + 4 * scaleFactor, -dialogH / 2 + 4 * scaleFactor, dialogW - 8 * scaleFactor, dialogH - 8 * scaleFactor, 24 * scaleFactor);
+        dialogG.stroke();
+
+        dialog.setPosition(0, -20 * scaleFactor, 0);
         this.quickChatDialogNode.addChild(dialog);
 
+        // 3. 顶部标题栏 "💬 快捷表达"
         const titleNode = new Node("Title");
         titleNode.layer = 33554432;
         titleNode.setPosition(0, dialogH / 2 - 38 * scaleFactor, 0);
         const titleLbl = titleNode.addComponent(Label);
-        titleLbl.string = "快捷表达";
+        titleLbl.string = "💬 快捷表达";
         titleLbl.fontSize = Math.round(24 * scaleFactor);
-        titleLbl.color = new Color(93, 64, 55, 255);
+        titleLbl.color = new Color(78, 52, 46, 255);
         titleLbl.isBold = true;
         dialog.addChild(titleNode);
 
+        // 4. 关闭按钮
         const closeBtn = new Node("CloseBtn");
         closeBtn.layer = 33554432;
-        closeBtn.setPosition(dialogW / 2 - 28 * scaleFactor, dialogH / 2 - 28 * scaleFactor, 0);
-        closeBtn.addComponent(UITransform).setContentSize(40 * scaleFactor, 40 * scaleFactor);
+        closeBtn.setPosition(dialogW / 2 - 30 * scaleFactor, dialogH / 2 - 30 * scaleFactor, 0);
+        closeBtn.addComponent(UITransform).setContentSize(42 * scaleFactor, 42 * scaleFactor);
         const closeG = closeBtn.addComponent(Graphics);
         closeG.fillColor = new Color(214, 58, 47, 255);
-        closeG.circle(0, 0, 16 * scaleFactor);
+        closeG.circle(0, 0, 17 * scaleFactor);
         closeG.fill();
         const closeTxt = new Node("Txt");
         closeTxt.layer = 33554432;
         const closeLbl = closeTxt.addComponent(Label);
         closeLbl.string = "×";
-        closeLbl.fontSize = Math.round(24 * scaleFactor);
+        closeLbl.fontSize = Math.round(26 * scaleFactor);
         closeLbl.color = Color.WHITE;
         closeLbl.isBold = true;
         closeBtn.addChild(closeTxt);
@@ -4428,16 +4450,18 @@ export class BoardView extends Component {
         closeBtn.on(Node.EventType.TOUCH_END, () => this.hideQuickChatDialog(), this);
         dialog.addChild(closeBtn);
 
+        // 5. 选项卡容器
         const tabContainer = new Node("TabContainer");
         tabContainer.layer = 33554432;
-        tabContainer.setPosition(0, dialogH / 2 - 82 * scaleFactor, 0);
+        tabContainer.setPosition(0, dialogH / 2 - 86 * scaleFactor, 0);
         dialog.addChild(tabContainer);
 
         this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
 
-        dialog.setScale(new Vec3(0.85, 0.85, 1.0));
+        // 6. 潮酷弹性弹出动效
+        dialog.setScale(new Vec3(0.8, 0.8, 1.0));
         tween(dialog)
-            .to(0.2, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
+            .to(0.25, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
             .start();
     }
 
@@ -4448,132 +4472,217 @@ export class BoardView extends Component {
         const tabContainer = dialog.getChildByName("TabContainer");
         if (tabContainer) {
             tabContainer.removeAllChildren();
-            const tabW = 110 * scaleFactor;
-            const tabH = 38 * scaleFactor;
 
+            const segmentW = 320 * scaleFactor;
+            const segmentH = 46 * scaleFactor;
+            const segmentRadius = 23 * scaleFactor;
+
+            // 分段控制底座 (Segmented Control Container)
+            const segBgNode = new Node("SegmentBg");
+            segBgNode.layer = 33554432;
+            segBgNode.addComponent(UITransform).setContentSize(segmentW, segmentH);
+            const segG = segBgNode.addComponent(Graphics);
+            segG.fillColor = new Color(230, 222, 198, 255);
+            segG.roundRect(-segmentW / 2, -segmentH / 2, segmentW, segmentH, segmentRadius);
+            segG.fill();
+            tabContainer.addChild(segBgNode);
+
+            const tabW = 154 * scaleFactor;
+            const tabH = 38 * scaleFactor;
+            const isPhraseActive = this.currentQuickChatTab === 'phrase';
+
+            // 1) 短语 Tab
             const phraseTab = new Node("PhraseTab");
             phraseTab.layer = 33554432;
-            phraseTab.setPosition(-60 * scaleFactor, 0, 0);
+            phraseTab.setPosition(-77 * scaleFactor, 0, 0);
             phraseTab.addComponent(UITransform).setContentSize(tabW, tabH);
             const phraseG = phraseTab.addComponent(Graphics);
-            const isPhraseActive = this.currentQuickChatTab === 'phrase';
-            phraseG.fillColor = isPhraseActive ? new Color(39, 174, 96, 255) : new Color(242, 233, 184, 255);
-            phraseG.roundRect(-tabW / 2, -tabH / 2, tabW, tabH, tabH / 2);
-            phraseG.fill();
+            if (isPhraseActive) {
+                phraseG.lineWidth = 2 * scaleFactor;
+                phraseG.strokeColor = new Color(255, 224, 130, 255);
+                phraseG.fillColor = new Color(46, 125, 50, 255); // 深绿高亮
+                phraseG.roundRect(-tabW / 2, -tabH / 2, tabW, tabH, tabH / 2);
+                phraseG.fill();
+                phraseG.stroke();
+            }
             const phraseTxt = new Node("Txt");
             phraseTxt.layer = 33554432;
             const phraseLbl = phraseTxt.addComponent(Label);
-            phraseLbl.string = "短语";
-            phraseLbl.fontSize = Math.round(18 * scaleFactor);
-            phraseLbl.color = isPhraseActive ? Color.WHITE : new Color(93, 64, 55, 255);
+            phraseLbl.string = "💬 常用短语";
+            phraseLbl.fontSize = Math.round(17 * scaleFactor);
+            phraseLbl.color = isPhraseActive ? Color.WHITE : new Color(110, 90, 75, 255);
             phraseLbl.isBold = true;
             phraseTab.addChild(phraseTxt);
             phraseTab.addComponent(Button);
             phraseTab.on(Node.EventType.TOUCH_END, () => {
-                AudioSynth.playClick();
-                this.currentQuickChatTab = 'phrase';
-                this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+                if (this.currentQuickChatTab !== 'phrase') {
+                    AudioSynth.playClick();
+                    this.currentQuickChatTab = 'phrase';
+                    this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+                }
             }, this);
             tabContainer.addChild(phraseTab);
 
+            // 2) 表情 Tab
             const stickerTab = new Node("StickerTab");
             stickerTab.layer = 33554432;
-            stickerTab.setPosition(60 * scaleFactor, 0, 0);
+            stickerTab.setPosition(77 * scaleFactor, 0, 0);
             stickerTab.addComponent(UITransform).setContentSize(tabW, tabH);
             const stickerG = stickerTab.addComponent(Graphics);
             const isStickerActive = this.currentQuickChatTab === 'sticker';
-            stickerG.fillColor = isStickerActive ? new Color(39, 174, 96, 255) : new Color(242, 233, 184, 255);
-            stickerG.roundRect(-tabW / 2, -tabH / 2, tabW, tabH, tabH / 2);
-            stickerG.fill();
+            if (isStickerActive) {
+                stickerG.lineWidth = 2 * scaleFactor;
+                stickerG.strokeColor = new Color(255, 224, 130, 255);
+                stickerG.fillColor = new Color(46, 125, 50, 255); // 深绿高亮
+                stickerG.roundRect(-tabW / 2, -tabH / 2, tabW, tabH, tabH / 2);
+                stickerG.fill();
+                stickerG.stroke();
+            }
             const stickerTxt = new Node("Txt");
             stickerTxt.layer = 33554432;
             const stickerLbl = stickerTxt.addComponent(Label);
-            stickerLbl.string = "表情";
-            stickerLbl.fontSize = Math.round(18 * scaleFactor);
-            stickerLbl.color = isStickerActive ? Color.WHITE : new Color(93, 64, 55, 255);
+            stickerLbl.string = "😎 潮酷表情";
+            stickerLbl.fontSize = Math.round(17 * scaleFactor);
+            stickerLbl.color = isStickerActive ? Color.WHITE : new Color(110, 90, 75, 255);
             stickerLbl.isBold = true;
             stickerTab.addChild(stickerTxt);
             stickerTab.addComponent(Button);
             stickerTab.on(Node.EventType.TOUCH_END, () => {
-                AudioSynth.playClick();
-                this.currentQuickChatTab = 'sticker';
-                this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+                if (this.currentQuickChatTab !== 'sticker') {
+                    AudioSynth.playClick();
+                    this.currentQuickChatTab = 'sticker';
+                    this.renderQuickChatContent(dialog, dialogW, dialogH, scaleFactor);
+                }
             }, this);
             tabContainer.addChild(stickerTab);
         }
 
         const contentContainer = new Node("ContentContainer");
         contentContainer.layer = 33554432;
-        contentContainer.setPosition(0, -25 * scaleFactor, 0);
+        contentContainer.setPosition(0, -32 * scaleFactor, 0);
         dialog.addChild(contentContainer);
 
         const items = this.currentQuickChatTab === 'phrase' ? QUICK_CHAT_PHRASES : QUICK_CHAT_STICKERS;
-        const itemW = 104 * scaleFactor;
-        const itemH = 64 * scaleFactor;
-        const cols = 4;
-        const gapX = 12 * scaleFactor;
-        const gapY = 12 * scaleFactor;
-        const startX = -((itemW * cols + gapX * (cols - 1)) / 2) + itemW / 2;
-        const startY = 48 * scaleFactor;
 
-        items.forEach((item, index) => {
-            const col = index % cols;
-            const row = Math.floor(index / cols);
-            const posX = startX + col * (itemW + gapX);
-            const posY = startY - row * (itemH + gapY);
+        if (this.currentQuickChatTab === 'phrase') {
+            // === 短语渲染模式：2 列双排高颜值胶囊卡片 ===
+            const itemW = 240 * scaleFactor;
+            const itemH = 54 * scaleFactor;
+            const cols = 2;
+            const gapX = 16 * scaleFactor;
+            const gapY = 12 * scaleFactor;
+            const startX = -((itemW * cols + gapX * (cols - 1)) / 2) + itemW / 2;
+            const startY = 64 * scaleFactor;
 
-            const card = new Node(`Item_${item.id}`);
-            card.layer = 33554432;
-            card.setPosition(posX, posY, 0);
-            card.addComponent(UITransform).setContentSize(itemW, itemH);
-            const cardG = card.addComponent(Graphics);
-            cardG.lineWidth = 1.5 * scaleFactor;
-            cardG.strokeColor = new Color(234, 223, 162, 255);
-            cardG.fillColor = Color.WHITE;
-            cardG.roundRect(-itemW / 2, -itemH / 2, itemW, itemH, 12 * scaleFactor);
-            cardG.fill();
-            cardG.stroke();
+            items.forEach((item, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const posX = startX + col * (itemW + gapX);
+                const posY = startY - row * (itemH + gapY);
 
-            if (item.kind === 'sticker' && item.emoji) {
-                const emojiNode = new Node("Emoji");
-                emojiNode.layer = 33554432;
-                emojiNode.setPosition(0, 10 * scaleFactor, 0);
-                const emojiLbl = emojiNode.addComponent(Label);
-                emojiLbl.string = item.emoji;
-                emojiLbl.fontSize = Math.round(26 * scaleFactor);
-                card.addChild(emojiNode);
+                const card = new Node(`Item_${item.id}`);
+                card.layer = 33554432;
+                card.setPosition(posX, posY, 0);
+                card.addComponent(UITransform).setContentSize(itemW, itemH);
+                const cardG = card.addComponent(Graphics);
+
+                cardG.lineWidth = 2 * scaleFactor;
+                cardG.strokeColor = new Color(240, 226, 182, 255);
+                cardG.fillColor = Color.WHITE;
+                cardG.roundRect(-itemW / 2, -itemH / 2, itemW, itemH, 16 * scaleFactor);
+                cardG.fill();
+                cardG.stroke();
+
+                if (item.icon) {
+                    const iconBadge = new Node("IconBadge");
+                    iconBadge.layer = 33554432;
+                    iconBadge.setPosition(-itemW / 2 + 28 * scaleFactor, 0, 0);
+                    const iconLbl = iconBadge.addComponent(Label);
+                    iconLbl.string = item.icon;
+                    iconLbl.fontSize = Math.round(22 * scaleFactor);
+                    card.addChild(iconBadge);
+                }
 
                 const lblNode = new Node("Label");
                 lblNode.layer = 33554432;
-                lblNode.setPosition(0, -18 * scaleFactor, 0);
+                lblNode.setPosition(item.icon ? 12 * scaleFactor : 0, 0, 0);
                 const lbl = lblNode.addComponent(Label);
                 lbl.string = item.label;
-                lbl.fontSize = Math.round(14 * scaleFactor);
+                lbl.fontSize = Math.round(17 * scaleFactor);
                 lbl.color = new Color(62, 39, 35, 255);
                 lbl.isBold = true;
                 card.addChild(lblNode);
-            } else {
-                const lblNode = new Node("Label");
-                lblNode.layer = 33554432;
-                lblNode.setPosition(0, 0, 0);
-                const lbl = lblNode.addComponent(Label);
-                lbl.string = item.label;
-                lbl.fontSize = Math.round(16 * scaleFactor);
-                lbl.color = new Color(62, 39, 35, 255);
-                lbl.isBold = true;
-                card.addChild(lblNode);
-            }
 
-            card.addComponent(Button);
-            card.on(Node.EventType.TOUCH_START, () => card.setScale(new Vec3(0.94, 0.94, 1.0)), this);
-            card.on(Node.EventType.TOUCH_END, () => {
-                card.setScale(new Vec3(1.0, 1.0, 1.0));
-                this.onQuickChatItemClicked(item);
-            }, this);
-            card.on(Node.EventType.TOUCH_CANCEL, () => card.setScale(new Vec3(1.0, 1.0, 1.0)), this);
+                card.addComponent(Button);
+                card.on(Node.EventType.TOUCH_START, () => card.setScale(new Vec3(0.95, 0.95, 1.0)), this);
+                card.on(Node.EventType.TOUCH_END, () => {
+                    card.setScale(new Vec3(1.0, 1.0, 1.0));
+                    this.onQuickChatItemClicked(item);
+                }, this);
+                card.on(Node.EventType.TOUCH_CANCEL, () => card.setScale(new Vec3(1.0, 1.0, 1.0)), this);
 
-            contentContainer.addChild(card);
-        });
+                contentContainer.addChild(card);
+            });
+        } else {
+            // === 表情包渲染模式：4 列潮酷萌表网格卡片 ===
+            const itemW = 116 * scaleFactor;
+            const itemH = 82 * scaleFactor;
+            const cols = 4;
+            const gapX = 14 * scaleFactor;
+            const gapY = 14 * scaleFactor;
+            const startX = -((itemW * cols + gapX * (cols - 1)) / 2) + itemW / 2;
+            const startY = 48 * scaleFactor;
+
+            items.forEach((item, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const posX = startX + col * (itemW + gapX);
+                const posY = startY - row * (itemH + gapY);
+
+                const card = new Node(`Item_${item.id}`);
+                card.layer = 33554432;
+                card.setPosition(posX, posY, 0);
+                card.addComponent(UITransform).setContentSize(itemW, itemH);
+                const cardG = card.addComponent(Graphics);
+
+                cardG.lineWidth = 2 * scaleFactor;
+                cardG.strokeColor = new Color(240, 226, 182, 255);
+                cardG.fillColor = Color.WHITE;
+                cardG.roundRect(-itemW / 2, -itemH / 2, itemW, itemH, 18 * scaleFactor);
+                cardG.fill();
+                cardG.stroke();
+
+                if (item.emoji) {
+                    const emojiNode = new Node("Emoji");
+                    emojiNode.layer = 33554432;
+                    emojiNode.setPosition(0, 12 * scaleFactor, 0);
+                    const emojiLbl = emojiNode.addComponent(Label);
+                    emojiLbl.string = item.emoji;
+                    emojiLbl.fontSize = Math.round(30 * scaleFactor);
+                    card.addChild(emojiNode);
+
+                    const lblNode = new Node("Label");
+                    lblNode.layer = 33554432;
+                    lblNode.setPosition(0, -22 * scaleFactor, 0);
+                    const lbl = lblNode.addComponent(Label);
+                    lbl.string = item.label;
+                    lbl.fontSize = Math.round(14 * scaleFactor);
+                    lbl.color = new Color(90, 70, 60, 255);
+                    lbl.isBold = true;
+                    card.addChild(lblNode);
+                }
+
+                card.addComponent(Button);
+                card.on(Node.EventType.TOUCH_START, () => card.setScale(new Vec3(0.92, 0.92, 1.0)), this);
+                card.on(Node.EventType.TOUCH_END, () => {
+                    card.setScale(new Vec3(1.0, 1.0, 1.0));
+                    this.onQuickChatItemClicked(item);
+                }, this);
+                card.on(Node.EventType.TOUCH_CANCEL, () => card.setScale(new Vec3(1.0, 1.0, 1.0)), this);
+
+                contentContainer.addChild(card);
+            });
+        }
     }
 
     private hideQuickChatDialog() {
@@ -4655,51 +4764,70 @@ export class BoardView extends Component {
         this.chatBubbleNode.layer = 33554432;
         parentNode.addChild(this.chatBubbleNode);
 
-        const bubbleW = Math.max(160 * scaleFactor, Math.min(cw * 0.7, (message.length * 20 + 60) * scaleFactor));
-        const bubbleH = (emoji ? 84 : 56) * scaleFactor;
+        const isRed = senderCamp === Camp.RED;
+        const displayTxt = emoji ? `${emoji} ${message}` : message;
+        const bubbleW = Math.max(180 * scaleFactor, Math.min(cw * 0.75, (displayTxt.length * 18 + 56) * scaleFactor));
+        const bubbleH = 64 * scaleFactor;
 
         this.chatBubbleNode.addComponent(UITransform).setContentSize(bubbleW, bubbleH);
         const bubbleG = this.chatBubbleNode.addComponent(Graphics);
+
+        // 现代化 3D 浮雕气泡框
         bubbleG.lineWidth = 3 * scaleFactor;
-        const isRed = senderCamp === Camp.RED;
         bubbleG.strokeColor = isRed ? new Color(230, 81, 0, 255) : new Color(21, 101, 192, 255);
-        bubbleG.fillColor = Color.WHITE;
-        bubbleG.roundRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 18 * scaleFactor);
+        bubbleG.fillColor = isRed ? new Color(255, 248, 243, 253) : new Color(243, 248, 255, 253);
+        bubbleG.roundRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 20 * scaleFactor);
         bubbleG.fill();
         bubbleG.stroke();
 
-        const arrowH = 10 * scaleFactor;
-        const arrowW = 14 * scaleFactor;
+        // 气泡下/上尖角小尾巴 (Pointer Arrow)
+        const arrowH = 12 * scaleFactor;
+        const arrowW = 16 * scaleFactor;
         const pointerY = isRed ? -bubbleH / 2 : bubbleH / 2;
         const pointerDir = isRed ? -1 : 1;
-        bubbleG.fillColor = Color.WHITE;
+        bubbleG.fillColor = isRed ? new Color(255, 248, 243, 253) : new Color(243, 248, 255, 253);
         bubbleG.moveTo(-arrowW / 2, pointerY);
         bubbleG.lineTo(0, pointerY + arrowH * pointerDir);
         bubbleG.lineTo(arrowW / 2, pointerY);
         bubbleG.fill();
 
-        if (emoji) {
-            const emojiNode = new Node("Emoji");
-            emojiNode.layer = 33554432;
-            emojiNode.setPosition(0, 14 * scaleFactor, 0);
-            const emojiLbl = emojiNode.addComponent(Label);
-            emojiLbl.string = emoji;
-            emojiLbl.fontSize = Math.round(30 * scaleFactor);
-            this.chatBubbleNode.addChild(emojiNode);
+        // 气泡文本节点
+        const msgNode = new Node("MsgText");
+        msgNode.layer = 33554432;
+        const msgLbl = msgNode.addComponent(Label);
+        msgLbl.string = displayTxt;
+        msgLbl.fontSize = Math.round(18 * scaleFactor);
+        msgLbl.color = isRed ? new Color(183, 28, 28, 255) : new Color(13, 71, 161, 255);
+        msgLbl.isBold = true;
+        this.chatBubbleNode.addChild(msgNode);
 
-            const msgNode = new Node("Message");
-            msgNode.layer = 33554432;
-            msgNode.setPosition(0, -18 * scaleFactor, 0);
-            const msgLbl = msgNode.addComponent(Label);
-            msgLbl.string = message;
-            msgLbl.fontSize = Math.round(18 * scaleFactor);
-            msgLbl.color = isRed ? new Color(211, 47, 47, 255) : new Color(25, 118, 210, 255);
-            msgLbl.isBold = true;
-            this.chatBubbleNode.addChild(msgNode);
-        } else {
-            const msgNode = new Node("Message");
-            msgNode.layer = 33554432;
-            msgNode.setPosition(0, 0, 0);
+        // 设置气泡出现位置（红方在屏幕中下方，蓝方在屏幕中上方）
+        const bubbleY = isRed ? -ch / 2 + 250 * scaleFactor : ch / 2 - 250 * scaleFactor;
+        this.chatBubbleNode.setPosition(0, bubbleY, 0);
+
+        // 潮酷弹跳回弹 + 向上缓缓漂浮上浮淡出动效
+        this.chatBubbleNode.setScale(new Vec3(0.4, 0.4, 1.0));
+        const opacityComp = this.chatBubbleNode.addComponent(UIOpacity);
+        opacityComp.opacity = 255;
+
+        tween(this.chatBubbleNode)
+            .to(0.2, { scale: new Vec3(1.08, 1.08, 1.0) }, { easing: 'backOut' })
+            .to(0.08, { scale: new Vec3(1.0, 1.0, 1.0) })
+            .delay(2.2)
+            .by(0.6, { position: new Vec3(0, 30 * scaleFactor, 0) })
+            .start();
+
+        tween(opacityComp)
+            .delay(2.2)
+            .to(0.6, { opacity: 0 })
+            .call(() => {
+                if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
+                    this.chatBubbleNode.destroy();
+                    this.chatBubbleNode = null;
+                }
+            })
+            .start();
+    }
             const msgLbl = msgNode.addComponent(Label);
             msgLbl.string = message;
             msgLbl.fontSize = Math.round(22 * scaleFactor);
