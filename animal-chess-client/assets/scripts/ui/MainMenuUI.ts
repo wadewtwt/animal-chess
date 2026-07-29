@@ -359,7 +359,7 @@ export class MainMenuUI extends Component {
             console.log('[MainMenuUI] initializeProfileFeature skipped: unsupported environment or profile already cached');
             return;
         }
-        this.showProfileAuthorization();
+        console.log('[MainMenuUI] initializeProfileFeature skipped: wait user tap profile entry');
     }
 
     private showProfileAuthorization(): void {

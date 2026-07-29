@@ -9,9 +9,11 @@ export class MainMenuProfileOverlay {
     private readonly root: Node;
     private nativeButton: any = null;
     private readonly onAuthorized: (profile: WechatUserInfo) => void;
+    private readonly scaleFactor: number;
 
     public constructor(parent: Node, scaleFactor: number, onAuthorized: (profile: WechatUserInfo) => void) {
         this.onAuthorized = onAuthorized;
+        this.scaleFactor = scaleFactor;
         this.root = new Node('MainMenuProfileOverlay');
         this.root.layer = 33554432;
         this.root.addComponent(UITransform).setContentSize(520 * scaleFactor, 260 * scaleFactor);
@@ -33,13 +35,16 @@ export class MainMenuProfileOverlay {
         hintLabel.color = new Color(220, 240, 210, 255);
         hint.setPosition(0, 20 * scaleFactor, 0);
         this.root.addChild(hint);
+        const auth = this.createAuthButton(scaleFactor);
+        auth.setPosition(0, -35 * scaleFactor, 0);
+        this.root.addChild(auth);
         const skip = new Node('Skip');
         const skipLabel = skip.addComponent(Label);
         skipLabel.string = '暂不授权';
         skipLabel.fontSize = 18 * scaleFactor;
         skipLabel.color = new Color(190, 220, 180, 255);
         skip.addComponent(UITransform).setContentSize(180 * scaleFactor, 44 * scaleFactor);
-        skip.setPosition(0, -70 * scaleFactor, 0);
+        skip.setPosition(0, -95 * scaleFactor, 0);
         skip.addComponent(Button);
         skip.on(Node.EventType.TOUCH_END, () => this.hide());
         this.root.addChild(skip);
@@ -78,21 +83,23 @@ export class MainMenuProfileOverlay {
         }
         this.destroyNativeButton();
         const info = typeof wxObj.getSystemInfoSync === 'function' ? wxObj.getSystemInfoSync() : { windowWidth: 375, windowHeight: 667 };
-        const width = Math.min(240, Math.max(160, Number(info.windowWidth || 375) * 0.55));
-        const height = 48;
+        const windowWidth = Number(info.windowWidth || 375);
+        const windowHeight = Number(info.windowHeight || 667);
+        const width = Math.min(240, Math.max(160, windowWidth * 0.55));
+        const height = Math.max(44, 48 * this.scaleFactor);
         this.nativeButton = wxObj.createUserInfoButton({
             type: 'text',
-            text: '授权微信资料',
+            text: '',
             style: {
-                left: (Number(info.windowWidth || 375) - width) / 2,
-                top: Number(info.windowHeight || 667) / 2 + 35,
+                left: (windowWidth - width) / 2,
+                top: windowHeight / 2 + 35 * this.scaleFactor - height / 2,
                 width,
                 height,
-                color: '#ffffff',
-                backgroundColor: '#2b8735',
-                borderColor: '#ffe696',
-                borderWidth: 1,
-                borderRadius: 8,
+                color: 'rgba(255,255,255,0)',
+                backgroundColor: 'rgba(255,255,255,0)',
+                borderColor: 'rgba(255,255,255,0)',
+                borderWidth: 0,
+                borderRadius: 12,
                 fontSize: 16,
                 textAlign: 'center',
             },
@@ -107,6 +114,34 @@ export class MainMenuProfileOverlay {
                 this.hide();
             });
         }
+    }
+
+    private createAuthButton(scaleFactor: number): Node {
+        const width = 240 * scaleFactor;
+        const height = 48 * scaleFactor;
+        const radius = 12 * scaleFactor;
+        const node = new Node('AuthorizeButton');
+        node.layer = 33554432;
+        node.addComponent(UITransform).setContentSize(width, height);
+        const graphics = node.addComponent(Graphics);
+        graphics.fillColor = new Color(43, 135, 53, 255);
+        graphics.roundRect(-width / 2, -height / 2, width, height, radius);
+        graphics.fill();
+        graphics.strokeColor = new Color(255, 230, 150, 255);
+        graphics.lineWidth = 1 * scaleFactor;
+        graphics.roundRect(-width / 2, -height / 2, width, height, radius);
+        graphics.stroke();
+
+        const text = new Node('AuthorizeLabel');
+        text.layer = 33554432;
+        const label = text.addComponent(Label);
+        label.string = '授权微信资料';
+        label.fontSize = 18 * scaleFactor;
+        label.lineHeight = 22 * scaleFactor;
+        label.color = new Color(255, 255, 255, 255);
+        label.isBold = true;
+        node.addChild(text);
+        return node;
     }
 
     private destroyNativeButton(): void {

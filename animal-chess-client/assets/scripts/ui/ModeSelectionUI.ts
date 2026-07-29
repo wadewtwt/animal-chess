@@ -1671,68 +1671,62 @@ export class ModeSelectionUI extends Component {
         const btn2Y = btn1Y - btnH - btnGap;
         const btn3Y = btn2Y - btnH - btnGap;
 
-        // 在线随机匹配按钮
-        const matchShadow = this.createRectNode('MatchShadow', '#145a32', btnW, btnH, btnRadius, 100);
-        matchShadow.setPosition(0, btn1Y - 4 * scaleFactor, 0);
-        dialog.addChild(matchShadow);
-
-        const matchBtn = this.createRectNode('MatchBtn', '#27ae60', btnW, btnH, btnRadius);
-        matchBtn.setPosition(0, btn1Y, 0);
-        dialog.addChild(matchBtn);
-        const matchTxt = this.createLabelNode('MatchTxt', '全网随机匹配', 26 * scaleFactor, '#ffffff', true);
-        matchBtn.addChild(matchTxt);
-
-        matchBtn.addComponent(Button);
-        matchBtn.on(Node.EventType.TOUCH_START, () => { matchBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
-        matchBtn.on(Node.EventType.TOUCH_END, () => {
-            matchBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
-            this.hideRoomActionDialog();
-            this.showMatchmakingDialog();
+        this.createRoomActionButton(dialog, {
+            name: 'Match',
+            y: btn1Y,
+            width: btnW,
+            height: btnH,
+            radius: btnRadius,
+            icon: 'VS',
+            title: '全网随机匹配',
+            subtitle: '自动寻找合适对手',
+            fillHex: '#27ae60',
+            shadowHex: '#145a32',
+            iconHex: '#e9fff0',
+            onClick: () => {
+                this.hideRoomActionDialog();
+                this.showMatchmakingDialog();
+            },
+            scaleFactor,
         });
-        matchBtn.on(Node.EventType.TOUCH_CANCEL, () => { matchBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
-        // 创建房间按钮
-        const createShadow = this.createRectNode('CreateShadow', '#7f4400', btnW, btnH, btnRadius, 100);
-        createShadow.setPosition(0, btn2Y - 4 * scaleFactor, 0);
-        dialog.addChild(createShadow);
-
-        const createBtn = this.createRectNode('CreateBtn', '#d68118', btnW, btnH, btnRadius);
-        createBtn.setPosition(0, btn2Y, 0);
-        dialog.addChild(createBtn);
-        const createTxt = this.createLabelNode('CreateTxt', '创建专属房间', 26 * scaleFactor, '#ffffff', true);
-        createBtn.addChild(createTxt);
-
-        createBtn.addComponent(Button);
-        createBtn.on(Node.EventType.TOUCH_START, () => { createBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
-        createBtn.on(Node.EventType.TOUCH_END, () => {
-            createBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
-            this.hideRoomActionDialog();
-            this.showCreateRoomDialog();
+        this.createRoomActionButton(dialog, {
+            name: 'Create',
+            y: btn2Y,
+            width: btnW,
+            height: btnH,
+            radius: btnRadius,
+            icon: '+',
+            title: '创建专属房间',
+            subtitle: '生成房间号邀请好友',
+            fillHex: '#d68118',
+            shadowHex: '#7f4400',
+            iconHex: '#fff3d4',
+            onClick: () => {
+                this.hideRoomActionDialog();
+                this.showCreateRoomDialog();
+            },
+            scaleFactor,
         });
-        createBtn.on(Node.EventType.TOUCH_CANCEL, () => { createBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
-        // 加入房间按钮
-        const joinShadow = this.createRectNode('JoinShadow', '#1a5276', btnW, btnH, btnRadius, 100);
-        joinShadow.setPosition(0, btn3Y - 4 * scaleFactor, 0);
-        dialog.addChild(joinShadow);
-
-        const joinBtn = this.createRectNode('JoinBtn', '#2980b9', btnW, btnH, btnRadius);
-        joinBtn.setPosition(0, btn3Y, 0);
-        dialog.addChild(joinBtn);
-        const joinTxt = this.createLabelNode('JoinTxt', '输入房间号加入', 26 * scaleFactor, '#ffffff', true);
-        joinBtn.addChild(joinTxt);
-
-        joinBtn.addComponent(Button);
-        joinBtn.on(Node.EventType.TOUCH_START, () => { joinBtn.setScale(new Vec3(0.96, 0.96, 1.0)); });
-        joinBtn.on(Node.EventType.TOUCH_END, () => {
-            joinBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
-            this.hideRoomActionDialog();
-            this.showJoinRoomKeyboard();
+        this.createRoomActionButton(dialog, {
+            name: 'Join',
+            y: btn3Y,
+            width: btnW,
+            height: btnH,
+            radius: btnRadius,
+            icon: '#',
+            title: '输入房间号加入',
+            subtitle: '输入 6 位数字开局',
+            fillHex: '#2980b9',
+            shadowHex: '#1a5276',
+            iconHex: '#e7f5ff',
+            onClick: () => {
+                this.hideRoomActionDialog();
+                this.showJoinRoomKeyboard();
+            },
+            scaleFactor,
         });
-        joinBtn.on(Node.EventType.TOUCH_CANCEL, () => { joinBtn.setScale(new Vec3(1.0, 1.0, 1.0)); });
 
         // 动画弹出
         this.roomActionDialog.active = true;
@@ -1741,6 +1735,89 @@ export class ModeSelectionUI extends Component {
         tween(dialogNode)
             .to(0.2, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'backOut' })
             .start();
+    }
+
+    /**
+     * 创建房间入口弹窗中的带图标操作按钮。
+     */
+    private createRoomActionButton(
+        parent: Node,
+        options: {
+            name: string;
+            y: number;
+            width: number;
+            height: number;
+            radius: number;
+            icon: string;
+            title: string;
+            subtitle: string;
+            fillHex: string;
+            shadowHex: string;
+            iconHex: string;
+            onClick: () => void;
+            scaleFactor: number;
+        }
+    ): Node {
+        const shadow = this.createRectNode(`${options.name}Shadow`, options.shadowHex, options.width, options.height, options.radius, 118);
+        shadow.setPosition(0, options.y - 4 * options.scaleFactor, 0);
+        parent.addChild(shadow);
+
+        const button = this.createRectNode(`${options.name}Btn`, options.fillHex, options.width, options.height, options.radius);
+        button.setPosition(0, options.y, 0);
+        parent.addChild(button);
+
+        const highlight = this.createRectNode(`${options.name}Highlight`, '#ffffff', options.width - 26 * options.scaleFactor, 18 * options.scaleFactor, 9 * options.scaleFactor, 34);
+        highlight.setPosition(0, options.height / 2 - 17 * options.scaleFactor, 0);
+        button.addChild(highlight);
+
+        const iconSize = options.height * 0.56;
+        const iconBg = this.createCircleNode(`${options.name}IconBg`, options.iconHex, iconSize / 2, 245);
+        iconBg.setPosition(-options.width / 2 + 47 * options.scaleFactor, 0, 0);
+        button.addChild(iconBg);
+
+        const iconLabel = this.createLabelNode(`${options.name}Icon`, options.icon, 22 * options.scaleFactor, options.fillHex, true);
+        iconBg.addChild(iconLabel);
+
+        const textStartX = -options.width / 2 + 86 * options.scaleFactor;
+        const title = this.createLabelNode(`${options.name}Title`, options.title, 23 * options.scaleFactor, '#ffffff', true);
+        title.getComponent(UITransform)?.setAnchorPoint(0, 0.5);
+        const titleLabel = title.getComponent(Label);
+        if (titleLabel) {
+            titleLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
+        }
+        title.setPosition(textStartX, 11 * options.scaleFactor, 0);
+        button.addChild(title);
+
+        const subtitle = this.createLabelNode(`${options.name}Subtitle`, options.subtitle, 15 * options.scaleFactor, '#f7f3df', false);
+        subtitle.getComponent(UITransform)?.setAnchorPoint(0, 0.5);
+        const subtitleLabel = subtitle.getComponent(Label);
+        if (subtitleLabel) {
+            subtitleLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
+        }
+        subtitle.setPosition(textStartX, -15 * options.scaleFactor, 0);
+        button.addChild(subtitle);
+
+        const arrow = this.createLabelNode(`${options.name}Arrow`, '›', 28 * options.scaleFactor, '#ffffff', true);
+        arrow.setPosition(options.width / 2 - 31 * options.scaleFactor, 0, 0);
+        button.addChild(arrow);
+
+        button.addComponent(Button);
+        button.on(Node.EventType.TOUCH_START, () => {
+            button.setScale(new Vec3(0.96, 0.96, 1.0));
+            shadow.setScale(new Vec3(0.96, 0.96, 1.0));
+        }, this);
+        button.on(Node.EventType.TOUCH_END, () => {
+            button.setScale(new Vec3(1.0, 1.0, 1.0));
+            shadow.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playClick();
+            options.onClick();
+        }, this);
+        button.on(Node.EventType.TOUCH_CANCEL, () => {
+            button.setScale(new Vec3(1.0, 1.0, 1.0));
+            shadow.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        return button;
     }
 
     private hideRoomActionDialog() {
