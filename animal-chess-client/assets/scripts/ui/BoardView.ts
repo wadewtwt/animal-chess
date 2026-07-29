@@ -104,7 +104,8 @@ export class BoardView extends Component {
     private quickChatButtonNode: Node | null = null;
     private quickChatDialogNode: Node | null = null;
     private currentQuickChatTab: QuickChatKind = 'phrase';
-    private chatBubbleNode: Node | null = null;
+    private myChatBubbleNode: Node | null = null;
+    private opponentChatBubbleNode: Node | null = null;
     private isGrassStyle: boolean = true;
     private boardTransitionOverlayNode: Node | null = null;
     private isBoardTransitioning: boolean = false;
@@ -134,9 +135,13 @@ export class BoardView extends Component {
             this.quickChatDialogNode.destroy();
             this.quickChatDialogNode = null;
         }
-        if (this.chatBubbleNode) {
-            this.chatBubbleNode.destroy();
-            this.chatBubbleNode = null;
+        if (this.myChatBubbleNode) {
+            this.myChatBubbleNode.destroy();
+            this.myChatBubbleNode = null;
+        }
+        if (this.opponentChatBubbleNode) {
+            this.opponentChatBubbleNode.destroy();
+            this.opponentChatBubbleNode = null;
         }
         if (this.undoRequestPanel) {
             this.undoRequestPanel.destroy();
@@ -942,11 +947,11 @@ export class BoardView extends Component {
 
         const btnW = 160 * scaleFactor;
         const btnH = 56 * scaleFactor;
-        const chatBtnW = (isPortrait ? 200 : 170) * scaleFactor;
+        const chatBtnW = (isPortrait ? 100 : 84) * scaleFactor;
         const chatBtnH = (isPortrait ? 76 : 56) * scaleFactor;
         const chatBtnRadius = chatBtnH / 2;
 
-        // 快捷表达按钮位置绑定与 3D 胶囊气泡重绘
+        // 快捷表达按钮位置绑定与纯 💬 图标气泡重绘
         if (this.quickChatButtonNode) {
             const chatTrans = this.quickChatButtonNode.getComponent(UITransform);
             if (chatTrans) {
@@ -975,8 +980,9 @@ export class BoardView extends Component {
                 if (chatLabelTrans) chatLabelTrans.setContentSize(chatBtnW, chatBtnH);
                 const chatLabelComp = chatLabelNode.getComponent(Label);
                 if (chatLabelComp) {
-                    chatLabelComp.fontSize = Math.round((isPortrait ? 26 : 20) * scaleFactor);
-                    chatLabelComp.lineHeight = Math.round((isPortrait ? 30 : 24) * scaleFactor);
+                    chatLabelComp.string = "💬"; // 彻底删除界面中间的"快捷表达"四字文本
+                    chatLabelComp.fontSize = Math.round((isPortrait ? 30 : 24) * scaleFactor);
+                    chatLabelComp.lineHeight = Math.round((isPortrait ? 34 : 28) * scaleFactor);
                 }
             }
 
@@ -2910,7 +2916,7 @@ export class BoardView extends Component {
             chatLabelNode.layer = 33554432;
             chatLabelNode.addComponent(UITransform);
             const chatLabel = chatLabelNode.addComponent(Label);
-            chatLabel.string = "💬 快捷表达";
+            chatLabel.string = "💬";
             chatLabel.color = Color.WHITE;
             chatLabel.isBold = true;
             this.quickChatButtonNode.addChild(chatLabelNode);
@@ -3052,7 +3058,7 @@ export class BoardView extends Component {
         chatLabelNode.layer = 33554432;
         chatLabelNode.addComponent(UITransform);
         const chatLabel = chatLabelNode.addComponent(Label);
-        chatLabel.string = "💬 快捷表达";
+        chatLabel.string = "💬";
         chatLabel.color = Color.WHITE;
         chatLabel.isBold = true;
         this.quickChatButtonNode.addChild(chatLabelNode);
@@ -4721,15 +4727,18 @@ export class BoardView extends Component {
             });
         }
 
+        // 己方发送，右下角绿气泡
         this.showChatBubble(item.message, item.emoji, senderCamp);
 
-        if (this.isAIMode && senderCamp === Camp.RED) {
+        // 单机/人机练习模式下，1.0秒后对方自动智能回复
+        if (!this.isNetworkMode || this.isAIMode) {
             this.scheduleOnce(() => {
                 if (this.isGameOverState) return;
-                const aiStickers = QUICK_CHAT_STICKERS;
-                const randomItem = aiStickers[Math.floor(Math.random() * aiStickers.length)];
-                this.showChatBubble(randomItem.message, randomItem.emoji, Camp.BLUE);
-            }, 1.2);
+                const opponentCamp = senderCamp === Camp.RED ? Camp.BLUE : Camp.RED;
+                const allItems = [...QUICK_CHAT_PHRASES, ...QUICK_CHAT_STICKERS];
+                const replyItem = allItems[Math.floor(Math.random() * allItems.length)];
+                this.showChatBubble(replyItem.message, replyItem.emoji, opponentCamp);
+            }, 1.0);
         }
     }
 
@@ -4749,11 +4758,6 @@ export class BoardView extends Component {
     };
 
     private showChatBubble(message: string, emoji?: string, senderCamp: Camp = Camp.RED) {
-        if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
-            this.chatBubbleNode.destroy();
-            this.chatBubbleNode = null;
-        }
-
         const parentNode = this.node.parent!;
         const parentTrans = parentNode.getComponent(UITransform);
         const cw = parentTrans ? parentTrans.width : 750;
@@ -4763,16 +4767,35 @@ export class BoardView extends Component {
         const refH = isPortrait ? 1334 : 720;
         const scaleFactor = Math.min(cw / refW, ch / refH);
 
-        this.chatBubbleNode = new Node("ChatBubble");
-        this.chatBubbleNode.layer = 33554432;
-        parentNode.addChild(this.chatBubbleNode);
-
         // 判断是否为我方（己方）发出的消息
         let isMe = false;
         if (this.isNetworkMode && this.myCamp !== null) {
             isMe = senderCamp === this.myCamp;
         } else {
             isMe = senderCamp === Camp.RED; // 单机/人机模式下默认红方为玩家己方
+        }
+
+        // 己方与对方各自维护独立气泡，避免后续回复把前者的气泡强行销毁
+        if (isMe) {
+            if (this.myChatBubbleNode && this.myChatBubbleNode.isValid) {
+                this.myChatBubbleNode.destroy();
+                this.myChatBubbleNode = null;
+            }
+        } else {
+            if (this.opponentChatBubbleNode && this.opponentChatBubbleNode.isValid) {
+                this.opponentChatBubbleNode.destroy();
+                this.opponentChatBubbleNode = null;
+            }
+        }
+
+        const bubbleNode = new Node(isMe ? "MyChatBubble" : "OpponentChatBubble");
+        bubbleNode.layer = 33554432;
+        parentNode.addChild(bubbleNode);
+
+        if (isMe) {
+            this.myChatBubbleNode = bubbleNode;
+        } else {
+            this.opponentChatBubbleNode = bubbleNode;
         }
 
         const displayTxt = emoji ? `${emoji} ${message}` : message;
@@ -4782,8 +4805,8 @@ export class BoardView extends Component {
         const bubbleH = 54 * scaleFactor;
         const radius = 16 * scaleFactor;
 
-        this.chatBubbleNode.addComponent(UITransform).setContentSize(bubbleW, bubbleH);
-        const bubbleG = this.chatBubbleNode.addComponent(Graphics);
+        bubbleNode.addComponent(UITransform).setContentSize(bubbleW, bubbleH);
+        const bubbleG = bubbleNode.addComponent(Graphics);
 
         // 微信风格颜色：我方为微信绿 (#95ec69)，对方为纯白 (#ffffff)
         const greenBg = new Color(149, 236, 105, 255);
@@ -4829,7 +4852,7 @@ export class BoardView extends Component {
         msgLbl.fontSize = fontSize;
         msgLbl.color = new Color(17, 17, 17, 255); // 微信深色文字
         msgLbl.isBold = true;
-        this.chatBubbleNode.addChild(msgNode);
+        bubbleNode.addChild(msgNode);
 
         // 设置对角线位置：我方在右下角，对方在左上角
         let bubbleX = 0;
@@ -4843,14 +4866,14 @@ export class BoardView extends Component {
             bubbleX = -cw / 2 + bubbleW / 2 + 30 * scaleFactor;
             bubbleY = ch / 2 - 200 * scaleFactor;
         }
-        this.chatBubbleNode.setPosition(bubbleX, bubbleY, 0);
+        bubbleNode.setPosition(bubbleX, bubbleY, 0);
 
         // 弹出动效：Scale 0.5 -> 1.05 -> 1.0，停留 2.5 秒后缓缓上浮淡出
-        this.chatBubbleNode.setScale(new Vec3(0.5, 0.5, 1.0));
-        const opacityComp = this.chatBubbleNode.addComponent(UIOpacity);
+        bubbleNode.setScale(new Vec3(0.5, 0.5, 1.0));
+        const opacityComp = bubbleNode.addComponent(UIOpacity);
         opacityComp.opacity = 255;
 
-        tween(this.chatBubbleNode)
+        tween(bubbleNode)
             .to(0.18, { scale: new Vec3(1.05, 1.05, 1.0) }, { easing: 'backOut' })
             .to(0.08, { scale: new Vec3(1.0, 1.0, 1.0) })
             .delay(2.5)
@@ -4861,9 +4884,13 @@ export class BoardView extends Component {
             .delay(2.5)
             .to(0.6, { opacity: 0 })
             .call(() => {
-                if (this.chatBubbleNode && this.chatBubbleNode.isValid) {
-                    this.chatBubbleNode.destroy();
-                    this.chatBubbleNode = null;
+                if (bubbleNode && bubbleNode.isValid) {
+                    bubbleNode.destroy();
+                    if (isMe && this.myChatBubbleNode === bubbleNode) {
+                        this.myChatBubbleNode = null;
+                    } else if (!isMe && this.opponentChatBubbleNode === bubbleNode) {
+                        this.opponentChatBubbleNode = null;
+                    }
                 }
             })
             .start();
