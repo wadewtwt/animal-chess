@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Final
 from uuid import uuid4
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,8 @@ ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 SOURCE_DIR: Final[Path] = ROOT / "assets" / "textures" / "animals"
 OUTPUT_DIR: Final[Path] = ROOT / "assets" / "resources" / "animal_actions"
 CANVAS_SIZE: Final[int] = 384
+ACTION_FRAME_COUNT: Final[int] = 10
+ROAR_MOUTH_OPEN: Final[tuple[float, ...]] = (0.0, 0.0, 0.12, 0.58, 1.0, 0.82, 0.48, 0.16, 0.0, 0.0)
 
 MOTIONS: Final[dict[str, list[MotionFrame]]] = {
     "rat": [
@@ -129,6 +131,45 @@ def transform_frame(source: Image.Image, frame: MotionFrame) -> Image.Image:
     y = (CANVAS_SIZE - transformed.height) // 2 - frame.y
     canvas.alpha_composite(transformed, (x, y))
     return canvas
+
+
+def add_roar_mouth(source: Image.Image, openness: float) -> Image.Image:
+    """在原画嘴部区域逐帧叠加张嘴和舌部，形成可读的咆哮峰值。"""
+    if openness <= 0:
+        return source
+
+    frame = source.copy()
+    draw = ImageDraw.Draw(frame, "RGBA")
+    width, height = frame.size
+    center_x = round(width * 0.50)
+    center_y = round(height * 0.615)
+    half_width = round(width * (0.075 + 0.035 * openness))
+    half_height = round(height * (0.018 + 0.075 * openness))
+    mouth_box = (
+        center_x - half_width,
+        center_y - half_height,
+        center_x + half_width,
+        center_y + half_height,
+    )
+    draw.ellipse(mouth_box, fill=(55, 20, 18, 245), outline=(26, 12, 10, 255), width=max(1, round(width * 0.009)))
+
+    tongue_top = center_y + round(half_height * 0.18)
+    tongue_box = (
+        center_x - round(half_width * 0.62),
+        tongue_top,
+        center_x + round(half_width * 0.62),
+        center_y + round(half_height * 0.88),
+    )
+    draw.ellipse(tongue_box, fill=(211, 89, 82, round(220 * openness)))
+    return frame
+
+
+def expand_motion_frames(frames: list[MotionFrame]) -> list[MotionFrame]:
+    """将原画动作曲线重采样为统一的十帧咆哮节奏。"""
+    return [
+        frames[round(index * (len(frames) - 1) / (ACTION_FRAME_COUNT - 1))]
+        for index in range(ACTION_FRAME_COUNT)
+    ]
 
 
 def write_json_if_missing(path: Path, payload: dict) -> None:
@@ -270,9 +311,10 @@ def main() -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
         ensure_directory_meta(target_dir)
 
-        for index, motion_frame in enumerate(frames):
-            output_path = target_dir / f"show_{index:02d}.png"
-            transform_frame(source, motion_frame).save(output_path)
+        for index, motion_frame in enumerate(expand_motion_frames(frames)):
+            output_path = target_dir / f"roar_{index:02d}.png"
+            roaring_source = add_roar_mouth(source, ROAR_MOUTH_OPEN[index])
+            transform_frame(roaring_source, motion_frame).save(output_path)
             ensure_image_meta(output_path, output_path.stem)
             print(output_path.relative_to(ROOT))
 

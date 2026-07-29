@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Difficulty } from '../types';
 import { MonkeyExplorer } from './GameAvatars';
 import { jungleAudio } from '../utils/audio';
-import { Landmark, X, ShieldAlert, CheckCircle, Smile, Frown, Key, Info } from 'lucide-react';
+import { Landmark, X, ShieldAlert, CheckCircle, Key, Info, Bot, Leaf, Target, Swords, XCircle, Play } from 'lucide-react';
 
 interface ModalsProps {
   difficultyModalOpen: boolean;
@@ -38,102 +38,123 @@ export const Modals: React.FC<ModalsProps> = ({
 
   // 1. CHOOSE DIFFICULTY DIALOG (Screen 2)
   if (difficultyModalOpen) {
+    const difficultyOptions: Array<{
+      key: Difficulty;
+      title: string;
+      subtitle: string;
+      Icon: typeof Leaf;
+      accent: string;
+      softBg: string;
+      text: string;
+    }> = [
+      {
+        key: 'easy',
+        title: '简单',
+        subtitle: '适合新手，容错更高',
+        Icon: Leaf,
+        accent: '#4caf50',
+        softBg: '#e7f6dc',
+        text: '#1b5e20',
+      },
+      {
+        key: 'medium',
+        title: '中等',
+        subtitle: '推荐默认，节奏均衡',
+        Icon: Target,
+        accent: '#d68118',
+        softBg: '#fff0cf',
+        text: '#8a4b00',
+      },
+      {
+        key: 'hard',
+        title: '困难',
+        subtitle: '更强挑战，适合熟练玩家',
+        Icon: Swords,
+        accent: '#d94b45',
+        softBg: '#ffe1dc',
+        text: '#9b1c18',
+      },
+    ];
+
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-        <div className="bg-[#fffadf] rounded-[2.5rem] border-6 border-[#006e1c] p-6 max-w-sm w-full relative shadow-2xl space-y-6">
-          {/* Custom red absolute close badge from standard screenshot style */}
+        <div className="bg-[#fff8df] rounded-[2.125rem] border-4 border-[#d8c192] p-4 max-w-sm w-full relative shadow-2xl space-y-4">
           <button 
             onClick={() => handleTap(onCloseAll)}
-            className="absolute -top-3 -right-3 w-10 h-10 bg-[#b71c1c] text-white font-extrabold text-[11px] rounded-full flex items-center justify-center border-4 border-white active:scale-90 hover:bg-red-700 shadow-md"
+            aria-label="关闭难度选择"
+            className="absolute -top-3 -right-3 w-11 h-11 bg-[#d63a2f] text-white rounded-full flex items-center justify-center border-4 border-white active:scale-90 hover:bg-[#b71c1c] shadow-md"
           >
-            close
+            <X size={22} strokeWidth={3} />
           </button>
 
-          {/* Header */}
-          <div className="text-center space-y-1">
-            <h2 className="text-3xl font-black text-[#006e1c] tracking-wide">选择难度</h2>
-            <p className="text-xs text-[#3f4a3c] font-semibold">
-              挑选适合你的对手开始练习
-            </p>
+          <div className="rounded-[1.75rem] bg-[#e9f4d6] px-4 py-4 border border-white/80 flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-[#146c38] text-[#f7fff2] flex items-center justify-center shadow-sm shrink-0">
+              <Bot size={25} strokeWidth={2.7} />
+            </div>
+            <div className="text-left min-w-0">
+              <h2 className="text-2xl font-black text-[#146c38] leading-tight">选择难度</h2>
+              <p className="text-xs text-[#647044] font-bold leading-relaxed">
+                先选对手节奏，再开始一局练习
+              </p>
+            </div>
           </div>
 
-          {/* Option list Container */}
-          <div className="space-y-4">
-            {/* Option Simple */}
-            <label 
-              onClick={() => setSelectedDiff('easy')}
-              className={`flex items-center justify-between p-4 rounded-3xl border-3 cursor-pointer transition-all ${selectedDiff === 'easy' ? 'bg-[#c8e6c9]/40 border-[#006e1c]' : 'bg-[#fff] border-[#eae4b1]'}`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#a5d6a7] flex items-center justify-center text-[#1b5e20] shadow-sm">
-                  <Smile size={22} strokeWidth={2.5} />
-                </div>
-                <div className="text-left">
-                  <span className="text-xs text-gray-400 font-bold block leading-none">sentiment_satisfied</span>
-                  <span className="text-base font-black text-[#1b5e20] mt-0.5 block">简单</span>
-                </div>
-              </div>
-              <div className="w-6 h-6 rounded-full border-3 border-[#eae4b1] flex items-center justify-center">
-                {selectedDiff === 'easy' && <div className="w-3 h-3 rounded-full bg-[#006e1c]" />}
-              </div>
-            </label>
-
-            {/* Option Medium */}
-            <label 
-              onClick={() => setSelectedDiff('medium')}
-              className={`flex items-center justify-between p-4 rounded-3xl border-3 cursor-pointer transition-all ${selectedDiff === 'medium' ? 'bg-[#ffe082]/30 border-[#e18500]' : 'bg-[#fff] border-[#eae4b1]'}`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#ffcc80] flex items-center justify-center text-[#e65100] shadow-sm">
-                  {/* Flat smiling / neutral Face */}
-                  <span className="text-xl">😐</span>
-                </div>
-                <div className="text-left">
-                  <span className="text-xs text-gray-400 font-bold block leading-none">sentiment_neutral</span>
-                  <span className="text-base font-black text-[#e65100] mt-0.5 block">中等</span>
-                </div>
-              </div>
-              <div className="w-6 h-6 rounded-full border-3 border-[#eae4b1] flex items-center justify-center">
-                {selectedDiff === 'medium' && <div className="w-3 h-3 rounded-full bg-[#e18500]" />}
-              </div>
-            </label>
-
-            {/* Option Hard */}
-            <label 
-              onClick={() => setSelectedDiff('hard')}
-              className={`flex items-center justify-between p-4 rounded-3xl border-3 cursor-pointer transition-all ${selectedDiff === 'hard' ? 'bg-[#ff8a80]/20 border-red-500' : 'bg-[#fff] border-[#eae4b1]'}`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#ffab91] flex items-center justify-center text-[#c62828] shadow-sm">
-                  <Frown size={22} strokeWidth={2.5} />
-                </div>
-                <div className="text-left">
-                  <span className="text-xs text-gray-400 font-bold block leading-none">sentiment_very_dissatisfied</span>
-                  <span className="text-base font-black text-[#c62828] mt-0.5 block">困难</span>
-                </div>
-              </div>
-              <div className="w-6 h-6 rounded-full border-3 border-[#eae4b1] flex items-center justify-center">
-                {selectedDiff === 'hard' && <div className="w-3 h-3 rounded-full bg-[#d32f2f]" />}
-              </div>
-            </label>
-          </div>
-
-          {/* Action Row */}
           <div className="space-y-3">
+            {difficultyOptions.map(({ key, title, subtitle, Icon, accent, softBg, text }) => {
+              const selected = selectedDiff === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSelectedDiff(key)}
+                  className={`w-full min-h-[92px] flex items-center justify-between gap-3 rounded-[1.375rem] border-3 px-4 text-left cursor-pointer transition-all active:scale-[0.99] ${
+                    selected ? 'bg-white border-[#146c38] shadow-md scale-[1.015]' : 'bg-[#fffdfa] border-[#e3d4b0] shadow-sm'
+                  }`}
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <span
+                      className="w-[52px] h-[52px] rounded-full flex items-center justify-center shadow-sm shrink-0"
+                      style={{ backgroundColor: selected ? accent : softBg, color: selected ? '#ffffff' : text }}
+                    >
+                      <Icon size={24} strokeWidth={2.6} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="text-lg font-black block leading-tight" style={{ color: selected ? accent : '#66572d' }}>
+                        {title}
+                      </span>
+                      <span className="text-xs font-bold text-[#8a7c5d] block leading-relaxed mt-1">
+                        {subtitle}
+                      </span>
+                    </span>
+                  </span>
+                  <span
+                    className="w-7 h-7 rounded-full border-3 flex items-center justify-center shrink-0"
+                    style={{ borderColor: selected ? accent : '#ded1ad' }}
+                  >
+                    {selected && <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: accent }} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="space-y-2 pt-1">
             <button 
               id="dialog_ai_confirm"
               onClick={() => {
                 jungleAudio.playSuccess();
                 onSelectDifficulty(selectedDiff);
               }}
-              className="w-full py-3.5 bg-[#006e1c] hover:bg-[#005313] text-white font-extrabold text-base rounded-full border-b-4 border-[#003c0b] shadow-lg active:translate-y-0.5 active:border-b-2"
+              className="w-full min-h-[52px] bg-[#13883a] hover:bg-[#0f7430] text-white font-extrabold text-base rounded-full border-b-5 border-[#074f14] shadow-lg active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-2"
             >
+              <Play size={18} fill="currentColor" strokeWidth={2.6} />
               开始挑战
             </button>
             <button 
               onClick={() => handleTap(onCloseAll)}
-              className="w-full text-center text-sm font-bold text-[#3f4a3c] hover:underline"
+              className="w-full min-h-[42px] text-center text-sm font-bold text-[#6d624b] hover:text-[#3f4a3c] flex items-center justify-center gap-1.5"
             >
+              <XCircle size={16} strokeWidth={2.4} />
               取消
             </button>
           </div>

@@ -4,7 +4,7 @@ import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
 import { ModeSelectionUI } from './ModeSelectionUI';
 import { AudioSynth } from '../utils/AudioSynth';
-import { ANIMAL_ACTION_CONFIGS, getActionFramePaths, getAnimalActionConfig } from './PieceActionConfig';
+import { ANIMAL_ACTION_CONFIGS, getActionFramePaths, getAnimalActionConfig, hasCompleteActionFrameSet } from './PieceActionConfig';
 import { BOARD_TRANSITION_CONFIG, getPieceCascadeDelay, getTransitionTitle } from './BoardTransitionConfig';
 import { NetworkManager } from '../utils/NetworkManager';
 import { QUICK_CHAT_PHRASES, QUICK_CHAT_STICKERS, QuickChatItem, QuickChatKind } from './QuickChatConfig';
@@ -2864,11 +2864,11 @@ export class BoardView extends Component {
             const framePromises = getActionFramePaths(config.name).map((path) => this.loadSpriteFrameOrNull(path));
             return Promise.all(framePromises).then((frames) => {
                 const loadedFrames = frames.filter((frame): frame is SpriteFrame => !!frame);
-                if (loadedFrames.length > 0) {
+                if (hasCompleteActionFrameSet(loadedFrames.length)) {
                     this.actionFramesByType.set(config.type, loadedFrames);
                     console.log(`BoardView: registered ${loadedFrames.length} action frames for ${config.name}`);
                 } else {
-                    console.warn(`BoardView: no action frames found for ${config.name}; fallback motion will be used.`);
+                    console.warn(`BoardView: incomplete action frames for ${config.name}; fallback motion will be used.`);
                 }
             });
         });

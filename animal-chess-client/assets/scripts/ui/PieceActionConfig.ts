@@ -1,6 +1,7 @@
 import type { AnimalType } from '../engine/LocalEngine';
 
-export const ACTION_FRAME_COUNT = 8;
+export const ACTION_FRAME_COUNT = 10;
+export const ACTION_FRAME_DURATION = 0.06;
 
 export type PieceShowMotionKind = 'scurry' | 'stretch' | 'hop' | 'howl' | 'pounce' | 'roar' | 'trumpet';
 
@@ -115,15 +116,22 @@ function createMotion(kind: PieceShowMotionKind): readonly FallbackMotionFrame[]
     }
 }
 
+function expandMotionToActionFrames(motion: readonly FallbackMotionFrame[]): readonly FallbackMotionFrame[] {
+    return Array.from({ length: ACTION_FRAME_COUNT }, (_, index) => {
+        const sourceIndex = Math.round(index * (motion.length - 1) / (ACTION_FRAME_COUNT - 1));
+        return motion[sourceIndex];
+    });
+}
+
 export const ANIMAL_ACTION_CONFIGS: readonly AnimalActionConfig[] = [
-    { type: 1 as AnimalType, name: 'rat', frameDuration: 0.055, motionKind: 'scurry', fallbackMotion: createMotion('scurry') },
-    { type: 2 as AnimalType, name: 'cat', frameDuration: 0.075, motionKind: 'stretch', fallbackMotion: createMotion('stretch') },
-    { type: 3 as AnimalType, name: 'dog', frameDuration: 0.070, motionKind: 'hop', fallbackMotion: createMotion('hop') },
-    { type: 4 as AnimalType, name: 'wolf', frameDuration: 0.080, motionKind: 'howl', fallbackMotion: createMotion('howl') },
-    { type: 5 as AnimalType, name: 'leopard', frameDuration: 0.060, motionKind: 'pounce', fallbackMotion: createMotion('pounce') },
-    { type: 6 as AnimalType, name: 'tiger', frameDuration: 0.065, motionKind: 'pounce', fallbackMotion: createMotion('pounce') },
-    { type: 7 as AnimalType, name: 'lion', frameDuration: 0.080, motionKind: 'roar', fallbackMotion: createMotion('roar') },
-    { type: 8 as AnimalType, name: 'elephant', frameDuration: 0.085, motionKind: 'trumpet', fallbackMotion: createMotion('trumpet') },
+    { type: 1 as AnimalType, name: 'rat', frameDuration: ACTION_FRAME_DURATION, motionKind: 'scurry', fallbackMotion: expandMotionToActionFrames(createMotion('scurry')) },
+    { type: 2 as AnimalType, name: 'cat', frameDuration: ACTION_FRAME_DURATION, motionKind: 'stretch', fallbackMotion: expandMotionToActionFrames(createMotion('stretch')) },
+    { type: 3 as AnimalType, name: 'dog', frameDuration: ACTION_FRAME_DURATION, motionKind: 'hop', fallbackMotion: expandMotionToActionFrames(createMotion('hop')) },
+    { type: 4 as AnimalType, name: 'wolf', frameDuration: ACTION_FRAME_DURATION, motionKind: 'howl', fallbackMotion: expandMotionToActionFrames(createMotion('howl')) },
+    { type: 5 as AnimalType, name: 'leopard', frameDuration: ACTION_FRAME_DURATION, motionKind: 'pounce', fallbackMotion: expandMotionToActionFrames(createMotion('pounce')) },
+    { type: 6 as AnimalType, name: 'tiger', frameDuration: ACTION_FRAME_DURATION, motionKind: 'pounce', fallbackMotion: expandMotionToActionFrames(createMotion('pounce')) },
+    { type: 7 as AnimalType, name: 'lion', frameDuration: ACTION_FRAME_DURATION, motionKind: 'roar', fallbackMotion: expandMotionToActionFrames(createMotion('roar')) },
+    { type: 8 as AnimalType, name: 'elephant', frameDuration: ACTION_FRAME_DURATION, motionKind: 'trumpet', fallbackMotion: expandMotionToActionFrames(createMotion('trumpet')) },
 ];
 
 export function getAnimalActionConfig(type: AnimalType): AnimalActionConfig | null {
@@ -133,6 +141,10 @@ export function getAnimalActionConfig(type: AnimalType): AnimalActionConfig | nu
 export function getActionFramePaths(animalName: string): string[] {
     return Array.from({ length: ACTION_FRAME_COUNT }, (_, index) => {
         const frameId = index < 10 ? `0${index}` : `${index}`;
-        return `animal_actions/${animalName}/show_${frameId}/spriteFrame`;
+        return `animal_actions/${animalName}/roar_${frameId}/spriteFrame`;
     });
+}
+
+export function hasCompleteActionFrameSet(frameCount: number): boolean {
+    return frameCount === ACTION_FRAME_COUNT;
 }

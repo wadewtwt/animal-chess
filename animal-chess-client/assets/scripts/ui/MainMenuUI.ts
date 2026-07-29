@@ -27,6 +27,7 @@ export class MainMenuUI extends Component {
     private signInUserId: number | null = null;
     private profileLabel: Label | null = null;
     private profileOverlay: MainMenuProfileOverlay | null = null;
+    private isStartTransitioning: boolean = false;
 
     /**
      * 获取当前签到本地状态对应的用户标识。
@@ -814,7 +815,121 @@ export class MainMenuUI extends Component {
 
     private onStartGame() {
         console.log('Start Game Clicked!');
-        this.node.emit('start-game');
+        if (this.isStartTransitioning) {
+            return;
+        }
+        this.isStartTransitioning = true;
+        this.playStartGameTransition();
+    }
+
+    /**
+     * 播放“穿过森林”主题过渡：点击反馈、叶幕合拢、提示出现后再进入模式选择。
+     */
+    private playStartGameTransition(): void {
+        const canvas = this.node;
+        const uiTrans = canvas.getComponent(UITransform);
+        if (!uiTrans) {
+            this.node.emit('start-game');
+            return;
+        }
+
+        const cw = uiTrans.width;
+        const ch = uiTrans.height;
+        const scaleFactor = this.scaleFactor;
+
+        const overlay = new Node('StartTransitionOverlay');
+        overlay.layer = 33554432;
+        overlay.addComponent(UITransform).setContentSize(cw, ch);
+        overlay.setScale(new Vec3(1.04, 1.04, 1));
+        const overlayOpacity = overlay.addComponent(UIOpacity);
+        overlayOpacity.opacity = 0;
+        canvas.addChild(overlay);
+
+        const shade = this.createRectNode('StartTransitionShade', '#062414', cw, ch, 0, 238);
+        overlay.addChild(shade);
+
+        const pathGlow = this.createCircleNode('StartTransitionPathGlow', '#8fe16d', Math.max(cw, ch) * 0.18, 52);
+        pathGlow.setPosition(0, -ch * 0.08, 0);
+        pathGlow.setScale(new Vec3(0.36, 0.2, 1));
+        overlay.addChild(pathGlow);
+
+        const title = this.createLabelNode('StartTransitionTitle', '穿过森林', 34 * scaleFactor, '#fff9c4', true);
+        title.setPosition(0, 34 * scaleFactor, 0);
+        title.addComponent(UIOpacity).opacity = 0;
+        overlay.addChild(title);
+
+        const subtitle = this.createLabelNode('StartTransitionSubtitle', '新的对局入口正在打开', 18 * scaleFactor, '#c8e6c9', false);
+        subtitle.setPosition(0, -6 * scaleFactor, 0);
+        subtitle.addComponent(UIOpacity).opacity = 0;
+        overlay.addChild(subtitle);
+
+        for (let i = 0; i < 7; i += 1) {
+            const leaf = this.createStartTransitionLeaf(i, scaleFactor);
+            const fromLeft = i % 2 === 0;
+            const startX = (fromLeft ? -cw * 0.58 : cw * 0.58) + (i - 3) * 10 * scaleFactor;
+            const startY = -ch * 0.18 + i * 42 * scaleFactor;
+            const endX = (fromLeft ? cw * 0.2 : -cw * 0.2) + (i - 3) * 18 * scaleFactor;
+            const endY = startY + (fromLeft ? 95 : 70) * scaleFactor;
+            leaf.setPosition(startX, startY, 0);
+            leaf.angle = fromLeft ? -28 : 28;
+            overlay.addChild(leaf);
+            tween(leaf)
+                .delay(i * 0.025)
+                .to(0.38, {
+                    position: new Vec3(endX, endY, 0),
+                    angle: fromLeft ? 18 : -18,
+                    scale: new Vec3(1.08, 1.08, 1),
+                }, { easing: 'quadOut' })
+                .start();
+        }
+
+        tween(overlayOpacity)
+            .to(0.16, { opacity: 255 }, { easing: 'quadOut' })
+            .delay(0.24)
+            .to(0.08, { opacity: 245 }, { easing: 'quadOut' })
+            .call(() => {
+                this.node.emit('start-game');
+            })
+            .start();
+
+        tween(pathGlow)
+            .to(0.32, { scale: new Vec3(2.2, 1.35, 1) }, { easing: 'sineOut' })
+            .start();
+
+        tween(title.getComponent(UIOpacity)!)
+            .delay(0.1)
+            .to(0.18, { opacity: 255 }, { easing: 'quadOut' })
+            .start();
+
+        tween(subtitle.getComponent(UIOpacity)!)
+            .delay(0.16)
+            .to(0.18, { opacity: 230 }, { easing: 'quadOut' })
+            .start();
+    }
+
+    private createStartTransitionLeaf(index: number, scaleFactor: number): Node {
+        const leaf = new Node('StartTransitionLeaf');
+        leaf.layer = 33554432;
+        const w = (56 + index * 3) * scaleFactor;
+        const h = (34 + (index % 3) * 5) * scaleFactor;
+        leaf.addComponent(UITransform).setContentSize(w, h);
+        const g = leaf.addComponent(Graphics);
+        const colors = [
+            new Color(137, 206, 84, 230),
+            new Color(82, 168, 92, 230),
+            new Color(196, 214, 92, 225),
+        ];
+        g.fillColor = colors[index % colors.length];
+        g.strokeColor = new Color(35, 92, 44, 180);
+        g.lineWidth = Math.max(2, 2.5 * scaleFactor);
+        g.ellipse(0, 0, w / 2, h / 2);
+        g.fill();
+        g.stroke();
+        g.strokeColor = new Color(244, 255, 211, 145);
+        g.moveTo(-w * 0.28, 0);
+        g.quadraticCurveTo(0, h * 0.08, w * 0.28, 0);
+        g.stroke();
+        return leaf;
     }
 
     private onExitGame() {

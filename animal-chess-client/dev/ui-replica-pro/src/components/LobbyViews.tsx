@@ -34,6 +34,7 @@ export const LobbyViews: React.FC<LobbyViewsProps> = ({
   const [showSettingsOverlay, setShowSettingsOverlay] = useState(false);
   const [editNameInput, setEditNameInput] = useState(settings.playerName);
   const [activeTab, setActiveTab] = useState<'lobby' | 'battle' | 'social' | 'shop'>('lobby');
+  const [startTransitioning, setStartTransitioning] = useState(false);
 
   // 1. Loading screen logic: increment smoothly
   useEffect(() => {
@@ -127,6 +128,16 @@ export const LobbyViews: React.FC<LobbyViewsProps> = ({
     jungleAudio.playClick();
   };
 
+  const handleStartGameTransition = () => {
+    if (startTransitioning) return;
+    jungleAudio.playClick();
+    setStartTransitioning(true);
+    window.setTimeout(() => {
+      setMode('mode_select');
+      setStartTransitioning(false);
+    }, 420);
+  };
+
   // 2. Main Menu screen (Screen 6)
   if (currentMode === 'main_menu') {
     return (
@@ -169,11 +180,12 @@ export const LobbyViews: React.FC<LobbyViewsProps> = ({
         </div>
 
         {/* Action Button layout */}
-        <div className="w-full max-w-xs mx-auto space-y-6 pb-6">
+        <div className={`w-full max-w-xs mx-auto space-y-6 pb-6 transition-[opacity,transform] duration-300 ${startTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
           {/* Main Huge 3D Leaf Green Start Game Button */}
           <button 
             id="btn_start_game"
-            onClick={() => handleTap(() => setMode('mode_select'))}
+            onClick={handleStartGameTransition}
+            disabled={startTransitioning}
             className="w-full h-15 bg-[#006e1c] text-white hover:bg-[#005313] rounded-full font-bold text-xl tracking-widest border-b-6 border-[#003c0b] shadow-xl transform active:translate-y-1 active:border-b-2 hover:scale-[1.02] active:scale-95 transition-all text-center flex items-center justify-center"
           >
             开始游戏
@@ -208,6 +220,28 @@ export const LobbyViews: React.FC<LobbyViewsProps> = ({
         >
           {settings.soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
         </button>
+
+        {startTransitioning && (
+          <div className="absolute inset-0 z-50 overflow-hidden bg-[#062414]/90 flex items-center justify-center animate-fade-in">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(143,225,109,0.22),transparent_46%)] scale-125 transition-delay-150" />
+            {[0, 1, 2, 3, 4, 5, 6].map((item) => (
+              <span
+                key={item}
+                className="absolute w-14 h-9 rounded-[50%] bg-[#89ce54] border border-[#245c2c]/50 opacity-85 shadow-lg animate-[leafSweep_420ms_ease-out_forwards]"
+                style={{
+                  left: `${104 + (item % 3) * 8}%`,
+                  top: `${30 + item * 7}%`,
+                  transform: `rotate(${-28 + item * 5}deg)`,
+                  animationDelay: `${item * 25}ms`,
+                }}
+              />
+            ))}
+            <div className="relative text-center text-[#fff9c4] drop-shadow-lg">
+              <div className="text-2xl font-black tracking-widest">穿过森林</div>
+              <div className="mt-2 text-xs font-bold text-[#c8e6c9]">森林入口正在打开</div>
+            </div>
+          </div>
+        )}
 
         {/* Dynamic Custom Player Name and Audio Settings overlay modal */}
         {showSettingsOverlay && (

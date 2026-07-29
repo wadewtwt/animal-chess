@@ -27,6 +27,7 @@ export class PieceView extends Component {
     private showActionBasePos: Vec3 | null = null;
     private showActionBaseScale: Vec3 | null = null;
     private showActionBaseAngle: number | null = null;
+    private roarImpactNode: Node | null = null;
 
     private readonly layout = {
         shadowPos: new Vec3(0, -34, 0),
@@ -155,6 +156,7 @@ export class PieceView extends Component {
         this.showActionBasePos = basePos.clone();
         this.showActionBaseScale = baseScale.clone();
         this.showActionBaseAngle = baseAngle;
+        this.playRoarImpact();
 
         if (playableFrames.length > 0) {
             let frameIndex = 0;
@@ -172,10 +174,13 @@ export class PieceView extends Component {
         }
 
         let actionTween = tween(animalNode);
-        for (const frame of motion) {
+        motion.forEach((frame, index) => {
+            const shakeX = index >= 3 && index <= 6
+                ? (index % 2 === 0 ? 3 : -3)
+                : 0;
             actionTween = actionTween.to(frameDuration, {
                 position: new Vec3(
-                    basePos.x + frame.x,
+                    basePos.x + frame.x + shakeX,
                     basePos.y + frame.y,
                     basePos.z
                 ),
@@ -186,7 +191,7 @@ export class PieceView extends Component {
                 ),
                 angle: baseAngle + frame.angle,
             }, { easing: 'sineInOut' });
-        }
+        });
 
         actionTween
             .call(() => {
@@ -201,6 +206,7 @@ export class PieceView extends Component {
                 this.showActionBasePos = null;
                 this.showActionBaseScale = null;
                 this.showActionBaseAngle = null;
+                this.clearRoarImpact();
             })
             .start();
     }
@@ -230,6 +236,11 @@ export class PieceView extends Component {
         this.showActionBasePos = null;
         this.showActionBaseScale = null;
         this.showActionBaseAngle = null;
+        this.clearRoarImpact();
+    }
+
+    protected onDestroy(): void {
+        this.stopShowAction();
     }
 
     public smoothMoveTo(targetPos: Vec3, callback?: () => void): void {
@@ -530,6 +541,64 @@ export class PieceView extends Component {
         const trans = this.shadowNode.getComponent(UITransform) ?? this.shadowNode.addComponent(UITransform);
         trans.setContentSize(new Size(92, 92));
         this.shadowSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    }
+
+    private playRoarImpact(): void {
+        this.clearRoarImpact();
+
+        const impactNode = new Node('RoarImpact');
+        impactNode.parent = this.animalSprite.node;
+        impactNode.layer = this.animalSprite.node.layer;
+        impactNode.setPosition(0, 10, 0);
+        impactNode.setScale(new Vec3(0.18, 0.18, 1));
+
+        const transform = impactNode.addComponent(UITransform);
+        transform.setContentSize(new Size(150, 150));
+
+        const graphics = impactNode.addComponent(Graphics);
+        graphics.lineWidth = 3;
+        graphics.strokeColor = new Color(255, 231, 150, 235);
+        graphics.circle(0, 0, 24);
+        graphics.stroke();
+        graphics.lineWidth = 2;
+        graphics.moveTo(-42, 18);
+        graphics.lineTo(-62, 28);
+        graphics.moveTo(42, 18);
+        graphics.lineTo(62, 28);
+        graphics.moveTo(0, 44);
+        graphics.lineTo(0, 64);
+        graphics.stroke();
+
+        const opacity = impactNode.addComponent(UIOpacity);
+        opacity.opacity = 0;
+        this.roarImpactNode = impactNode;
+
+        tween(impactNode)
+            .to(0.12, { scale: new Vec3(0.72, 0.72, 1) }, { easing: 'quadOut' })
+            .to(0.30, { scale: new Vec3(1.48, 1.48, 1) }, { easing: 'sineOut' })
+            .call(() => this.clearRoarImpact(impactNode))
+            .start();
+        tween(opacity)
+            .to(0.10, { opacity: 255 }, { easing: 'sineOut' })
+            .to(0.32, { opacity: 0 }, { easing: 'sineIn' })
+            .start();
+    }
+
+    private clearRoarImpact(target: Node | null = this.roarImpactNode): void {
+        if (!target) {
+            return;
+        }
+        Tween.stopAllByTarget(target);
+        const opacity = target.getComponent(UIOpacity);
+        if (opacity) {
+            Tween.stopAllByTarget(opacity);
+        }
+        if (this.roarImpactNode === target) {
+            this.roarImpactNode = null;
+        }
+        if (target.isValid) {
+            target.destroy();
+        }
     }
 
     private applyDefaultLayout(immediate: boolean): void {

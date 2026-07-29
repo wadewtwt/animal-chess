@@ -401,16 +401,24 @@ export class ModeSelectionUI extends Component {
         this.difficultyDialog.addComponent(UITransform).setContentSize(cw, ch);
         canvas.addChild(this.difficultyDialog);
 
-        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        const mask = this.createRectNode('Mask', '#06190f', cw, ch, 0, 188);
         mask.addComponent(Button);
         mask.on(Node.EventType.TOUCH_END, () => this.hideDifficultyDialog(), this);
         this.difficultyDialog.addChild(mask);
 
-        const dialogW = Math.min(cw * 0.88, 580 * scaleFactor);
+        const dialogW = Math.min(cw * 0.9, 600 * scaleFactor);
         const dialogH = Math.min(ch * 0.8, 760 * scaleFactor);
+        const panelShadow = this.createRectNode('PanelShadow', '#203316', dialogW, dialogH, 34 * scaleFactor, 112);
+        panelShadow.setPosition(0, -8 * scaleFactor, 0);
+        this.difficultyDialog.addChild(panelShadow);
+
         const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 34 * scaleFactor);
         dialog.name = 'DialogNode';
         this.difficultyDialog.addChild(dialog);
+
+        const topBand = this.createRectNode('TopBand', '#e9f4d6', dialogW - 34 * scaleFactor, 116 * scaleFactor, 28 * scaleFactor, 255);
+        topBand.setPosition(0, dialogH / 2 - 74 * scaleFactor, 0);
+        dialog.addChild(topBand);
 
         const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 24 * scaleFactor);
         const closeTrans = closeBtn.getComponent(UITransform);
@@ -427,35 +435,47 @@ export class ModeSelectionUI extends Component {
             this.hideDifficultyDialog();
         }, this);
 
-        const title = this.createLabelNode('Title', '选择难度', 36 * scaleFactor, '#148437', true);
-        title.setPosition(0, dialogH / 2 - 60 * scaleFactor, 0);
+        const headerIcon = this.createDifficultyOptionIcon('HeaderBot', '#148437', '#f7fff2', 42 * scaleFactor, 'bot', scaleFactor);
+        headerIcon.setPosition(-142 * scaleFactor, dialogH / 2 - 60 * scaleFactor, 0);
+        dialog.addChild(headerIcon);
+
+        const title = this.createLabelNode('Title', '选择难度', 34 * scaleFactor, '#146c38', true);
+        title.setPosition(12 * scaleFactor, dialogH / 2 - 54 * scaleFactor, 0);
         dialog.addChild(title);
 
-        const subtitle = this.createLabelNode('Subtitle', '请选择合适的对手强度开始挑战', 18 * scaleFactor, '#9a8d5d', false);
-        subtitle.setPosition(0, dialogH / 2 - 96 * scaleFactor, 0);
+        const subtitle = this.createLabelNode('Subtitle', '先选对手节奏，再开始一局练习', 18 * scaleFactor, '#647044', false);
+        subtitle.setPosition(12 * scaleFactor, dialogH / 2 - 92 * scaleFactor, 0);
         dialog.addChild(subtitle);
 
         const optionW = dialogW - 48 * scaleFactor;
-        const optionH = 96 * scaleFactor;
-        const optionGap = 16 * scaleFactor;
-        const firstY = dialogH / 2 - 176 * scaleFactor;
+        const optionH = 104 * scaleFactor;
+        const optionGap = 14 * scaleFactor;
+        const firstY = dialogH / 2 - 188 * scaleFactor;
 
-        const easyNode = this.createDifficultyOption(optionW, optionH, '简单', '适合新手', '#5bc16f', scaleFactor);
+        const easyNode = this.createDifficultyOption(optionW, optionH, '简单', '适合新手，容错更高', '#4caf50', 'leaf', scaleFactor);
         easyNode.setPosition(0, firstY, 0);
         dialog.addChild(easyNode);
 
-        const normalNode = this.createDifficultyOption(optionW, optionH, '中等', '推荐默认', '#e0a13a', scaleFactor);
+        const normalNode = this.createDifficultyOption(optionW, optionH, '中等', '推荐默认，节奏均衡', '#d68118', 'target', scaleFactor);
         normalNode.setPosition(0, firstY - optionH - optionGap, 0);
         dialog.addChild(normalNode);
 
-        const hardNode = this.createDifficultyOption(optionW, optionH, '困难', '更强的挑战', '#ef6666', scaleFactor);
+        const hardNode = this.createDifficultyOption(optionW, optionH, '困难', '更强挑战，适合熟练玩家', '#d94b45', 'swords', scaleFactor);
         hardNode.setPosition(0, firstY - (optionH + optionGap) * 2, 0);
         dialog.addChild(hardNode);
 
-        const startBtn = this.createRectNode('StartBtn', '#0f7f34', dialogW - 80 * scaleFactor, 80 * scaleFactor, 40 * scaleFactor);
+        const startShadow = this.createRectNode('StartShadow', '#074f14', dialogW - 88 * scaleFactor, 76 * scaleFactor, 38 * scaleFactor, 118);
+        startShadow.setPosition(0, -dialogH / 2 + 112 * scaleFactor - 5 * scaleFactor, 0);
+        dialog.addChild(startShadow);
+
+        const startBtn = this.createRectNode('StartBtn', '#13883a', dialogW - 88 * scaleFactor, 76 * scaleFactor, 38 * scaleFactor);
         startBtn.setPosition(0, -dialogH / 2 + 116 * scaleFactor, 0);
         dialog.addChild(startBtn);
-        const startTxt = this.createLabelNode('StartTxt', '开始挑战', 28 * scaleFactor, '#ffffff', true);
+        const startIcon = this.createLabelNode('开始挑战图标', '▶', 25 * scaleFactor, '#ffffff', true);
+        startIcon.setPosition(-76 * scaleFactor, 0, 0);
+        startBtn.addChild(startIcon);
+        const startTxt = this.createLabelNode('StartTxt', '开始挑战', 27 * scaleFactor, '#ffffff', true);
+        startTxt.setPosition(20 * scaleFactor, 0, 0);
         startBtn.addChild(startTxt);
         startBtn.addComponent(Button);
         startBtn.on(Node.EventType.TOUCH_END, () => {
@@ -465,13 +485,16 @@ export class ModeSelectionUI extends Component {
             this.node.emit('start-ai-practice', difficulty);
         }, this);
 
+        const cancelIcon = this.createLabelNode('取消图标', '×', 19 * scaleFactor, '#8f8a76', true);
+        cancelIcon.setPosition(-34 * scaleFactor, -dialogH / 2 + 42 * scaleFactor, 0);
+        dialog.addChild(cancelIcon);
         const cancelTxt = this.createLabelNode('CancelTxt', '取消', 20 * scaleFactor, '#8f8a76', false);
-        cancelTxt.setPosition(0, -dialogH / 2 + 42 * scaleFactor, 0);
+        cancelTxt.setPosition(14 * scaleFactor, -dialogH / 2 + 42 * scaleFactor, 0);
         dialog.addChild(cancelTxt);
 
-        this.registerDifficultyState(easyNode, 'easy', '#5bc16f');
-        this.registerDifficultyState(normalNode, 'normal', '#e0a13a');
-        this.registerDifficultyState(hardNode, 'hard', '#ef6666');
+        this.registerDifficultyState(easyNode, 'easy', '#4caf50');
+        this.registerDifficultyState(normalNode, 'normal', '#d68118');
+        this.registerDifficultyState(hardNode, 'hard', '#d94b45');
 
         this.difficultyDialog.active = true;
         const dialogNode = this.difficultyDialog.getChildByName('DialogNode');
@@ -501,37 +524,37 @@ export class ModeSelectionUI extends Component {
         }
     }
 
-    private createDifficultyOption(w: number, h: number, mainText: string, subText: string, accentHex: string, scaleFactor: number): Node {
+    private createDifficultyOption(w: number, h: number, mainText: string, subText: string, accentHex: string, iconType: 'leaf' | 'target' | 'swords', scaleFactor: number): Node {
         const option = new Node('DifficultyOption');
         option.layer = 33554432;
         const trans = option.addComponent(UITransform);
         trans.setContentSize(w, h);
 
-        const shadow = this.createRectNode('Shadow', '#7f622a', w - 2 * scaleFactor, h - 2 * scaleFactor, 20 * scaleFactor, 36);
-        shadow.setPosition(0, -2 * scaleFactor, 0);
+        const shadow = this.createRectNode('Shadow', '#6a5229', w - 2 * scaleFactor, h - 2 * scaleFactor, 22 * scaleFactor, 42);
+        shadow.setPosition(0, -3 * scaleFactor, 0);
         option.addChild(shadow);
 
-        const bg = this.createRectNode('Bg', '#ffffff', w, h, 20 * scaleFactor, 248);
+        const bg = this.createRectNode('Bg', '#fffdfa', w, h, 22 * scaleFactor, 250);
         option.addChild(bg);
 
-        const accentBar = this.createRectNode('Accent', accentHex, 8 * scaleFactor, h - 24 * scaleFactor, 4 * scaleFactor, 210);
-        accentBar.setPosition(-w / 2 + 20 * scaleFactor, 0, 0);
-        option.addChild(accentBar);
+        const accentWash = this.createRectNode('AccentWash', accentHex, 68 * scaleFactor, h - 20 * scaleFactor, 20 * scaleFactor, 34);
+        accentWash.setPosition(-w / 2 + 42 * scaleFactor, 0, 0);
+        option.addChild(accentWash);
 
-        const badge = this.createCircleNode('Badge', accentHex, 22 * scaleFactor, 220);
-        badge.setPosition(-w / 2 + 64 * scaleFactor, 0, 0);
+        const badge = this.createCircleNode('难度徽章', accentHex, 28 * scaleFactor, 230);
+        badge.setPosition(-w / 2 + 66 * scaleFactor, 0, 0);
         option.addChild(badge);
-        const badgeText = this.createLabelNode('BadgeText', mainText.charAt(0), 24 * scaleFactor, '#ffffff', true);
-        badge.addChild(badgeText);
+        const icon = this.createDifficultyOptionIcon('Icon', accentHex, '#ffffff', 28 * scaleFactor, iconType, scaleFactor);
+        badge.addChild(icon);
 
         const mainLabel = this.createLabelNode('MainLabel', mainText, 26 * scaleFactor, '#66572d', true);
         mainLabel.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        mainLabel.setPosition(-w / 2 + 98 * scaleFactor, 16 * scaleFactor, 0);
+        mainLabel.setPosition(-w / 2 + 112 * scaleFactor, 18 * scaleFactor, 0);
         option.addChild(mainLabel);
 
         const subLabel = this.createLabelNode('SubLabel', subText, 16 * scaleFactor, '#9f9276', false);
         subLabel.getComponent(UITransform).setAnchorPoint(0, 0.5);
-        subLabel.setPosition(-w / 2 + 98 * scaleFactor, -20 * scaleFactor, 0);
+        subLabel.setPosition(-w / 2 + 112 * scaleFactor, -21 * scaleFactor, 0);
         option.addChild(subLabel);
 
         const dotOuter = this.createCircleNode('Dot', accentHex, 16 * scaleFactor);
@@ -546,6 +569,69 @@ export class ModeSelectionUI extends Component {
         dotCover.addChild(dotInner);
 
         return option;
+    }
+
+    private createDifficultyOptionIcon(name: string, accentHex: string, strokeHex: string, size: number, iconType: 'bot' | 'leaf' | 'target' | 'swords', scaleFactor: number): Node {
+        const icon = new Node(name);
+        icon.layer = 33554432;
+        icon.addComponent(UITransform).setContentSize(size, size);
+        const g = icon.addComponent(Graphics);
+        const stroke = new Color();
+        Color.fromHEX(stroke, strokeHex);
+        g.lineCap = 1;
+        g.lineJoin = 1;
+        g.lineWidth = Math.max(3 * scaleFactor, size * 0.08);
+        g.strokeColor = stroke;
+        g.fillColor = stroke;
+
+        if (iconType === 'bot') {
+            g.roundRect(-size * 0.24, -size * 0.12, size * 0.48, size * 0.38, size * 0.08);
+            g.stroke();
+            g.circle(-size * 0.12, size * 0.06, size * 0.035);
+            g.circle(size * 0.12, size * 0.06, size * 0.035);
+            g.fill();
+            g.moveTo(0, size * 0.26);
+            g.lineTo(0, size * 0.38);
+            g.stroke();
+            g.circle(0, size * 0.42, size * 0.045);
+            g.fill();
+            return icon;
+        }
+
+        if (iconType === 'leaf') {
+            g.ellipse(0, 0, size * 0.26, size * 0.34);
+            g.stroke();
+            g.moveTo(-size * 0.18, -size * 0.2);
+            g.quadraticCurveTo(-size * 0.02, -size * 0.02, size * 0.18, size * 0.22);
+            g.stroke();
+            return icon;
+        }
+
+        if (iconType === 'target') {
+            g.circle(0, 0, size * 0.3);
+            g.stroke();
+            g.circle(0, 0, size * 0.16);
+            g.stroke();
+            g.circle(0, 0, size * 0.045);
+            g.fill();
+            return icon;
+        }
+
+        g.moveTo(-size * 0.22, size * 0.24);
+        g.lineTo(size * 0.22, -size * 0.2);
+        g.stroke();
+        g.moveTo(size * 0.22, size * 0.24);
+        g.lineTo(-size * 0.22, -size * 0.2);
+        g.stroke();
+        g.moveTo(-size * 0.02, -size * 0.2);
+        g.lineTo(-size * 0.22, -size * 0.2);
+        g.lineTo(-size * 0.22, 0);
+        g.stroke();
+        g.moveTo(size * 0.02, -size * 0.2);
+        g.lineTo(size * 0.22, -size * 0.2);
+        g.lineTo(size * 0.22, 0);
+        g.stroke();
+        return icon;
     }
 
     private registerDifficultyState(optionNode: Node, key: DifficultyKey, accentHex: string) {
