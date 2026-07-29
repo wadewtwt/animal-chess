@@ -1,5 +1,15 @@
-import assert from 'node:assert/strict';
-import { mapWeeklySummaryToSignInStatus, type WeeklySummaryResponse } from '../assets/scripts/utils/SignInWeeklySummaryMapper.ts';
+function assert(condition: any, message?: string) {
+    if (!condition) {
+        throw new Error(message || 'Assertion failed');
+    }
+}
+assert.equal = function(actual: any, expected: any, message?: string) {
+    if (actual !== expected) {
+        throw new Error(`${message || 'Assertion failed'}: expected ${expected}, got ${actual}`);
+    }
+};
+
+import { mapWeeklySummaryToSignInStatus, type WeeklySummaryResponse } from '../assets/scripts/utils/SignInWeeklySummaryMapper';
 
 const summary: WeeklySummaryResponse = {
     success: true,

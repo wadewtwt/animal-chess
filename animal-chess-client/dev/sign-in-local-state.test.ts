@@ -1,11 +1,26 @@
-import assert from 'node:assert/strict';
+function assert(condition: any, message?: string) {
+    if (!condition) {
+        throw new Error(message || 'Assertion failed');
+    }
+}
+assert.equal = function(actual: any, expected: any, message?: string) {
+    if (actual !== expected) {
+        throw new Error(`${message || 'Assertion failed'}: expected ${expected}, got ${actual}`);
+    }
+};
+assert.notEqual = function(actual: any, expected: any, message?: string) {
+    if (actual === expected) {
+        throw new Error(`${message || 'Assertion failed'}: expected not ${expected}, got ${actual}`);
+    }
+};
+
 import {
     buildUserScopedSignInStorageKey,
     hasSignedTodayLocally,
     markSignedTodayLocally,
     shouldAutoPopupSignIn,
     type SignInStorageLike,
-} from '../assets/scripts/utils/SignInLocalState.ts';
+} from '../assets/scripts/utils/SignInLocalState';
 
 class MemoryStorage implements SignInStorageLike {
     private readonly data = new Map<string, string>();
