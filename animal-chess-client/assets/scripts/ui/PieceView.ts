@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math, Graphics } from 'cc';
+import type { FallbackMotionFrame } from './PieceActionConfig';
 import { Piece, Camp, AnimalType } from '../engine/LocalEngine';
 
 const { ccclass, property } = _decorator;
@@ -21,6 +22,11 @@ export class PieceView extends Component {
     private shadowNode: Node | null = null;
     private shadowSprite: Sprite | null = null;
     private shadowOpacity: UIOpacity | null = null;
+    private showActionFrameTimer: (() => void) | null = null;
+    private showActionRestoreFrame: SpriteFrame | null = null;
+    private showActionBasePos: Vec3 | null = null;
+    private showActionBaseScale: Vec3 | null = null;
+    private showActionBaseAngle: number | null = null;
 
     private readonly layout = {
         shadowPos: new Vec3(0, -34, 0),
@@ -128,6 +134,104 @@ export class PieceView extends Component {
         }
     }
 
+    public playShowAction(
+        frames: readonly SpriteFrame[],
+        motion: readonly FallbackMotionFrame[],
+        frameDuration: number
+    ): void {
+        if (!this.animalSprite || motion.length === 0 || frameDuration <= 0) {
+            return;
+        }
+
+        this.stopShowAction();
+
+        const animalNode = this.animalSprite.node;
+        const basePos = animalNode.position.clone();
+        const baseScale = animalNode.scale.clone();
+        const baseAngle = animalNode.angle;
+        const playableFrames = frames.filter((frame): frame is SpriteFrame => !!frame);
+
+        this.showActionRestoreFrame = this.animalSprite.spriteFrame ?? this.staticAnimalFrame;
+        this.showActionBasePos = basePos.clone();
+        this.showActionBaseScale = baseScale.clone();
+        this.showActionBaseAngle = baseAngle;
+
+        if (playableFrames.length > 0) {
+            let frameIndex = 0;
+            this.animalSprite.spriteFrame = playableFrames[0];
+            if (playableFrames.length > 1) {
+                this.showActionFrameTimer = () => {
+                    if (!this.animalSprite || playableFrames.length === 0) {
+                        return;
+                    }
+                    frameIndex = (frameIndex + 1) % playableFrames.length;
+                    this.animalSprite.spriteFrame = playableFrames[frameIndex];
+                };
+                this.schedule(this.showActionFrameTimer, frameDuration, playableFrames.length - 2, frameDuration);
+            }
+        }
+
+        let actionTween = tween(animalNode);
+        for (const frame of motion) {
+            actionTween = actionTween.to(frameDuration, {
+                position: new Vec3(
+                    basePos.x + frame.x,
+                    basePos.y + frame.y,
+                    basePos.z
+                ),
+                scale: new Vec3(
+                    baseScale.x * frame.scaleX,
+                    baseScale.y * frame.scaleY,
+                    baseScale.z
+                ),
+                angle: baseAngle + frame.angle,
+            }, { easing: 'sineInOut' });
+        }
+
+        actionTween
+            .call(() => {
+                if (this.animalSprite && this.showActionRestoreFrame) {
+                    this.animalSprite.spriteFrame = this.showActionRestoreFrame;
+                }
+                animalNode.setPosition(basePos);
+                animalNode.setScale(baseScale);
+                animalNode.angle = baseAngle;
+                this.showActionRestoreFrame = null;
+                this.showActionFrameTimer = null;
+                this.showActionBasePos = null;
+                this.showActionBaseScale = null;
+                this.showActionBaseAngle = null;
+            })
+            .start();
+    }
+
+    public stopShowAction(): void {
+        const hasRunningShowAction = !!this.showActionFrameTimer || !!this.showActionRestoreFrame || !!this.showActionBasePos;
+        if (this.showActionFrameTimer) {
+            this.unschedule(this.showActionFrameTimer);
+            this.showActionFrameTimer = null;
+        }
+        if (this.animalSprite && this.showActionRestoreFrame) {
+            this.animalSprite.spriteFrame = this.showActionRestoreFrame;
+        }
+        if (this.animalSprite && hasRunningShowAction) {
+            Tween.stopAllByTarget(this.animalSprite.node);
+            if (this.showActionBasePos) {
+                this.animalSprite.node.setPosition(this.showActionBasePos);
+            }
+            if (this.showActionBaseScale) {
+                this.animalSprite.node.setScale(this.showActionBaseScale);
+            }
+            if (this.showActionBaseAngle !== null) {
+                this.animalSprite.node.angle = this.showActionBaseAngle;
+            }
+        }
+        this.showActionRestoreFrame = null;
+        this.showActionBasePos = null;
+        this.showActionBaseScale = null;
+        this.showActionBaseAngle = null;
+    }
+
     public smoothMoveTo(targetPos: Vec3, callback?: () => void): void {
         this.stopAllTweens();
         
@@ -205,7 +309,7 @@ export class PieceView extends Component {
             // 3. 阴影节点（Shadow）在跳跃至最高点时，比例缩小、透明度变淡（表现高度变化带来的投影衰减）
             if (this.shadowNode) {
                 const startScale = layout.shadowScale;
-                const peakScale = isRiverJump 
+                const peakScale = isRiverJump
                     ? new Vec3(startScale.x * 0.65, startScale.y * 0.65, 1)
                     : new Vec3(startScale.x * 0.4, startScale.y * 0.4, 1);
 
@@ -558,6 +662,7 @@ export class PieceView extends Component {
     }
 
     private stopAllTweens(): void {
+        this.stopShowAction();
         Tween.stopAllByTarget(this.node);
         if (this.shadowNode) Tween.stopAllByTarget(this.shadowNode);
         if (this.shadowOpacity) Tween.stopAllByTarget(this.shadowOpacity);

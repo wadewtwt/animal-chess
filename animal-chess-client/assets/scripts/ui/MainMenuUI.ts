@@ -376,8 +376,6 @@ export class MainMenuUI extends Component {
         label.lineHeight = (isPortrait ? 32 : 25) * scaleFactor;
         label.isBold = true;
         label.overflow = Label.Overflow.CLAMP;
-        label.enableWrap = true;
-        label.multiline = true;
         label.horizontalAlign = Label.HorizontalAlign.LEFT;
         label.verticalAlign = Label.VerticalAlign.TOP;
         

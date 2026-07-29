@@ -1,0 +1,6 @@
+{
+  "name": "Jungle Tactics",
+  "description": "An engaging, vibrant and highly strategic Jungle Chess (丛林战棋/Dou Shou Qi) board game with Local 2-Player mode, vs AI (Simple/Medium/Hard), custom room code matches, rich retro sound effects, stats tracking, and beautiful animated panels.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

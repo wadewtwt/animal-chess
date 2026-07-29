@@ -2,9 +2,10 @@ import { _decorator, Component, Node, Sprite, SpriteFrame, Button, Prefab, insta
 import { LocalEngine, Camp, Piece, GameOverReason, AnimalType } from '../engine/LocalEngine';
 import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
-import { LoadingScene } from '../LoadingScene';
 import { ModeSelectionUI } from './ModeSelectionUI';
 import { AudioSynth } from '../utils/AudioSynth';
+import { ANIMAL_ACTION_CONFIGS, getActionFramePaths, getAnimalActionConfig } from './PieceActionConfig';
+import { BOARD_TRANSITION_CONFIG, getPieceCascadeDelay, getTransitionTitle } from './BoardTransitionConfig';
 import { NetworkManager } from '../utils/NetworkManager';
 
 const { ccclass, property } = _decorator;
@@ -68,12 +69,13 @@ export class BoardView extends Component {
     private lastMoveHighlightNodes: Node[] = []; // 标记上一手起点和终点的高亮节点
     private selectedPiece: Piece | null = null; // 当前选中的棋子数据
     private cellSpriteFrame: SpriteFrame | null = null; // 缓存背景格子的默认贴图
-    
+
     // 音效与音乐播放器
     private audioSource: AudioSource | null = null;
     private bgmSource: AudioSource | null = null;
     private walkFramesByType: Map<number, SpriteFrame[]> = new Map(); // Removed
     private pieceArtByCampAndType: Map<string, SpriteFrame> = new Map();
+    private actionFramesByType: Map<AnimalType, SpriteFrame[]> = new Map();
     private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
     
     // === 悔棋、返回、倒计时与人机AI 运行时状态 ===
@@ -99,6 +101,8 @@ export class BoardView extends Component {
     private bgWashNode: Node | null = null;
     private switchBattlefieldButtonNode: Node | null = null;
     private isGrassStyle: boolean = true;
+    private boardTransitionOverlayNode: Node | null = null;
+    private isBoardTransitioning: boolean = false;
 
     onLoad() {
         // 监听画布大小变化事件进行自适应缩放
@@ -155,16 +159,21 @@ export class BoardView extends Component {
             this.switchBattlefieldButtonNode.destroy();
             this.switchBattlefieldButtonNode = null;
         }
+        this.clearBoardTransitionOverlay();
     }
 
-    start() {
+    start(): void {
         console.log("BoardView: start() called.");
         this.node.active = false;
         this.engine = new LocalEngine();
         this.isGrassStyle = sys.localStorage.getItem('board_style_is_grass') !== 'false';
         this.initBoardBackground();
         this.adjustBoardScale(); // 适应屏幕比例
-        this.loadPieceArt().then(() => {
+
+        Promise.all([
+            this.loadPieceArt(),
+            this.loadPieceActions(),
+        ]).then(() => {
             this.restartGame();
             this.initAudioSource();
             
@@ -183,6 +192,10 @@ export class BoardView extends Component {
                     this.showMainMenu();
                 }
             }
+        }).catch((error: unknown) => {
+            console.error("BoardView resource loading failed:", error);
+            this.showToast("资源加载失败，请稍后重试");
+            this.showMainMenu();
         });
     }
 
@@ -301,20 +314,19 @@ export class BoardView extends Component {
             this.isNetworkMode = false;
             this.myCamp = null;
             this.restartGame(); // 开启并重置对局
+            this.startGameWithBoardTransition(false);
         });
 
         // Listen for AI practice start
         this.modeSelectionNode.on('start-ai-practice', (difficulty: string) => {
             sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
-            if (this.modeSelectionNode) {
-                this.modeSelectionNode.destroy();
-                this.modeSelectionNode = null;
-            }
-            this.node.active = true;
-            this.isAIMode = true;
-            this.isNetworkMode = false;
-            this.myCamp = null;
-            this.restartGame();
+            this.startGameWithBoardTransition(true);
+        });
+
+        // 在线匹配当前使用本地 AI 作为对手，后续接入服务端时保持同一入口事件即可。
+        this.modeSelectionNode.on('start-online-match', (difficulty: string) => {
+            sys.localStorage.setItem('jungle_ai_difficulty', difficulty);
+            this.startGameWithBoardTransition(true);
         });
 
         // Listen for online battle start
@@ -327,18 +339,198 @@ export class BoardView extends Component {
             this.isAIMode = false;
             this.isNetworkMode = true;
             this.myCamp = NetworkManager.getInstance().myCamp as Camp;
-            
+
             // 保存当前对局房间号以支持刷新重连
             sys.localStorage.setItem('animal_chess_room_id', NetworkManager.getInstance().currentRoomId);
-            
+
             // 注册网络对战的广播监听
             NetworkManager.getInstance().on('opponent_move', this.onOpponentMove);
             NetworkManager.getInstance().on('game_over', this.onNetworkGameOver);
             NetworkManager.getInstance().on('opponent_left', this.onOpponentLeft);
             NetworkManager.getInstance().on('reconnect_success', this.onReconnectSuccess);
+            NetworkManager.getInstance().on('timer_sync', this.onNetworkTimerSync);
 
             this.restartGame();
         });
+    }
+
+    private startGameWithBoardTransition(isAIMode: boolean): void {
+        if (this.modeSelectionNode) {
+            this.modeSelectionNode.destroy();
+            this.modeSelectionNode = null;
+        }
+
+        this.node.active = true;
+        this.isAIMode = isAIMode;
+        this.restartGame(false);
+        this.setInGameUIVisible(false);
+
+        this.playBoardEntryTransition(() => {
+            this.isBoardTransitioning = false;
+            this.setInGameUIVisible(true);
+            this.startTurnTimer();
+        });
+    }
+
+    private playBoardEntryTransition(onComplete: () => void): void {
+        this.clearBoardTransitionOverlay();
+        this.isBoardTransitioning = true;
+
+        const visibleSize = view.getVisibleSize();
+        const overlay = new Node('BoardTransitionOverlay');
+        overlay.layer = 33554432;
+        overlay.addComponent(UITransform).setContentSize(visibleSize.width, visibleSize.height);
+        overlay.addComponent(Button);
+        overlay.on(Node.EventType.TOUCH_START, (event: any) => event.propagationStopped = true, this);
+        overlay.on(Node.EventType.TOUCH_MOVE, (event: any) => event.propagationStopped = true, this);
+        overlay.on(Node.EventType.TOUCH_END, (event: any) => event.propagationStopped = true, this);
+
+        const overlayOpacity = overlay.addComponent(UIOpacity);
+        overlayOpacity.opacity = 255;
+
+        const washNode = new Node('TransitionWash');
+        washNode.layer = 33554432;
+        washNode.addComponent(UITransform).setContentSize(visibleSize.width, visibleSize.height);
+        const washGraphics = washNode.addComponent(Graphics);
+        washGraphics.fillColor = new Color(22, 64, 28, 210);
+        washGraphics.rect(-visibleSize.width / 2, -visibleSize.height / 2, visibleSize.width, visibleSize.height);
+        washGraphics.fill();
+        overlay.addChild(washNode);
+
+        this.createTransitionLeaves(overlay, visibleSize.width, visibleSize.height);
+        this.createTransitionTitle(overlay);
+        this.node.parent!.addChild(overlay);
+        this.boardTransitionOverlayNode = overlay;
+
+        this.animateBoardIntro();
+        this.animatePieceCascade();
+
+        tween(overlayOpacity)
+            .delay(BOARD_TRANSITION_CONFIG.totalDurationSeconds - 0.26)
+            .to(0.26, { opacity: 0 }, { easing: 'quadOut' })
+            .call(() => {
+                this.clearBoardTransitionOverlay();
+                onComplete();
+            })
+            .start();
+    }
+
+    private createTransitionLeaves(parent: Node, width: number, height: number): void {
+        for (let i = 0; i < BOARD_TRANSITION_CONFIG.leafSweepCount; i++) {
+            const leaf = new Node(`SweepLeaf${i}`);
+            leaf.layer = 33554432;
+            leaf.addComponent(UITransform).setContentSize(120, 42);
+            const graphics = leaf.addComponent(Graphics);
+            graphics.fillColor = i % 2 === 0 ? new Color(154, 214, 92, 190) : new Color(242, 219, 96, 150);
+            graphics.ellipse(0, 0, 60, 21);
+            graphics.fill();
+            const opacity = leaf.addComponent(UIOpacity);
+            opacity.opacity = 0;
+
+            const startX = -width / 2 - 120 - i * 18;
+            const endX = width / 2 + 120;
+            const y = -height * 0.32 + i * (height * 0.64 / Math.max(1, BOARD_TRANSITION_CONFIG.leafSweepCount - 1));
+            const scale = 0.7 + (i % 3) * 0.18;
+            leaf.setPosition(startX, y, 0);
+            leaf.setScale(new Vec3(scale, scale, 1));
+            leaf.setRotationFromEuler(0, 0, -24 + i * 7);
+            parent.addChild(leaf);
+
+            const delay = i * 0.035;
+            tween(opacity)
+                .delay(delay)
+                .to(0.12, { opacity: 210 }, { easing: 'quadOut' })
+                .delay(0.36)
+                .to(0.12, { opacity: 0 }, { easing: 'quadIn' })
+                .start();
+            tween(leaf)
+                .delay(delay)
+                .to(0.58, { position: new Vec3(endX, y + 38, 0) }, { easing: 'quadOut' })
+                .start();
+        }
+    }
+
+    private createTransitionTitle(parent: Node): void {
+        const titleNode = new Node('TransitionTitle');
+        titleNode.layer = 33554432;
+        titleNode.addComponent(UITransform).setContentSize(320, 92);
+        const titleLabel = titleNode.addComponent(Label);
+        titleLabel.string = getTransitionTitle(this.isAIMode);
+        titleLabel.fontSize = 42;
+        titleLabel.isBold = true;
+        titleLabel.color = new Color(255, 248, 207, 255);
+        const opacity = titleNode.addComponent(UIOpacity);
+        opacity.opacity = 0;
+        titleNode.setScale(new Vec3(0.86, 0.86, 1));
+        parent.addChild(titleNode);
+
+        tween(opacity)
+            .to(0.18, { opacity: 255 }, { easing: 'quadOut' })
+            .delay(0.32)
+            .to(0.2, { opacity: 0 }, { easing: 'quadIn' })
+            .start();
+        tween(titleNode)
+            .to(0.28, { scale: new Vec3(1.06, 1.06, 1) }, { easing: 'backOut' })
+            .to(0.16, { scale: new Vec3(1, 1, 1) }, { easing: 'quadOut' })
+            .start();
+    }
+
+    private animateBoardIntro(): void {
+        if (!this.boardContainer) return;
+
+        const currentScale = this.boardContainer.scale.clone();
+        this.boardContainer.setScale(new Vec3(
+            currentScale.x * BOARD_TRANSITION_CONFIG.boardIntroScale,
+            currentScale.y * BOARD_TRANSITION_CONFIG.boardIntroScale,
+            currentScale.z,
+        ));
+
+        tween(this.boardContainer)
+            .to(0.42, { scale: currentScale }, { easing: 'backOut' })
+            .start();
+    }
+
+    private animatePieceCascade(): void {
+        let index = 0;
+        this.pieceViews.forEach((pieceView) => {
+            const pieceNode = pieceView.node;
+            if (!pieceNode || !pieceNode.isValid) return;
+
+            const targetPosition = pieceNode.position.clone();
+            const targetScale = pieceNode.scale.clone();
+            const opacity = pieceNode.getComponent(UIOpacity) ?? pieceNode.addComponent(UIOpacity);
+            opacity.opacity = 0;
+            pieceNode.setPosition(new Vec3(targetPosition.x, targetPosition.y + 28, targetPosition.z));
+            pieceNode.setScale(new Vec3(targetScale.x * 0.82, targetScale.y * 0.82, targetScale.z));
+
+            const delay = getPieceCascadeDelay(index);
+            tween(opacity)
+                .delay(delay)
+                .to(0.12, { opacity: 255 }, { easing: 'quadOut' })
+                .start();
+            tween(pieceNode)
+                .delay(delay)
+                .to(0.22, { position: targetPosition, scale: new Vec3(targetScale.x * 1.06, targetScale.y * 1.06, targetScale.z) }, { easing: 'quadOut' })
+                .to(0.12, { scale: targetScale }, { easing: 'quadInOut' })
+                .start();
+            index++;
+        });
+    }
+
+    private setInGameUIVisible(visible: boolean): void {
+        if (this.backButtonNode) this.backButtonNode.active = visible;
+        if (this.undoButtonNode) this.undoButtonNode.active = visible;
+        if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = visible;
+        if (this.turnIndicator) this.turnIndicator.node.active = visible;
+    }
+
+    private clearBoardTransitionOverlay(): void {
+        if (this.boardTransitionOverlayNode && this.boardTransitionOverlayNode.isValid) {
+            Tween.stopAllByTarget(this.boardTransitionOverlayNode);
+            this.boardTransitionOverlayNode.destroy();
+        }
+        this.boardTransitionOverlayNode = null;
+        this.isBoardTransitioning = false;
     }
 
 
@@ -673,12 +865,12 @@ export class BoardView extends Component {
     /**
      * 重启游戏
      */
-    public restartGame(): void {
+    public restartGame(startTimer: boolean = true): void {
         this.isGameOverState = false;
         this.unschedule(this.makeAIMove);
         this.stopTurnTimer();
         this.isAIMoving = false;
-        
+
         this.clearLastMoveHighlight();
 
         if (this.surrenderConfirmPanel) {
@@ -724,7 +916,9 @@ export class BoardView extends Component {
         // 动态创建并布局游戏内的UI组件 (返回按钮和悔棋按钮)
         this.createInGameUI();
 
-        this.startTurnTimer();
+        if (startTimer) {
+            this.startTurnTimer();
+        }
     }
 
     /**
@@ -917,7 +1111,7 @@ export class BoardView extends Component {
             areaNode.layer = this.boardContainer!.layer || 33554432;
             areaNode.setPosition(this.gridToWorldPos(centerX, centerY));
             this.boardGridNodes.push(areaNode);
-            
+
             const transform = areaNode.addComponent(UITransform);
             transform.setContentSize(width, height);
             areaNode.addComponent(Mask);
@@ -1136,14 +1330,14 @@ export class BoardView extends Component {
     private updateTurnUI(): void {
         if (this.turnIndicator) {
             const turnCamp = this.engine.getCurrentTurn();
-            
+
             let turnStr = '';
             if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
                 turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (上方)' : '🔵 蓝方行动 (下方)';
             } else {
                 turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
             }
-            
+
             this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
             
             // 亮眼对比度色彩
@@ -1157,7 +1351,7 @@ export class BoardView extends Component {
                     .start();
             }
         }
-        
+
         // 倒计时最后5秒，在需要下棋的那一方的主棋盘上显示大数字倒计时
         this.updateScreenTimerLabel();
     }
@@ -1166,6 +1360,9 @@ export class BoardView extends Component {
      * 棋子被点击的响应
      */
     private onPieceClicked(piece: Piece): void {
+        if (this.isBoardTransitioning) {
+            return;
+        }
         if (this.isAIMoving || (this.isAIMode && this.engine.getCurrentTurn() === Camp.BLUE)) {
             return; // AI 正在思考或行动阶段，玩家不可操作
         }
@@ -1188,11 +1385,29 @@ export class BoardView extends Component {
         // 1. 如果点击的是当前行动方的棋子，则选中它，并高亮可行走格子
         if (piece.camp === turn) {
             this.selectPiece(piece);
-        } 
+            this.scheduleOnce(() => {
+                if (this.selectedPiece?.id === piece.id) {
+                    this.playPieceShowAction(piece);
+                }
+            }, 0.16);
+        }
         // 2. 如果点击的是敌方棋子，且当前已有选中棋子，则尝试吃子
         else if (this.selectedPiece) {
             this.tryMovePiece(this.selectedPiece.x, this.selectedPiece.y, piece.x, piece.y);
+        } else {
+            this.playPieceShowAction(piece);
         }
+    }
+
+    private playPieceShowAction(piece: Piece): void {
+        const pieceView = this.pieceViews.get(piece.id);
+        const actionConfig = getAnimalActionConfig(piece.type);
+        if (!pieceView || !actionConfig) {
+            return;
+        }
+
+        const frames = this.actionFramesByType.get(piece.type) ?? [];
+        pieceView.playShowAction(frames, actionConfig.fallbackMotion, actionConfig.frameDuration);
     }
 
     /**
@@ -1304,14 +1519,14 @@ export class BoardView extends Component {
      */
     private tryMovePiece(fromX: number, fromY: number, toX: number, toY: number): void {
         console.log(`[BoardView] tryMovePiece: (${fromX},${fromY}) -> (${toX},${toY}), isNetwork=${this.isNetworkMode}, isApplyingNetwork=${this.isApplyingNetworkMove}`);
-        
+
         // 如果是应用网络走子，说明这是来自服务器的强行同步，直接跳过校验以防本地状态微小不一致引发卡死
         if (!this.isApplyingNetworkMove) {
             if (!this.engine.validateMove(fromX, fromY, toX, toY)) {
                 const piece = this.engine.getPieceAt(fromX, fromY);
-                console.warn(`[BoardView] tryMovePiece 校验失败！` + 
-                    `起点存在棋子: ${piece ? piece.id : "否"}, ` + 
-                    `棋子阵营: ${piece ? piece.camp : "无"}, ` + 
+                console.warn(`[BoardView] tryMovePiece 校验失败！` +
+                    `起点存在棋子: ${piece ? piece.id : "否"}, ` +
+                    `棋子阵营: ${piece ? piece.camp : "无"}, ` +
                     `当前回合: ${this.engine.getCurrentTurn()}`);
                 this.clearSelection();
                 return;
@@ -1386,7 +1601,7 @@ export class BoardView extends Component {
                     } catch (e) {
                         console.warn('Vibration not supported', e);
                     }
-                    
+
                     // 被吃方播放旋转击飞淡出动画
                     eatenView.playBeatenAnimation(() => {
                         // 结束销毁回调已经在 playBeatenAnimation 中调用 node.destroy
@@ -1644,30 +1859,30 @@ export class BoardView extends Component {
 
     private showLastMoveHighlight(fromX: number, fromY: number, toX: number, toY: number): void {
         this.clearLastMoveHighlight();
-        
+
         const createHighlightBox = (x: number, y: number, isStart: boolean) => {
             const hlNode = new Node(`LastMoveHighlight_${x}_${y}`);
             hlNode.parent = this.boardContainer;
             hlNode.setPosition(this.gridToWorldPos(x, y));
             hlNode.layer = this.boardContainer!.layer || 33554432;
-            
+
             const g = hlNode.addComponent(Graphics);
             // 醒目的亮黄色边框
             g.strokeColor = new Color(255, 230, 50, 200);
             g.lineWidth = 6;
-            
+
             // 绘制稍微比格子小一点的方框
             const hw = this.cellWidth / 2 - 2;
             const hh = this.cellHeight / 2 - 2;
             g.roundRect(-hw, -hh, hw * 2, hh * 2, 8);
             g.stroke();
-            
+
             if (isStart) {
                 // 起点可以用半透明填充增强辨识度，表示棋子是从这里离开的
                 g.fillColor = new Color(255, 230, 50, 40);
                 g.fill();
             }
-            
+
             // 加入呼吸透明度动画
             const opacityComp = hlNode.addComponent(UIOpacity);
             tween(opacityComp)
@@ -1676,7 +1891,7 @@ export class BoardView extends Component {
                 .union()
                 .repeatForever()
                 .start();
-                
+
             this.lastMoveHighlightNodes.push(hlNode);
         };
 
@@ -1754,14 +1969,14 @@ export class BoardView extends Component {
         resultBadgeNode.layer = 33554432;
         resultBadgeNode.addComponent(UITransform).setContentSize(92 * scaleFactor, 92 * scaleFactor);
         const badgeGraphics = resultBadgeNode.addComponent(Graphics);
-        
+
         let badgeColor = new Color(248, 228, 54, 255); // 赢方高亮黄
         if (winner === null) {
             badgeColor = new Color(230, 232, 226, 255); // 和棋灰色
         } else if (isNetworkOrAI && !isMeWinner) {
             badgeColor = new Color(190, 195, 190, 255); // 败方暗灰色
         }
-        
+
         badgeGraphics.fillColor = badgeColor;
         badgeGraphics.circle(0, 0, 46 * scaleFactor);
         badgeGraphics.fill();
@@ -1773,7 +1988,7 @@ export class BoardView extends Component {
         const badgeText = new Node("BadgeText");
         badgeText.layer = 33554432;
         const badgeLabel = badgeText.addComponent(Label);
-        
+
         let badgeStr = "胜";
         if (winner === null) {
             badgeStr = "和";
@@ -1783,7 +1998,7 @@ export class BoardView extends Component {
         badgeLabel.string = badgeStr;
         badgeLabel.fontSize = Math.round(48 * scaleFactor);
         badgeLabel.lineHeight = badgeLabel.fontSize;
-        
+
         let badgeTextColor = new Color(110, 78, 0, 255);
         if (winner === null) {
             badgeTextColor = new Color(102, 102, 102, 255);
@@ -1992,15 +2207,15 @@ export class BoardView extends Component {
         for (let i = 0; i < count; i++) {
             const leaf = new Node('LoseLeaf');
             leaf.layer = 33554432; // UI_2D
-            
+
             // 粒子形状：0 = 扁圆落叶, 1 = 小冰晶
             const shapeType = Math.random() < 0.6 ? 0 : 1;
             let w = 8 + Math.random() * 12;
             let h = w * (1.3 + Math.random() * 0.5);
-            
+
             const trans = leaf.addComponent(UITransform);
             trans.setContentSize(w, h);
-            
+
             const opacityComp = leaf.addComponent(UIOpacity);
             opacityComp.opacity = 120 + Math.random() * 100; // 半透明，展现冰霜落叶质感
 
@@ -2029,10 +2244,10 @@ export class BoardView extends Component {
             const startY = ch / 2 + 50 + Math.random() * 200; // 随机顶部高度
 
             leaf.setPosition(new Vec3(startX, startY, 0));
-            
+
             // 设定随机角度
             leaf.setRotationFromEuler(0, 0, Math.random() * 360);
-            
+
             this.customGameOverPanel.addChild(leaf);
 
             // 缓动动画：
@@ -2050,7 +2265,7 @@ export class BoardView extends Component {
             // 2. X 轴：左右正弦摇晃飘落
             const waveWidth = 30 + Math.random() * 40;
             const waveDuration = 0.8 + Math.random() * 0.8;
-            
+
             tween(leaf)
                 .by(waveDuration, { x: waveWidth }, { easing: 'sineInOut' })
                 .by(waveDuration, { x: -waveWidth }, { easing: 'sineInOut' })
@@ -2114,7 +2329,7 @@ export class BoardView extends Component {
         for (let i = 0; i < count; i++) {
             const confetti = new Node('Confetti');
             confetti.layer = 33554432; // UI_2D
-            
+
             // 1. 形状多样化：0 = 矩形纸片, 1 = 圆形亮片, 2 = 细长条彩带, 3 = 十字亮星
             const shapeType = Math.floor(Math.random() * 4);
             let w = 8;
@@ -2130,10 +2345,10 @@ export class BoardView extends Component {
             } else {
                 w = h = 12 + Math.random() * 8;
             }
-            
+
             const trans = confetti.addComponent(UITransform);
             trans.setContentSize(w, h);
-            
+
             // 挂载透明度组件以便下落后期渐隐
             const opacityComp = confetti.addComponent(UIOpacity);
             opacityComp.opacity = 255;
@@ -2178,7 +2393,7 @@ export class BoardView extends Component {
             const source = Math.random() < 0.4 ? 0 : (Math.random() < 0.66 ? 1 : 2);
             let startX = 0;
             let startY = 0;
-            
+
             if (source === 0) {
                 startX = -cw / 2 - 30;
                 startY = -ch / 2 + 100;
@@ -2198,7 +2413,7 @@ export class BoardView extends Component {
             const t2 = 1.6 + Math.random() * 1.5;  // 下落旋转时间
 
             const targetY = -ch / 2 + ch * (0.6 + Math.random() * 0.35); // 上升最高点
-            
+
             let targetX = 0;
             if (source === 0) {
                 targetX = -cw / 2 + cw * (0.2 + Math.random() * 0.55); // 向中右喷
@@ -2226,7 +2441,7 @@ export class BoardView extends Component {
             // (B) X 轴摇摆：上升期走直线，下落期执行钟摆式正弦左右晃动飘零 (落叶效果)
             const swayRange = 25 + Math.random() * 45; // 左右摇摆幅度 (像素)
             const swaySpeed = 0.25 + Math.random() * 0.25; // 每次摇摆时长
-            
+
             tween(confetti)
                 .to(t1, { x: targetX }, { easing: 'quadOut' })
                 .call(() => {
@@ -2356,6 +2571,38 @@ export class BoardView extends Component {
 
         return Promise.all(promises).then(() => {
             console.log(`BoardView: total registered piece arts: ${this.pieceArtByCampAndType.size}`);
+        });
+    }
+
+    private loadPieceActions(): Promise<void> {
+        const promises = ANIMAL_ACTION_CONFIGS.map((config) => {
+            const framePromises = getActionFramePaths(config.name).map((path) => this.loadSpriteFrameOrNull(path));
+            return Promise.all(framePromises).then((frames) => {
+                const loadedFrames = frames.filter((frame): frame is SpriteFrame => !!frame);
+                if (loadedFrames.length > 0) {
+                    this.actionFramesByType.set(config.type, loadedFrames);
+                    console.log(`BoardView: registered ${loadedFrames.length} action frames for ${config.name}`);
+                } else {
+                    console.warn(`BoardView: no action frames found for ${config.name}; fallback motion will be used.`);
+                }
+            });
+        });
+
+        return Promise.all(promises).then(() => {
+            console.log(`BoardView: total action frame groups: ${this.actionFramesByType.size}`);
+        });
+    }
+
+    private loadSpriteFrameOrNull(path: string): Promise<SpriteFrame | null> {
+        return new Promise((resolve) => {
+            resources.load(path, SpriteFrame, (err, frame) => {
+                if (!err && frame) {
+                    resolve(frame);
+                    return;
+                }
+                console.warn(`BoardView: action frame load failed for ${path}:`, err);
+                resolve(null);
+            });
         });
     }
 
@@ -2565,7 +2812,7 @@ export class BoardView extends Component {
 
             // 插入父节点下
             parentNode.addChild(this.turnIndicatorBgNode);
-            
+
             // 绑定位置：它的初始位置应该和 turnIndicator 保持完全一致
             this.turnIndicatorBgNode.setPosition(this.turnIndicator.node.position);
         }
@@ -2807,7 +3054,7 @@ export class BoardView extends Component {
 
         if (this.remainingTime <= 0) {
             this.stopTurnTimer();
-            
+
             // 网络对战模式下，走棋超时应由服务端权威判定并广播 game_over，本地仅做展示防卡死，不主动触发 GameOver 弹窗
             if (this.isNetworkMode) {
                 console.log("[Network] 本地倒计时归零，等待服务器超时结算判定...");
@@ -2817,14 +3064,14 @@ export class BoardView extends Component {
             const currentTurn = this.engine.getCurrentTurn();
             const winner = currentTurn === Camp.RED ? Camp.BLUE : Camp.RED;
             this.showGameOver(winner, GameOverReason.TIMEOUT);
-            
+
             let winnerName = '';
             if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
                 winnerName = winner === Camp.RED ? '红方 (上方)' : '蓝方 (下方)';
             } else {
                 winnerName = winner === Camp.RED ? '红方 (下方)' : '蓝方 (上方)';
             }
-            
+
             if (this.gameOverText) {
                 this.gameOverText.string = `时间到！恭喜 ${winnerName} 获胜！\n当前回合方走棋超时。`;
             }
@@ -2833,17 +3080,17 @@ export class BoardView extends Component {
 
     private isMyTurn(): boolean {
         if (this.isGameOverState) return false;
-        
+
         // 1. 网络模式：当前回合必须等于我的阵营
         if (this.isNetworkMode) {
             return this.engine.getCurrentTurn() === this.myCamp;
         }
-        
+
         // 2. 人机模式：当前回合必须是玩家回合（RED），且 AI 没有在移动中
         if (this.isAIMode) {
             return this.engine.getCurrentTurn() === Camp.RED && !this.isAIMoving;
         }
-        
+
         // 3. 单机双人模式：两方都是人类玩家在同屏下棋，所以当前不管是红还是蓝，都是需要下棋的人在操作
         return true;
     }
@@ -2861,20 +3108,20 @@ export class BoardView extends Component {
             if (!this.screenTimerLabelNode) {
                 this.screenTimerLabelNode = new Node("ScreenTimerLabel");
                 this.screenTimerLabelNode.layer = 33554432; // UI_2D
-                
+
                 // 将大数字节点直接添加到 this.node (即棋盘容器上)，这样可以精确在棋盘中央自适应
                 this.node.addChild(this.screenTimerLabelNode);
-                
+
                 const labelTrans = this.screenTimerLabelNode.addComponent(UITransform);
                 // 棋盘中央
                 this.screenTimerLabelNode.setPosition(new Vec3(0, 0, 0));
-                
+
                 const labelComp = this.screenTimerLabelNode.addComponent(Label);
                 labelComp.fontSize = Math.round(180 * scaleFactor);
                 labelComp.lineHeight = labelComp.fontSize;
                 labelComp.color = new Color(231, 76, 60, 255); // 鲜艳红 (#e74c3c)
                 labelComp.isBold = true;
-                
+
                 this.screenTimerLabelNode.addComponent(UIOpacity);
             }
 
@@ -2893,7 +3140,7 @@ export class BoardView extends Component {
             const opacityComp = this.screenTimerLabelNode.getComponent(UIOpacity);
             if (opacityComp) {
                 opacityComp.opacity = 255;
-                
+
                 // 停止可能正在运行的缓动
                 Tween.stopAllByTarget(this.screenTimerLabelNode);
                 Tween.stopAllByTarget(opacityComp);
@@ -2901,7 +3148,7 @@ export class BoardView extends Component {
                 tween(this.screenTimerLabelNode)
                     .to(0.15, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'quadOut' })
                     .start();
-                    
+
                 tween(opacityComp)
                     .to(0.85, { opacity: 0 }, { easing: 'quadIn' })
                     .start();
@@ -3417,11 +3664,11 @@ export class BoardView extends Component {
         const data = JSON.parse(dataStr);
         console.log(`[BoardView] 重连同步成功！`);
         this.showToast("重连对局成功！");
-        
+
         if (data.remaining_time !== undefined) {
             this.remainingTime = data.remaining_time;
         }
-        
+
         const serverTurn = data.current_turn === 'RED' ? Camp.RED : Camp.BLUE;
         this.syncBoardStateFromNetwork(data.board_state, serverTurn);
     };
@@ -3431,7 +3678,7 @@ export class BoardView extends Component {
         if (typeof dataStr === 'string') {
             data = JSON.parse(dataStr);
         }
-        
+
         const oldTime = this.remainingTime;
         this.remainingTime = data.remaining_time;
         if (data.current_turn) {
@@ -3454,7 +3701,7 @@ export class BoardView extends Component {
         NetworkManager.getInstance().off('reconnect_success', this.onReconnectSuccess);
         NetworkManager.getInstance().off('timer_sync', this.onNetworkTimerSync);
         NetworkManager.getInstance().disconnect();
-        
+
         // 主动离开游戏，清除本地暂存的对局房间号
         sys.localStorage.removeItem('animal_chess_room_id');
     }
@@ -3502,7 +3749,7 @@ export class BoardView extends Component {
                 data = JSON.parse(dataStr);
             }
             console.log(`[BoardView] 重新匹配成功: `, data);
-            
+
             NetworkManager.getInstance().currentRoomId = data.room_id;
             NetworkManager.getInstance().myCamp = data.camp;
             NetworkManager.getInstance().opponentId = data.opponent_id;
@@ -3514,7 +3761,7 @@ export class BoardView extends Component {
             this.isNetworkMode = true;
             this.myCamp = NetworkManager.getInstance().myCamp as Camp;
             sys.localStorage.setItem('animal_chess_room_id', NetworkManager.getInstance().currentRoomId);
-            
+
             // 重新开始游戏
             this.restartGame();
         };
@@ -3544,7 +3791,7 @@ export class BoardView extends Component {
                         data = JSON.parse(dataStr);
                     }
                     console.log(`[BoardView] 扫码/链接加入成功: `, data);
-                    
+
                     NetworkManager.getInstance().currentRoomId = data.room_id;
                     NetworkManager.getInstance().myCamp = data.camp;
                     NetworkManager.getInstance().opponentId = data.opponent_id;
@@ -3557,10 +3804,10 @@ export class BoardView extends Component {
                     this.isAIMode = false;
                     this.isNetworkMode = true;
                     this.myCamp = NetworkManager.getInstance().myCamp as Camp;
-                    
+
                     // 保存当前对局房间号以支持刷新重连
                     sys.localStorage.setItem('animal_chess_room_id', NetworkManager.getInstance().currentRoomId);
-                    
+
                     // 注册网络对战的广播监听
                     NetworkManager.getInstance().on('opponent_move', this.onOpponentMove);
                     NetworkManager.getInstance().on('game_over', this.onNetworkGameOver);
@@ -3577,7 +3824,7 @@ export class BoardView extends Component {
 
                 NetworkManager.getInstance().on('match_wait', onMatchWait);
                 NetworkManager.getInstance().on('match_success', onMatchSuccess);
-                
+
                 // 发送匹配包
                 NetworkManager.getInstance().send('match_seek', { room_code: roomCode, user_name: "Player" });
             })
@@ -3591,7 +3838,7 @@ export class BoardView extends Component {
     private loadBoardStyleSpriteFrames(callback: (sf1: SpriteFrame | null, sf2: SpriteFrame | null) => void) {
         const path1 = this.isGrassStyle ? 'textures/board_grass1' : 'textures/board_wood1';
         const path2 = this.isGrassStyle ? 'textures/board_grass2' : 'textures/board_wood2';
-        
+
         const loadOne = (path: string, cb: (sf: SpriteFrame | null) => void) => {
             resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
                 if (!err && sf) return cb(sf);
@@ -3611,7 +3858,7 @@ export class BoardView extends Component {
                 });
             });
         };
-        
+
         loadOne(path1, (sf1) => {
             loadOne(path2, (sf2) => {
                 callback(sf1, sf2);
@@ -3622,7 +3869,7 @@ export class BoardView extends Component {
     private updateBoardGridTextures(): void {
         this.loadBoardStyleSpriteFrames((sf1, sf2) => {
             if (!sf1 || !sf2) return;
-            
+
             for (let x = 0; x < LocalEngine.COLS; x++) {
                 for (let y = 0; y < LocalEngine.ROWS; y++) {
                     const idx = x * LocalEngine.ROWS + y;
