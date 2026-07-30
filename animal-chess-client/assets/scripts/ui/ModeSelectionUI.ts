@@ -1702,7 +1702,7 @@ export class ModeSelectionUI extends Component {
         const isPortrait = ch > cw;
         const refW = isPortrait ? 750 : 1280;
         const refH = isPortrait ? 1334 : 720;
-        const scaleFactor = Math.min(cw / refW, ch / refH);
+        const scaleFactor = Math.max(0.62, Math.min(cw / refW, ch / refH));
 
         if (this.roomActionDialog && this.roomActionDialog.isValid) {
             this.roomActionDialog.destroy();
@@ -1714,24 +1714,36 @@ export class ModeSelectionUI extends Component {
         this.roomActionDialog.addComponent(UITransform).setContentSize(cw, ch);
         canvas.addChild(this.roomActionDialog);
 
-        // 1. 半透明黑色遮罩
-        const mask = this.createRectNode('Mask', '#000000', cw, ch, 0, 150);
+        // 1. 遮罩
+        const mask = this.createRectNode('Mask', '#06190f', cw, ch, 0, 188);
         mask.addComponent(Button);
         mask.on(Node.EventType.TOUCH_END, () => this.hideRoomActionDialog(), this);
         this.roomActionDialog.addChild(mask);
 
         // 2. 弹窗体
-        const dialogW = Math.min(cw * 0.88, 560 * scaleFactor);
+        const dialogW = Math.min(cw * 0.9, 600 * scaleFactor);
         const dialogH = Math.min(ch * 0.65, 560 * scaleFactor);
-        const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 30 * scaleFactor);
+        const panelShadow = this.createRectNode('PanelShadow', '#203316', dialogW, dialogH, 34 * scaleFactor, 112);
+        panelShadow.setPosition(0, -8 * scaleFactor, 0);
+        this.roomActionDialog.addChild(panelShadow);
+
+        const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 34 * scaleFactor);
         dialog.name = 'DialogNode';
         this.roomActionDialog.addChild(dialog);
 
+        const topBand = this.createRectNode('TopBand', '#e9f4d6', dialogW - 34 * scaleFactor, 116 * scaleFactor, 28 * scaleFactor, 255);
+        topBand.setPosition(0, dialogH / 2 - 74 * scaleFactor, 0);
+        dialog.addChild(topBand);
+
         // 3. 关闭按钮
-        const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 22 * scaleFactor);
-        closeBtn.setPosition(dialogW / 2 - 28 * scaleFactor, dialogH / 2 - 28 * scaleFactor, 0);
+        const closeBtn = this.createCircleNode('CloseBtn', '#d63a2f', 24 * scaleFactor);
+        const closeTrans = closeBtn.getComponent(UITransform);
+        if (closeTrans) {
+            closeTrans.setContentSize(80, 80);
+        }
+        closeBtn.setPosition(dialogW / 2 - 32 * scaleFactor, dialogH / 2 - 32 * scaleFactor, 0);
         dialog.addChild(closeBtn);
-        const closeTxt = this.createLabelNode('CloseTxt', '×', 30 * scaleFactor, '#ffffff', true);
+        const closeTxt = this.createLabelNode('CloseTxt', '×', 32 * scaleFactor, '#ffffff', true);
         closeBtn.addChild(closeTxt);
         closeBtn.addComponent(Button);
         closeBtn.on(Node.EventType.TOUCH_END, () => {
@@ -1740,12 +1752,16 @@ export class ModeSelectionUI extends Component {
         }, this);
 
         // 4. 标题和副标题
-        const title = this.createLabelNode('Title', '房间与匹配', 34 * scaleFactor, '#695f00', true);
-        title.setPosition(0, dialogH / 2 - 55 * scaleFactor, 0);
+        const headerIcon = this.createDifficultyOptionIcon('HeaderRoom', '#148437', '#f7fff2', 42 * scaleFactor, 'swords', scaleFactor);
+        headerIcon.setPosition(-142 * scaleFactor, dialogH / 2 - 60 * scaleFactor, 0);
+        dialog.addChild(headerIcon);
+
+        const title = this.createLabelNode('Title', '房间与匹配', 34 * scaleFactor, '#146c38', true);
+        title.setPosition(12 * scaleFactor, dialogH / 2 - 54 * scaleFactor, 0);
         dialog.addChild(title);
 
-        const subtitle = this.createLabelNode('Subtitle', '全网随机匹配，或与好友创建/加入房间', 18 * scaleFactor, '#9a8d5d', false);
-        subtitle.setPosition(0, dialogH / 2 - 90 * scaleFactor, 0);
+        const subtitle = this.createLabelNode('Subtitle', '全网随机匹配，或与好友创建/加入房间', 18 * scaleFactor, '#647044', false);
+        subtitle.setPosition(12 * scaleFactor, dialogH / 2 - 92 * scaleFactor, 0);
         dialog.addChild(subtitle);
 
         // 5. 三个功能按钮
@@ -1753,7 +1769,7 @@ export class ModeSelectionUI extends Component {
         const btnH = 74 * scaleFactor;
         const btnRadius = 37 * scaleFactor;
         const btnGap = 16 * scaleFactor;
-        const btn1Y = dialogH / 2 - 165 * scaleFactor;
+        const btn1Y = dialogH / 2 - 176 * scaleFactor;
         const btn2Y = btn1Y - btnH - btnGap;
         const btn3Y = btn2Y - btnH - btnGap;
 
