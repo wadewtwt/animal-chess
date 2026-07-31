@@ -190,11 +190,20 @@ def normalize_vocal_grid(
     render_sheet(normalized_frames, columns=5).save(
         preview_sheet_path, format="PNG", optimize=True
     )
-    normalized_frames[0].save(
+    gif_frames = []
+    for frame in normalized_frames:
+        alpha = frame.split()[3]
+        p_frame = frame.convert("RGB").convert("P", palette=Image.ADAPTIVE, colors=255)
+        mask = Image.eval(alpha, lambda a: 255 if a < 128 else 0)
+        p_frame.paste(255, mask=mask)
+        p_frame.info["transparency"] = 255
+        gif_frames.append(p_frame)
+
+    gif_frames[0].save(
         preview_gif_path,
         format="GIF",
         save_all=True,
-        append_images=normalized_frames[1:],
+        append_images=gif_frames[1:],
         duration=frame_duration_ms,
         loop=0,
         disposal=2,
