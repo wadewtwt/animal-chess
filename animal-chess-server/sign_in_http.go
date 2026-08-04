@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -143,7 +144,17 @@ func handleAnimalChessCheckIn(app *App, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if app.UserRepository != nil {
+		user, err := app.UserRepository.FindByID(claims.UserID)
+		if err == nil && user != nil && strings.TrimSpace(user.Nickname) == "" {
+			log.Printf("SignInHTTP handleAnimalChessCheckIn error nickname required, userID=%d", claims.UserID)
+			writeJSONError(w, http.StatusBadRequest, "nickname is required for check-in")
+			return
+		}
+	}
+
 	today := time.Now().Format(dateLayout)
+
 	result, err := app.SignInService.SignIn(SignInCommand{
 		UserID: claims.UserID,
 		Today:  today,

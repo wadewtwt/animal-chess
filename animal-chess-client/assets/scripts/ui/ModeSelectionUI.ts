@@ -635,12 +635,12 @@ export class ModeSelectionUI extends Component {
     }
 
     private registerDifficultyState(optionNode: Node, key: DifficultyKey, accentHex: string) {
-        const mainLabel = optionNode.getChildByName('MainLabel')!.getComponent(Label)!;
-        const subLabel = optionNode.getChildByName('SubLabel')!.getComponent(Label)!;
-        const dotInner = optionNode.getChildByName('Dot')!.getChildByName('DotCover')!.getChildByName('DotInner')!;
-        const bgNode = optionNode.getChildByName('Bg')!;
-        const shadowNode = optionNode.getChildByName('Shadow')!;
-        const badgeNode = optionNode.getChildByName('Badge')!;
+        const mainLabel = optionNode.getChildByName('MainLabel')?.getComponent(Label) ?? null!;
+        const subLabel = optionNode.getChildByName('SubLabel')?.getComponent(Label) ?? null!;
+        const dotInner = optionNode.getChildByName('Dot')?.getChildByName('DotCover')?.getChildByName('DotInner') ?? null!;
+        const bgNode = optionNode.getChildByName('Bg') ?? null!;
+        const shadowNode = optionNode.getChildByName('Shadow') ?? null!;
+        const badgeNode = optionNode.getChildByName('Badge') ?? null!;
         const accentColor = new Color();
         Color.fromHEX(accentColor, accentHex);
 
@@ -666,13 +666,22 @@ export class ModeSelectionUI extends Component {
     private refreshDifficultySelection() {
         this.difficultyStates.forEach((state, key) => {
             const selected = key === this.selectedDifficulty;
-            state.node.setScale(new Vec3(selected ? 1.03 : 1.0, selected ? 1.03 : 1.0, 1.0));
-            state.mainLabel.color = selected ? state.accentColor : new Color(102, 87, 45, 255);
-            state.subLabel.color = selected ? new Color(75, 150, 90, 255) : new Color(159, 146, 118, 255);
-            state.bgNode.getComponent(Graphics)!.fillColor = selected ? new Color(255, 255, 255, 255) : new Color(255, 255, 255, 248);
-            state.shadowNode.getComponent(Graphics)!.fillColor = selected ? new Color(120, 88, 28, 58) : new Color(120, 88, 28, 36);
-            state.badgeNode.getComponent(Graphics)!.fillColor = selected ? state.accentColor : new Color(225, 218, 201, 255);
-            state.dotInner.active = selected;
+            if (state.node) state.node.setScale(new Vec3(selected ? 1.03 : 1.0, selected ? 1.03 : 1.0, 1.0));
+            if (state.mainLabel) state.mainLabel.color = selected ? state.accentColor : new Color(102, 87, 45, 255);
+            if (state.subLabel) state.subLabel.color = selected ? new Color(75, 150, 90, 255) : new Color(159, 146, 118, 255);
+            if (state.bgNode) {
+                const g = state.bgNode.getComponent(Graphics);
+                if (g) g.fillColor = selected ? new Color(255, 255, 255, 255) : new Color(255, 255, 255, 248);
+            }
+            if (state.shadowNode) {
+                const g = state.shadowNode.getComponent(Graphics);
+                if (g) g.fillColor = selected ? new Color(120, 88, 28, 58) : new Color(120, 88, 28, 36);
+            }
+            if (state.badgeNode) {
+                const g = state.badgeNode.getComponent(Graphics);
+                if (g) g.fillColor = selected ? state.accentColor : new Color(225, 218, 201, 255);
+            }
+            if (state.dotInner) state.dotInner.active = selected;
         });
     }
 
@@ -1722,7 +1731,7 @@ export class ModeSelectionUI extends Component {
 
         // 2. 弹窗体
         const dialogW = Math.min(cw * 0.9, 600 * scaleFactor);
-        const dialogH = Math.min(ch * 0.65, 560 * scaleFactor);
+        const dialogH = Math.min(ch * 0.72, 620 * scaleFactor);
         const panelShadow = this.createRectNode('PanelShadow', '#203316', dialogW, dialogH, 34 * scaleFactor, 112);
         panelShadow.setPosition(0, -8 * scaleFactor, 0);
         this.roomActionDialog.addChild(panelShadow);
@@ -1752,11 +1761,14 @@ export class ModeSelectionUI extends Component {
         }, this);
 
         // 4. 标题和副标题
-        const headerIcon = this.createDifficultyOptionIcon('HeaderRoom', '#148437', '#f7fff2', 42 * scaleFactor, 'swords', scaleFactor);
-        headerIcon.setPosition(-142 * scaleFactor, dialogH / 2 - 60 * scaleFactor, 0);
-        dialog.addChild(headerIcon);
+        const headerBadge = this.createCircleNode('HeaderBadge', '#148437', 24 * scaleFactor);
+        headerBadge.setPosition(-142 * scaleFactor, dialogH / 2 - 60 * scaleFactor, 0);
+        dialog.addChild(headerBadge);
 
-        const title = this.createLabelNode('Title', '房间与匹配', 34 * scaleFactor, '#146c38', true);
+        const headerIcon = this.createDifficultyOptionIcon('HeaderRoom', '#148437', '#f7fff2', 30 * scaleFactor, 'swords', scaleFactor);
+        headerBadge.addChild(headerIcon);
+
+        const title = this.createLabelNode('Title', '房间对战', 34 * scaleFactor, '#146c38', true);
         title.setPosition(12 * scaleFactor, dialogH / 2 - 54 * scaleFactor, 0);
         dialog.addChild(title);
 
@@ -1764,12 +1776,12 @@ export class ModeSelectionUI extends Component {
         subtitle.setPosition(12 * scaleFactor, dialogH / 2 - 92 * scaleFactor, 0);
         dialog.addChild(subtitle);
 
-        // 5. 三个功能按钮
-        const btnW = dialogW - 80 * scaleFactor;
-        const btnH = 74 * scaleFactor;
-        const btnRadius = 37 * scaleFactor;
-        const btnGap = 16 * scaleFactor;
-        const btn1Y = dialogH / 2 - 176 * scaleFactor;
+        // 5. 三个功能选项卡片 (风格与难度选择选项保持完全一致)
+        const btnW = dialogW - 48 * scaleFactor;
+        const btnH = 96 * scaleFactor;
+        const btnRadius = 22 * scaleFactor;
+        const btnGap = 14 * scaleFactor;
+        const btn1Y = dialogH / 2 - 186 * scaleFactor;
         const btn2Y = btn1Y - btnH - btnGap;
         const btn3Y = btn2Y - btnH - btnGap;
 
@@ -1840,7 +1852,7 @@ export class ModeSelectionUI extends Component {
     }
 
     /**
-     * 创建房间入口弹窗中的带图标操作按钮。
+     * 创建房间入口弹窗中的带图标操作卡片（与难度选择选项卡片统一风格）。
      */
     private createRoomActionButton(
         parent: Node,
@@ -1860,53 +1872,52 @@ export class ModeSelectionUI extends Component {
             scaleFactor: number;
         }
     ): Node {
-        const shadow = this.createRectNode(`${options.name}Shadow`, options.shadowHex, options.width, options.height, options.radius, 118);
-        shadow.setPosition(0, options.y - 4 * options.scaleFactor, 0);
+        const shadow = this.createRectNode(`${options.name}Shadow`, '#6a5229', options.width - 2 * options.scaleFactor, options.height - 2 * options.scaleFactor, options.radius, 42);
+        shadow.setPosition(0, options.y - 3 * options.scaleFactor, 0);
         parent.addChild(shadow);
 
-        const button = this.createRectNode(`${options.name}Btn`, options.fillHex, options.width, options.height, options.radius);
+        const button = this.createRectNode(`${options.name}Btn`, '#fffdfa', options.width, options.height, options.radius, 250);
         button.setPosition(0, options.y, 0);
         parent.addChild(button);
 
-        const highlight = this.createRectNode(`${options.name}Highlight`, '#ffffff', options.width - 26 * options.scaleFactor, 18 * options.scaleFactor, 9 * options.scaleFactor, 34);
-        highlight.setPosition(0, options.height / 2 - 17 * options.scaleFactor, 0);
-        button.addChild(highlight);
+        const accentWash = this.createRectNode(`${options.name}Wash`, options.fillHex, 68 * options.scaleFactor, options.height - 20 * options.scaleFactor, 20 * options.scaleFactor, 34);
+        accentWash.setPosition(-options.width / 2 + 42 * options.scaleFactor, 0, 0);
+        button.addChild(accentWash);
 
-        const iconSize = options.height * 0.56;
-        const iconBg = this.createCircleNode(`${options.name}IconBg`, options.iconHex, iconSize / 2, 245);
-        iconBg.setPosition(-options.width / 2 + 47 * options.scaleFactor, 0, 0);
-        button.addChild(iconBg);
+        const badge = this.createCircleNode(`${options.name}Badge`, options.fillHex, 28 * options.scaleFactor, 230);
+        badge.setPosition(-options.width / 2 + 66 * options.scaleFactor, 0, 0);
+        button.addChild(badge);
 
-        const iconLabel = this.createLabelNode(`${options.name}Icon`, options.icon, 22 * options.scaleFactor, options.fillHex, true);
-        iconBg.addChild(iconLabel);
+        const iconLabel = this.createLabelNode(`${options.name}Icon`, options.icon, 22 * options.scaleFactor, '#ffffff', true);
+        badge.addChild(iconLabel);
 
-        const textStartX = -options.width / 2 + 86 * options.scaleFactor;
-        const title = this.createLabelNode(`${options.name}Title`, options.title, 23 * options.scaleFactor, '#ffffff', true);
+        const textStartX = -options.width / 2 + 112 * options.scaleFactor;
+        const title = this.createLabelNode(`${options.name}Title`, options.title, 24 * options.scaleFactor, '#66572d', true);
         title.getComponent(UITransform)?.setAnchorPoint(0, 0.5);
         const titleLabel = title.getComponent(Label);
         if (titleLabel) {
             titleLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
         }
-        title.setPosition(textStartX, 11 * options.scaleFactor, 0);
+        title.setPosition(textStartX, 14 * options.scaleFactor, 0);
         button.addChild(title);
 
-        const subtitle = this.createLabelNode(`${options.name}Subtitle`, options.subtitle, 15 * options.scaleFactor, '#f7f3df', false);
+        const subtitle = this.createLabelNode(`${options.name}Subtitle`, options.subtitle, 15 * options.scaleFactor, '#9f9276', false);
         subtitle.getComponent(UITransform)?.setAnchorPoint(0, 0.5);
         const subtitleLabel = subtitle.getComponent(Label);
         if (subtitleLabel) {
             subtitleLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
         }
-        subtitle.setPosition(textStartX, -15 * options.scaleFactor, 0);
+        subtitle.setPosition(textStartX, -18 * options.scaleFactor, 0);
         button.addChild(subtitle);
 
-        const arrow = this.createLabelNode(`${options.name}Arrow`, '›', 28 * options.scaleFactor, '#ffffff', true);
+        const arrow = this.createLabelNode(`${options.name}Arrow`, '›', 28 * options.scaleFactor, '#66572d', true);
         arrow.setPosition(options.width / 2 - 31 * options.scaleFactor, 0, 0);
         button.addChild(arrow);
 
         button.addComponent(Button);
         button.on(Node.EventType.TOUCH_START, () => {
-            button.setScale(new Vec3(0.96, 0.96, 1.0));
-            shadow.setScale(new Vec3(0.96, 0.96, 1.0));
+            button.setScale(new Vec3(0.97, 0.97, 1.0));
+            shadow.setScale(new Vec3(0.97, 0.97, 1.0));
         }, this);
         button.on(Node.EventType.TOUCH_END, () => {
             button.setScale(new Vec3(1.0, 1.0, 1.0));

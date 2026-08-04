@@ -24,14 +24,12 @@ class GenerateVideoVocalSequenceTest(unittest.TestCase):
             gif_path = root / "preview.gif"
 
             grid = Image.new("RGBA", (500, 200), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(grid)
-            for idx in range(10):
-                c, r = idx % 5, idx // 5
-                draw.ellipse([c * 100 + 10, r * 100 + 10, c * 100 + 90, r * 100 + 90], fill=(50 + idx * 15, 100, 200, 255))
             grid.save(grid_path)
 
             anchor = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
             ImageDraw.Draw(anchor).ellipse([10, 10, 90, 90], fill=(0, 75, 180, 255))
+            # Add subtle inner gradient so frames differ
+            ImageDraw.Draw(anchor).ellipse([40, 40, 60, 60], fill=(200, 100, 50, 255))
             anchor.save(anchor_path)
 
             frame_paths = generate_video_smooth_vocal_sequence(
@@ -41,16 +39,16 @@ class GenerateVideoVocalSequenceTest(unittest.TestCase):
                 sheet_path,
                 gif_path,
                 frame_size=384,
-                frame_duration_ms=60,
-                target_frame_count=16,
+                frame_duration_ms=50,
+                target_frame_count=24,
             )
 
-            self.assertEqual(16, len(frame_paths))
+            self.assertEqual(24, len(frame_paths))
             self.assertTrue(sheet_path.is_file())
             self.assertTrue(gif_path.is_file())
 
             with Image.open(gif_path) as preview:
-                self.assertEqual(16, preview.n_frames)
+                self.assertEqual(24, preview.n_frames)
 
 
 if __name__ == "__main__":

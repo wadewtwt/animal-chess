@@ -106,15 +106,31 @@ VALUES (?, ?, '', '', 0, 0, NULL, ?, ?, ?)
 	}, nil
 }
 
-func (r *UserRepository) TouchLogin(userID int64, unionID string, now time.Time) error {
+func (r *UserRepository) TouchLogin(userID int64, unionID, nickname, avatarURL string, now time.Time) error {
 	_, err := r.db.Exec(`
 UPDATE animal_chess_user
 SET unionid = COALESCE(NULLIF(?, ''), unionid),
+    nickname = COALESCE(NULLIF(?, ''), nickname),
+    avatar_url = COALESCE(NULLIF(?, ''), avatar_url),
     last_login_at = ?,
     updated_at = ?
 WHERE id = ?
-`, unionID, now, now, userID)
+`, unionID, nickname, avatarURL, now, now, userID)
 	return err
+}
+
+func (r *UserRepository) UpdateProfile(userID int64, nickname, avatarURL string, now time.Time) (*AnimalChessUser, error) {
+	_, err := r.db.Exec(`
+UPDATE animal_chess_user
+SET nickname = COALESCE(NULLIF(?, ''), nickname),
+    avatar_url = COALESCE(NULLIF(?, ''), avatar_url),
+    updated_at = ?
+WHERE id = ?
+`, nickname, avatarURL, now, userID)
+	if err != nil {
+		return nil, err
+	}
+	return r.FindByID(userID)
 }
 
 func (r *UserRepository) FindByIDForUpdate(ctx context.Context, tx *sql.Tx, userID int64) (*AnimalChessUser, error) {
@@ -142,10 +158,10 @@ WHERE id = ?
 	return err
 }
 
-func (r *UserRepository) FindOrCreateByOpenID(openID, unionID string, now time.Time) (*AnimalChessUser, error) {
+func (r *UserRepository) FindOrCreateByOpenID(openID, unionID, nickname, avatarURL string, now time.Time) (*AnimalChessUser, error) {
 	user, err := r.FindByOpenID(openID)
 	if err == nil {
-		return r.touchAndMergeUser(user, unionID, now)
+		return r.touchAndMergeUser(user, unionID, nickname, avatarURL, now)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -153,6 +169,9 @@ func (r *UserRepository) FindOrCreateByOpenID(openID, unionID string, now time.T
 
 	user, err = r.Create(openID, unionID, now)
 	if err == nil {
+		if nickname != "" || avatarURL != "" {
+			return r.UpdateProfile(user.ID, nickname, avatarURL, now)
+		}
 		return user, nil
 	}
 	if !isMySQLDuplicateEntryError(err) {
@@ -164,11 +183,11 @@ func (r *UserRepository) FindOrCreateByOpenID(openID, unionID string, now time.T
 		return nil, err
 	}
 
-	return r.touchAndMergeUser(user, unionID, now)
+	return r.touchAndMergeUser(user, unionID, nickname, avatarURL, now)
 }
 
-func (r *UserRepository) touchAndMergeUser(user *AnimalChessUser, unionID string, now time.Time) (*AnimalChessUser, error) {
-	if updateErr := r.TouchLogin(user.ID, unionID, now); updateErr != nil {
+func (r *UserRepository) touchAndMergeUser(user *AnimalChessUser, unionID, nickname, avatarURL string, now time.Time) (*AnimalChessUser, error) {
+	if updateErr := r.TouchLogin(user.ID, unionID, nickname, avatarURL, now); updateErr != nil {
 		return nil, updateErr
 	}
 	user.LastLoginAt = now
@@ -176,8 +195,15 @@ func (r *UserRepository) touchAndMergeUser(user *AnimalChessUser, unionID string
 	if unionID != "" {
 		user.UnionID = unionID
 	}
+	if nickname != "" {
+		user.Nickname = nickname
+	}
+	if avatarURL != "" {
+		user.AvatarURL = avatarURL
+	}
 	return user, nil
 }
+
 
 func isMySQLDuplicateEntryError(err error) bool {
 	var mysqlErr *mysqlDriver.MySQLError

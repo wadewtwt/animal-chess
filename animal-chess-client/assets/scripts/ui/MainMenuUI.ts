@@ -709,6 +709,24 @@ export class MainMenuUI extends Component {
             return;
         }
 
+        // 校验微信昵称授权状态
+        const storedUser = AuthManager.getStoredUser();
+        const hasValidNickname = !!storedUser && typeof storedUser.nickname === 'string' && storedUser.nickname.trim().length > 0;
+
+        if (AuthManager.isWechatSupported()) {
+            if (!hasValidNickname) {
+                // 未授权微信昵称，提示并拉起授权弹窗
+                this.signInOverlay?.hide();
+                this.showProfileAuthorizationForSignIn();
+                return;
+            }
+        } else {
+            // 本地测试模式下，若昵称为空则自动预设测试昵称
+            if (!hasValidNickname) {
+                AuthManager.updateStoredUser({ nickname: '森林玩家' });
+            }
+        }
+
         this.signInSubmitting = true;
         try {
             let result: SignInStatusResponse;
@@ -737,6 +755,55 @@ export class MainMenuUI extends Component {
             this.signInSubmitting = false;
         }
     }
+
+    /**
+     * 为签到流程唤起微信昵称授权弹窗
+     */
+    private showProfileAuthorizationForSignIn(): void {
+        const wxObj = (globalThis as any).wx;
+        if (!wxObj || typeof wxObj.createUserInfoButton !== 'function') {
+            // 微信原生按钮不可用时（如测试环境），预设默认昵称后自动完成签到
+            AuthManager.updateStoredUser({ nickname: '微信用户' });
+            void this.handleSignInAction();
+            return;
+        }
+
+        const overlay = new MainMenuProfileOverlay(
+            this.node,
+            this.scaleFactor,
+            (profile) => {
+                void (async () => {
+                    const nickname = typeof profile.nickName === 'string' ? profile.nickName.trim() : '';
+                    const avatarUrl = typeof profile.avatarUrl === 'string' ? profile.avatarUrl.trim() : '';
+                    overlay.hide();
+                    if (!nickname) {
+                        this.showToast('授权微信昵称失败，请重试');
+                        return;
+                    }
+                    try {
+                        if (!AuthManager.getToken()) {
+                            await AuthManager.ensureLogin();
+                        }
+                        const updatedUser = await UserProfileApi.updateProfile({ nickname, avatarUrl });
+                        this.updateProfileDisplay(updatedUser ?? AuthManager.getStoredUser());
+                        this.showToast('昵称授权成功！正在完成签到...');
+                        // 自动无缝续接完成签到
+                        void this.handleSignInAction();
+                    } catch (err) {
+                        console.warn('[MainMenuUI] updateProfile for sign-in failed:', err);
+                        this.showToast('资料保存失败，请稍后重试');
+                    }
+                })();
+            },
+            () => {
+                // 用户跳过或暂不授权
+                this.showToast('签到需要授权微信昵称');
+            },
+        );
+
+        overlay.show();
+    }
+
 
     /**
      * 提交签到请求，遇到 token 失效时自动刷新一次
@@ -825,6 +892,9 @@ export class MainMenuUI extends Component {
     /**
      * 播放“穿过森林”主题过渡：点击反馈、叶幕合拢、提示出现后再进入模式选择。
      */
+    /**
+     * 播放“穿过森林”主题极简高奢过渡：轻量翡翠波纹展开、顺滑对角风叶与精细提亮文字。
+     */
     private playStartGameTransition(): void {
         const canvas = this.node;
         const uiTrans = canvas.getComponent(UITransform);
@@ -840,69 +910,81 @@ export class MainMenuUI extends Component {
         const overlay = new Node('StartTransitionOverlay');
         overlay.layer = 33554432;
         overlay.addComponent(UITransform).setContentSize(cw, ch);
-        overlay.setScale(new Vec3(1.04, 1.04, 1));
         const overlayOpacity = overlay.addComponent(UIOpacity);
         overlayOpacity.opacity = 0;
         canvas.addChild(overlay);
 
-        const shade = this.createRectNode('StartTransitionShade', '#062414', cw, ch, 0, 238);
+        // 1. 通透清爽的翡翠玉石半透明背景
+        const shade = this.createRectNode('StartTransitionShade', '#072e18', cw, ch, 0, 215);
         overlay.addChild(shade);
 
-        const pathGlow = this.createCircleNode('StartTransitionPathGlow', '#8fe16d', Math.max(cw, ch) * 0.18, 52);
-        pathGlow.setPosition(0, -ch * 0.08, 0);
-        pathGlow.setScale(new Vec3(0.36, 0.2, 1));
+        // 2. 极简翡翠高光波纹（从中心舒展散开）
+        const pathGlow = this.createCircleNode('StartTransitionPathGlow', '#8fe16d', Math.max(cw, ch) * 0.22, 110);
+        pathGlow.setPosition(0, 0, 0);
+        pathGlow.setScale(new Vec3(0.2, 0.2, 1));
         overlay.addChild(pathGlow);
 
-        const title = this.createLabelNode('StartTransitionTitle', '穿过森林', 34 * scaleFactor, '#fff9c4', true);
-        title.setPosition(0, 34 * scaleFactor, 0);
-        title.addComponent(UIOpacity).opacity = 0;
+        // 3. 高对比度极简发光标题与副标题
+        const title = this.createLabelNode('StartTransitionTitle', '穿过森林', 38 * scaleFactor, '#fff9c4', true);
+        title.setPosition(0, 20 * scaleFactor, 0);
+        title.setScale(new Vec3(0.88, 0.88, 1));
+        const titleOpacity = title.addComponent(UIOpacity);
+        titleOpacity.opacity = 0;
         overlay.addChild(title);
 
-        const subtitle = this.createLabelNode('StartTransitionSubtitle', '新的对局入口正在打开', 18 * scaleFactor, '#c8e6c9', false);
-        subtitle.setPosition(0, -6 * scaleFactor, 0);
-        subtitle.addComponent(UIOpacity).opacity = 0;
+        const subtitle = this.createLabelNode('StartTransitionSubtitle', '新的对局入口正在打开', 18 * scaleFactor, '#e8f5e9', false);
+        subtitle.setPosition(0, -20 * scaleFactor, 0);
+        const subtitleOpacity = subtitle.addComponent(UIOpacity);
+        subtitleOpacity.opacity = 0;
         overlay.addChild(subtitle);
 
-        for (let i = 0; i < 7; i += 1) {
+        // 4. 精简 5 片高清对角线流线风叶（顺滑抛物线）
+        const leafCount = 5;
+        for (let i = 0; i < leafCount; i += 1) {
             const leaf = this.createStartTransitionLeaf(i, scaleFactor);
-            const fromLeft = i % 2 === 0;
-            const startX = (fromLeft ? -cw * 0.58 : cw * 0.58) + (i - 3) * 10 * scaleFactor;
-            const startY = -ch * 0.18 + i * 42 * scaleFactor;
-            const endX = (fromLeft ? cw * 0.2 : -cw * 0.2) + (i - 3) * 18 * scaleFactor;
-            const endY = startY + (fromLeft ? 95 : 70) * scaleFactor;
+            const startX = -cw * 0.55 + i * cw * 0.24;
+            const startY = -ch * 0.4 + i * ch * 0.18;
+            const endX = startX + 160 * scaleFactor;
+            const endY = startY + 120 * scaleFactor;
+
             leaf.setPosition(startX, startY, 0);
-            leaf.angle = fromLeft ? -28 : 28;
+            leaf.angle = -25 + i * 10;
+            leaf.setScale(new Vec3(0.7, 0.7, 1));
             overlay.addChild(leaf);
+
             tween(leaf)
-                .delay(i * 0.025)
-                .to(0.38, {
+                .delay(i * 0.03)
+                .to(0.35, {
                     position: new Vec3(endX, endY, 0),
-                    angle: fromLeft ? 18 : -18,
-                    scale: new Vec3(1.08, 1.08, 1),
-                }, { easing: 'quadOut' })
+                    angle: 15 - i * 5,
+                    scale: new Vec3(1.1, 1.1, 1),
+                }, { easing: 'cubicOut' })
                 .start();
         }
 
+        // 5. 快速响应调度 (0.35s 黄金交互区间)
         tween(overlayOpacity)
-            .to(0.16, { opacity: 255 }, { easing: 'quadOut' })
-            .delay(0.24)
-            .to(0.08, { opacity: 245 }, { easing: 'quadOut' })
+            .to(0.14, { opacity: 255 }, { easing: 'quadOut' })
+            .delay(0.18)
+            .to(0.08, { opacity: 235 }, { easing: 'quadOut' })
             .call(() => {
                 this.node.emit('start-game');
             })
             .start();
 
         tween(pathGlow)
-            .to(0.32, { scale: new Vec3(2.2, 1.35, 1) }, { easing: 'sineOut' })
+            .to(0.35, { scale: new Vec3(2.8, 2.8, 1) }, { easing: 'cubicOut' })
             .start();
 
-        tween(title.getComponent(UIOpacity)!)
-            .delay(0.1)
-            .to(0.18, { opacity: 255 }, { easing: 'quadOut' })
+        tween(title)
+            .to(0.24, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'backOut' })
+            .start();
+        tween(titleOpacity)
+            .to(0.16, { opacity: 255 }, { easing: 'quadOut' })
             .start();
 
-        tween(subtitle.getComponent(UIOpacity)!)
-            .delay(0.16)
+        tween(subtitleOpacity)
+            .delay(0.06)
             .to(0.18, { opacity: 230 }, { easing: 'quadOut' })
             .start();
     }
@@ -910,24 +992,22 @@ export class MainMenuUI extends Component {
     private createStartTransitionLeaf(index: number, scaleFactor: number): Node {
         const leaf = new Node('StartTransitionLeaf');
         leaf.layer = 33554432;
-        const w = (56 + index * 3) * scaleFactor;
-        const h = (34 + (index % 3) * 5) * scaleFactor;
+        const w = (64 + (index % 3) * 6) * scaleFactor;
+        const h = (38 + (index % 2) * 6) * scaleFactor;
         leaf.addComponent(UITransform).setContentSize(w, h);
         const g = leaf.addComponent(Graphics);
-        const colors = [
-            new Color(137, 206, 84, 230),
-            new Color(82, 168, 92, 230),
-            new Color(196, 214, 92, 225),
-        ];
-        g.fillColor = colors[index % colors.length];
-        g.strokeColor = new Color(35, 92, 44, 180);
+        
+        g.fillColor = new Color(139, 195, 74, 240);
+        g.strokeColor = new Color(46, 125, 50, 220);
         g.lineWidth = Math.max(2, 2.5 * scaleFactor);
         g.ellipse(0, 0, w / 2, h / 2);
         g.fill();
         g.stroke();
-        g.strokeColor = new Color(244, 255, 211, 145);
-        g.moveTo(-w * 0.28, 0);
-        g.quadraticCurveTo(0, h * 0.08, w * 0.28, 0);
+
+        g.strokeColor = new Color(255, 255, 255, 180);
+        g.lineWidth = Math.max(1.2, 1.6 * scaleFactor);
+        g.moveTo(-w * 0.35, 0);
+        g.quadraticCurveTo(0, h * 0.12, w * 0.35, 0);
         g.stroke();
         return leaf;
     }

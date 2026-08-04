@@ -1,5 +1,4 @@
 import { _decorator, Component, Node, Sprite, Label, tween, Tween, Vec3, SpriteFrame, Color, UITransform, Size, UIOpacity, math, Graphics } from 'cc';
-import type { FallbackMotionFrame } from './PieceActionConfig';
 import { Piece, Camp, AnimalType } from '../engine/LocalEngine';
 
 const { ccclass, property } = _decorator;
@@ -22,12 +21,6 @@ export class PieceView extends Component {
     private shadowNode: Node | null = null;
     private shadowSprite: Sprite | null = null;
     private shadowOpacity: UIOpacity | null = null;
-    private showActionFrameTimer: (() => void) | null = null;
-    private showActionRestoreFrame: SpriteFrame | null = null;
-    private showActionBasePos: Vec3 | null = null;
-    private showActionBaseScale: Vec3 | null = null;
-    private showActionBaseAngle: number | null = null;
-    private roarImpactNode: Node | null = null;
 
     private readonly layout = {
         shadowPos: new Vec3(0, -34, 0),
@@ -135,113 +128,7 @@ export class PieceView extends Component {
         }
     }
 
-    public playShowAction(
-        frames: readonly SpriteFrame[],
-        motion: readonly FallbackMotionFrame[],
-        frameDuration: number
-    ): void {
-        if (!this.animalSprite || motion.length === 0 || frameDuration <= 0) {
-            return;
-        }
 
-        this.stopShowAction();
-
-        const animalNode = this.animalSprite.node;
-        const basePos = animalNode.position.clone();
-        const baseScale = animalNode.scale.clone();
-        const baseAngle = animalNode.angle;
-        const playableFrames = frames.filter((frame): frame is SpriteFrame => !!frame);
-
-        this.showActionRestoreFrame = this.animalSprite.spriteFrame ?? this.staticAnimalFrame;
-        this.showActionBasePos = basePos.clone();
-        this.showActionBaseScale = baseScale.clone();
-        this.showActionBaseAngle = baseAngle;
-        this.playRoarImpact();
-
-        if (playableFrames.length > 0) {
-            let frameIndex = 0;
-            this.animalSprite.spriteFrame = playableFrames[0];
-            if (playableFrames.length > 1) {
-                this.showActionFrameTimer = () => {
-                    if (!this.animalSprite || playableFrames.length === 0) {
-                        return;
-                    }
-                    frameIndex = (frameIndex + 1) % playableFrames.length;
-                    this.animalSprite.spriteFrame = playableFrames[frameIndex];
-                };
-                this.schedule(this.showActionFrameTimer, frameDuration, playableFrames.length - 2, frameDuration);
-            }
-        }
-
-        let actionTween = tween(animalNode);
-        motion.forEach((frame, index) => {
-            const shakeX = index >= 3 && index <= 6
-                ? (index % 2 === 0 ? 3 : -3)
-                : 0;
-            actionTween = actionTween.to(frameDuration, {
-                position: new Vec3(
-                    basePos.x + frame.x + shakeX,
-                    basePos.y + frame.y,
-                    basePos.z
-                ),
-                scale: new Vec3(
-                    baseScale.x * frame.scaleX,
-                    baseScale.y * frame.scaleY,
-                    baseScale.z
-                ),
-                angle: baseAngle + frame.angle,
-            }, { easing: 'sineInOut' });
-        });
-
-        actionTween
-            .call(() => {
-                if (this.animalSprite && this.showActionRestoreFrame) {
-                    this.animalSprite.spriteFrame = this.showActionRestoreFrame;
-                }
-                animalNode.setPosition(basePos);
-                animalNode.setScale(baseScale);
-                animalNode.angle = baseAngle;
-                this.showActionRestoreFrame = null;
-                this.showActionFrameTimer = null;
-                this.showActionBasePos = null;
-                this.showActionBaseScale = null;
-                this.showActionBaseAngle = null;
-                this.clearRoarImpact();
-            })
-            .start();
-    }
-
-    public stopShowAction(): void {
-        const hasRunningShowAction = !!this.showActionFrameTimer || !!this.showActionRestoreFrame || !!this.showActionBasePos;
-        if (this.showActionFrameTimer) {
-            this.unschedule(this.showActionFrameTimer);
-            this.showActionFrameTimer = null;
-        }
-        if (this.animalSprite && this.showActionRestoreFrame) {
-            this.animalSprite.spriteFrame = this.showActionRestoreFrame;
-        }
-        if (this.animalSprite && hasRunningShowAction) {
-            Tween.stopAllByTarget(this.animalSprite.node);
-            if (this.showActionBasePos) {
-                this.animalSprite.node.setPosition(this.showActionBasePos);
-            }
-            if (this.showActionBaseScale) {
-                this.animalSprite.node.setScale(this.showActionBaseScale);
-            }
-            if (this.showActionBaseAngle !== null) {
-                this.animalSprite.node.angle = this.showActionBaseAngle;
-            }
-        }
-        this.showActionRestoreFrame = null;
-        this.showActionBasePos = null;
-        this.showActionBaseScale = null;
-        this.showActionBaseAngle = null;
-        this.clearRoarImpact();
-    }
-
-    protected onDestroy(): void {
-        this.stopShowAction();
-    }
 
     public smoothMoveTo(targetPos: Vec3, callback?: () => void): void {
         this.stopAllTweens();
@@ -543,64 +430,6 @@ export class PieceView extends Component {
         this.shadowSprite.sizeMode = Sprite.SizeMode.CUSTOM;
     }
 
-    private playRoarImpact(): void {
-        this.clearRoarImpact();
-
-        const impactNode = new Node('RoarImpact');
-        impactNode.parent = this.animalSprite.node;
-        impactNode.layer = this.animalSprite.node.layer;
-        impactNode.setPosition(0, 10, 0);
-        impactNode.setScale(new Vec3(0.18, 0.18, 1));
-
-        const transform = impactNode.addComponent(UITransform);
-        transform.setContentSize(new Size(150, 150));
-
-        const graphics = impactNode.addComponent(Graphics);
-        graphics.lineWidth = 3;
-        graphics.strokeColor = new Color(255, 231, 150, 235);
-        graphics.circle(0, 0, 24);
-        graphics.stroke();
-        graphics.lineWidth = 2;
-        graphics.moveTo(-42, 18);
-        graphics.lineTo(-62, 28);
-        graphics.moveTo(42, 18);
-        graphics.lineTo(62, 28);
-        graphics.moveTo(0, 44);
-        graphics.lineTo(0, 64);
-        graphics.stroke();
-
-        const opacity = impactNode.addComponent(UIOpacity);
-        opacity.opacity = 0;
-        this.roarImpactNode = impactNode;
-
-        tween(impactNode)
-            .to(0.12, { scale: new Vec3(0.72, 0.72, 1) }, { easing: 'quadOut' })
-            .to(0.30, { scale: new Vec3(1.48, 1.48, 1) }, { easing: 'sineOut' })
-            .call(() => this.clearRoarImpact(impactNode))
-            .start();
-        tween(opacity)
-            .to(0.10, { opacity: 255 }, { easing: 'sineOut' })
-            .to(0.32, { opacity: 0 }, { easing: 'sineIn' })
-            .start();
-    }
-
-    private clearRoarImpact(target: Node | null = this.roarImpactNode): void {
-        if (!target) {
-            return;
-        }
-        Tween.stopAllByTarget(target);
-        const opacity = target.getComponent(UIOpacity);
-        if (opacity) {
-            Tween.stopAllByTarget(opacity);
-        }
-        if (this.roarImpactNode === target) {
-            this.roarImpactNode = null;
-        }
-        if (target.isValid) {
-            target.destroy();
-        }
-    }
-
     private applyDefaultLayout(immediate: boolean): void {
         const layout = this.currentLayout;
         const duration = immediate ? 0 : 0.14;
@@ -731,7 +560,6 @@ export class PieceView extends Component {
     }
 
     private stopAllTweens(): void {
-        this.stopShowAction();
         Tween.stopAllByTarget(this.node);
         if (this.shadowNode) Tween.stopAllByTarget(this.shadowNode);
         if (this.shadowOpacity) Tween.stopAllByTarget(this.shadowOpacity);

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Difficulty } from '../types';
 import { MonkeyExplorer } from './GameAvatars';
 import { jungleAudio } from '../utils/audio';
-import { Landmark, X, ShieldAlert, CheckCircle, Key, Info, Bot, Leaf, Target, Swords, XCircle, Play } from 'lucide-react';
+import { Landmark, X, ShieldAlert, CheckCircle, Key, Info, Bot, Leaf, Target, Swords, XCircle, Play, Plus } from 'lucide-react';
 
 interface ModalsProps {
   difficultyModalOpen: boolean;
@@ -167,47 +167,94 @@ export const Modals: React.FC<ModalsProps> = ({
   if (roomMatchModalOpen) {
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-        <div className="bg-[#fffadf] rounded-[2.5rem] border-6 border-[#e18500] p-6 max-w-sm w-full relative shadow-3xl text-center space-y-6">
-          
-          {/* Custom Red Absolute Circular Close Mark */}
+        <div className="bg-[#fff8df] rounded-[2.125rem] border-4 border-[#d8c192] p-4 max-w-sm w-full relative shadow-2xl space-y-4">
           <button 
             onClick={() => handleTap(onCloseAll)}
-            className="absolute -top-3 -right-3 w-10 h-10 bg-[#b71c1c] text-white font-black text-sm rounded-full flex items-center justify-center border-4 border-white active:scale-90 shadow-md text-center"
+            aria-label="关闭房间对战"
+            className="absolute -top-3 -right-3 w-11 h-11 bg-[#d63a2f] text-white rounded-full flex items-center justify-center border-4 border-white active:scale-90 hover:bg-[#b71c1c] shadow-md"
           >
-            ✕
+            <X size={22} strokeWidth={3} />
           </button>
 
-          <h2 className="text-2xl font-black text-[#e18500] tracking-wide">房间对战</h2>
-
-          {/* Centered Monkey Ranger Visual */}
-          <div className="flex justify-center">
-            <div className="w-32 h-32 rounded-2xl border-4 border-[#e1dca9] shadow-inner bg-[#fffadf] overflow-hidden">
-              <MonkeyExplorer size="100%" />
+          <div className="rounded-[1.75rem] bg-[#e9f4d6] px-4 py-4 border border-white/80 flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-[#146c38] text-[#f7fff2] flex items-center justify-center shadow-sm shrink-0">
+              <Swords size={25} strokeWidth={2.7} />
+            </div>
+            <div className="text-left min-w-0">
+              <h2 className="text-2xl font-black text-[#146c38] leading-tight">房间对战</h2>
+              <p className="text-xs text-[#647044] font-bold leading-relaxed">
+                全网随机匹配，或与好友创建/加入房间
+              </p>
             </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-[#3f4a3c] font-bold leading-relaxed px-4">
-            邀请你的好友进行一场森林对决，或者加入已有的房间！
-          </p>
-
-          {/* Bouncy Action Buttons exact to visual */}
-          <div className="space-y-4 px-2">
-            {/* Create Room Bouncy Green Button */}
-            <button 
-              id="room_create_btn"
-              onClick={() => handleTap(onCreateRoom)}
-              className="w-full py-4 bg-[#69bd72] hover:bg-[#4caf50] text-white font-black text-sm sm:text-base rounded-full border-b-6 border-[#2e7d32] shadow-md active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1.5"
+          <div className="space-y-3">
+            {/* Match Option */}
+            <button
+              type="button"
+              onClick={() => handleTap(() => {})}
+              className="w-full min-h-[76px] flex items-center justify-between gap-3 rounded-[1.375rem] border-3 bg-[#fffdfa] border-[#e3d4b0] shadow-sm px-4 text-left cursor-pointer transition-all active:scale-[0.99] hover:border-[#146c38]"
             >
-              ➕ 创建房间
+              <span className="flex items-center gap-3 min-w-0">
+                <span className="w-[46px] h-[46px] rounded-full bg-[#e7f6dc] text-[#1b5e20] flex items-center justify-center shadow-sm shrink-0">
+                  <Swords size={22} strokeWidth={2.6} />
+                </span>
+                <span className="min-w-0">
+                  <span className="text-base font-black text-[#66572d] block leading-tight">
+                    全网随机匹配
+                  </span>
+                  <span className="text-xs font-bold text-[#8a7c5d] block leading-relaxed mt-0.5">
+                    自动寻找合适对手
+                  </span>
+                </span>
+              </span>
+              <span className="text-[#c2b48e] text-xl font-bold">›</span>
             </button>
 
-            {/* Join Room Bouncy Orange Button */}
-            <button 
-              id="room_join_trigger_btn"
-              onClick={() => handleTap(onOpenJoinRoom)}
-              className="w-full py-4 bg-[#ff9800] hover:bg-[#fb8c00] text-white font-black text-sm sm:text-base rounded-full border-b-6 border-[#e65100] shadow-md active:translate-y-0.5 active:border-b-2"
+            {/* Create Room Option */}
+            <button
+              id="room_create_btn"
+              type="button"
+              onClick={() => handleTap(onCreateRoom)}
+              className="w-full min-h-[76px] flex items-center justify-between gap-3 rounded-[1.375rem] border-3 bg-[#fffdfa] border-[#e3d4b0] shadow-sm px-4 text-left cursor-pointer transition-all active:scale-[0.99] hover:border-[#d68118]"
             >
-              加入房间
+              <span className="flex items-center gap-3 min-w-0">
+                <span className="w-[46px] h-[46px] rounded-full bg-[#fff0cf] text-[#8a4b00] flex items-center justify-center shadow-sm shrink-0">
+                  <Plus size={22} strokeWidth={2.6} />
+                </span>
+                <span className="min-w-0">
+                  <span className="text-base font-black text-[#66572d] block leading-tight">
+                    创建专属房间
+                  </span>
+                  <span className="text-xs font-bold text-[#8a7c5d] block leading-relaxed mt-0.5">
+                    生成房间号邀请好友
+                  </span>
+                </span>
+              </span>
+              <span className="text-[#c2b48e] text-xl font-bold">›</span>
+            </button>
+
+            {/* Join Room Option */}
+            <button
+              id="room_join_trigger_btn"
+              type="button"
+              onClick={() => handleTap(onOpenJoinRoom)}
+              className="w-full min-h-[76px] flex items-center justify-between gap-3 rounded-[1.375rem] border-3 bg-[#fffdfa] border-[#e3d4b0] shadow-sm px-4 text-left cursor-pointer transition-all active:scale-[0.99] hover:border-[#2980b9]"
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <span className="w-[46px] h-[46px] rounded-full bg-[#e7f5ff] text-[#1a5276] flex items-center justify-center shadow-sm shrink-0">
+                  <Key size={22} strokeWidth={2.6} />
+                </span>
+                <span className="min-w-0">
+                  <span className="text-base font-black text-[#66572d] block leading-tight">
+                    输入房间号加入
+                  </span>
+                  <span className="text-xs font-bold text-[#8a7c5d] block leading-relaxed mt-0.5">
+                    输入 6 位数字开局
+                  </span>
+                </span>
+              </span>
+              <span className="text-[#c2b48e] text-xl font-bold">›</span>
             </button>
           </div>
 

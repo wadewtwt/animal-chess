@@ -56,34 +56,75 @@ def lock_frame_border(frame: Image.Image, anchor: Image.Image) -> Image.Image:
     return result
 
 
-def interpolate_frames(
-    frames: List[Image.Image], target_count: int = 16
+def generate_mesh_deformation_sequence(
+    anchor: Image.Image, target_count: int = 24
 ) -> List[Image.Image]:
-    """对关键帧序列进行平滑缓动插值，生成指定数量的连续动画帧。"""
-    if len(frames) < 2:
-        raise ValueError("至少需要 2 个关键帧进行插值")
-        
-    num_keyframes = len(frames)
-    interpolated: List[Image.Image] = []
-    
+    """使用单张原图像素进行零重影、零跳变物理网格形变动画生成。"""
+    anchor_rgba = anchor.convert("RGBA")
+    w, h = anchor_rgba.size
+    img_np = np.array(anchor_rgba, dtype=np.float32)
+
+    alpha = img_np[:, :, 3]
+    ys, xs = np.where(alpha > 0)
+    if len(xs) == 0:
+        raise ValueError("Anchor 图像不包含有效像素")
+
+    cx, cy = (xs.min() + xs.max()) / 2.0, (ys.min() + ys.max()) / 2.0
+    radius = max((xs.max() - xs.min()) / 2.0, (ys.max() - ys.min()) / 2.0)
+    inner_r = radius * 0.76
+
+    y_coords, x_coords = np.mgrid[0:h, 0:w].astype(np.float32)
+    dx = x_coords - cx
+    dy = y_coords - cy
+    dist = np.sqrt(dx * dx + dy * dy)
+
+    inner_mask = (dist < inner_r).astype(np.float32)
+
+    frames: List[Image.Image] = []
+
     for i in range(target_count):
-        progress = i / float(target_count)
-        virtual_index = progress * num_keyframes
-        idx1 = int(math.floor(virtual_index)) % num_keyframes
-        idx2 = (idx1 + 1) % num_keyframes
-        t = virtual_index - math.floor(virtual_index)
-        
-        t_eased = 0.5 - 0.5 * math.cos(t * math.pi)
-        
-        f1 = frames[idx1].convert("RGBA")
-        f2 = frames[idx2].convert("RGBA")
-        blended = Image.blend(f1, f2, alpha=t_eased)
-        interpolated.append(blended)
-        
-    return interpolated
+        phase = 2.0 * math.pi * (i / float(target_count))
+        s = (1.0 - math.cos(phase)) / 2.0  # 闭环 0.0 -> 1.0 -> 0.0
+
+        # 象鼻位移 (扬起与卷曲)
+        trunk_weight = np.clip((dx + 0.1 * radius) / radius, 0, 1) ** 1.5 * inner_mask
+        disp_x = -14.0 * s * trunk_weight * (1.0 + dy / radius)
+        disp_y = -22.0 * s * trunk_weight * (1.0 + dx / radius)
+
+        # 双耳随呼吸抖动
+        ear_left_weight = np.clip((-dx - 0.2 * radius) / radius, 0, 1) ** 2 * inner_mask
+        ear_right_weight = np.clip((dx - 0.3 * radius) / radius, 0, 1) ** 2 * inner_mask
+        disp_x += (-4.0 * s * ear_left_weight) + (4.0 * s * ear_right_weight)
+        disp_y += -3.0 * s * (ear_left_weight + ear_right_weight)
+
+        src_x = np.clip(x_coords - disp_x, 0, w - 1)
+        src_y = np.clip(y_coords - disp_y, 0, h - 1)
+
+        x0 = np.floor(src_x).astype(np.int32)
+        x1 = np.minimum(x0 + 1, w - 1)
+        y0 = np.floor(src_y).astype(np.int32)
+        y1 = np.minimum(y0 + 1, h - 1)
+
+        wx = (src_x - x0)[:, :, np.newaxis]
+        wy = (src_y - y0)[:, :, np.newaxis]
+
+        ia = img_np[y0, x0]
+        ib = img_np[y0, x1]
+        ic = img_np[y1, x0]
+        id_pix = img_np[y1, x1]
+
+        top_blend = ia * (1.0 - wx) + ib * wx
+        bot_blend = ic * (1.0 - wx) + id_pix * wx
+        warped_np = top_blend * (1.0 - wy) + bot_blend * wy
+
+        warped_img = Image.fromarray(np.uint8(np.clip(warped_np, 0, 255)), mode="RGBA")
+        locked_frame = lock_frame_border(warped_img, anchor_rgba)
+        frames.append(locked_frame)
+
+    return frames
 
 
-def render_sheet(frames: Sequence[Image.Image], columns: int = 4) -> Image.Image:
+def render_sheet(frames: Sequence[Image.Image], columns: int = 6) -> Image.Image:
     """将帧序列渲染为平铺帧表。"""
     if not frames:
         raise ValueError("帧列表不能为空")
@@ -103,53 +144,35 @@ def generate_video_smooth_vocal_sequence(
     preview_sheet_path: Path,
     preview_gif_path: Path,
     frame_size: int = 384,
-    frame_duration_ms: int = 60,
-    target_frame_count: int = 16,
+    frame_duration_ms: int = 50,
+    target_frame_count: int = 24,
 ) -> List[Path]:
-    """生成平滑视频级象鸣动画帧及预览文件。"""
+    """生成零割裂极滑象鸣动画帧及预览文件。"""
     with Image.open(anchor_path) as a_file:
         anchor = a_file.convert("RGBA")
-        
-    with Image.open(grid_path) as g_file:
-        grid = g_file.convert("RGBA")
-        
-    cell_w = grid.width // 5
-    cell_h = grid.height // 2
-    raw_keyframes = []
-    for r in range(2):
-        for c in range(5):
-            cell = grid.crop((c * cell_w, r * cell_h, (c + 1) * cell_w, (r + 1) * cell_h))
-            raw_keyframes.append(cell)
-            
-    raw_keyframes[0] = anchor.copy()
-    
-    locked_keyframes = [lock_frame_border(kf, anchor) for kf in raw_keyframes]
-    
-    smooth_frames = interpolate_frames(locked_keyframes, target_count=target_frame_count)
-    
-    final_frames = [
-        lock_frame_border(f, anchor).resize((frame_size, frame_size), Image.Resampling.LANCZOS)
-        for f in smooth_frames
-    ]
-    
+
+    # 基于纯源图 Mesh 变形生成 100% 同颜色的 24 帧动画
+    smooth_frames = generate_mesh_deformation_sequence(anchor, target_count=target_frame_count)
+    final_frames = [f.resize((frame_size, frame_size), Image.Resampling.LANCZOS) for f in smooth_frames]
+
     output_dir = Path(output_dir)
     preview_sheet_path = Path(preview_sheet_path)
     preview_gif_path = Path(preview_gif_path)
-    
+
     output_dir.mkdir(parents=True, exist_ok=True)
     preview_sheet_path.parent.mkdir(parents=True, exist_ok=True)
     preview_gif_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     frame_paths = []
     for idx, f in enumerate(final_frames):
         p = output_dir / f"vocal_{idx:02d}.png"
         f.save(p, format="PNG", optimize=True)
         frame_paths.append(p)
-        
-    render_sheet(final_frames, columns=4).save(
+
+    render_sheet(final_frames, columns=6).save(
         preview_sheet_path, format="PNG", optimize=True
     )
-    
+
     gif_frames = []
     for frame in final_frames:
         alpha = frame.split()[3]
@@ -167,6 +190,7 @@ def generate_video_smooth_vocal_sequence(
         duration=frame_duration_ms,
         loop=0,
         disposal=2,
+        optimize=False,
     )
     return frame_paths
 
@@ -179,8 +203,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--preview-sheet", required=True, type=Path, help="预览 Sheet PNG")
     parser.add_argument("--preview-gif", required=True, type=Path, help="预览 GIF")
     parser.add_argument("--frame-size", type=int, default=384, help="帧分辨率")
-    parser.add_argument("--frame-duration-ms", type=int, default=60, help="GIF 单帧毫秒")
-    parser.add_argument("--target-frame-count", type=int, default=16, help="总帧数")
+    parser.add_argument("--frame-duration-ms", type=int, default=50, help="GIF 单帧毫秒")
+    parser.add_argument("--target-frame-count", type=int, default=24, help="总帧数")
     return parser.parse_args(argv)
 
 

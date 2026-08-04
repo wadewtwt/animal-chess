@@ -4,7 +4,6 @@ import { PieceView } from './PieceView';
 import { MainMenuUI } from './MainMenuUI';
 import { ModeSelectionUI } from './ModeSelectionUI';
 import { AudioSynth } from '../utils/AudioSynth';
-import { ANIMAL_ACTION_CONFIGS, getActionFramePaths, getAnimalActionConfig, hasCompleteActionFrameSet } from './PieceActionConfig';
 import { BOARD_TRANSITION_CONFIG, getPieceCascadeDelay, getTransitionTitle } from './BoardTransitionConfig';
 import { NetworkManager } from '../utils/NetworkManager';
 import { QUICK_CHAT_PHRASES, QUICK_CHAT_STICKERS, QuickChatItem, QuickChatKind } from './QuickChatConfig';
@@ -76,7 +75,6 @@ export class BoardView extends Component {
     private bgmSource: AudioSource | null = null;
     private walkFramesByType: Map<number, SpriteFrame[]> = new Map(); // Removed
     private pieceArtByCampAndType: Map<string, SpriteFrame> = new Map();
-    private actionFramesByType: Map<AnimalType, SpriteFrame[]> = new Map();
     private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
     
     // === 悔棋、返回、倒计时与人机AI 运行时状态 ===
@@ -203,10 +201,7 @@ export class BoardView extends Component {
         this.initBoardBackground();
         this.adjustBoardScale(); // 适应屏幕比例
 
-        Promise.all([
-            this.loadPieceArt(),
-            this.loadPieceActions(),
-        ]).then(() => {
+        this.loadPieceArt().then(() => {
             this.restartGame();
             this.initAudioSource();
             
@@ -1617,29 +1612,11 @@ export class BoardView extends Component {
         // 1. 如果点击的是当前行动方的棋子，则选中它，并高亮可行走格子
         if (piece.camp === turn) {
             this.selectPiece(piece);
-            this.scheduleOnce(() => {
-                if (this.selectedPiece?.id === piece.id) {
-                    this.playPieceShowAction(piece);
-                }
-            }, 0.16);
         }
         // 2. 如果点击的是敌方棋子，且当前已有选中棋子，则尝试吃子
         else if (this.selectedPiece) {
             this.tryMovePiece(this.selectedPiece.x, this.selectedPiece.y, piece.x, piece.y);
-        } else {
-            this.playPieceShowAction(piece);
         }
-    }
-
-    private playPieceShowAction(piece: Piece): void {
-        const pieceView = this.pieceViews.get(piece.id);
-        const actionConfig = getAnimalActionConfig(piece.type);
-        if (!pieceView || !actionConfig) {
-            return;
-        }
-
-        const frames = this.actionFramesByType.get(piece.type) ?? [];
-        pieceView.playShowAction(frames, actionConfig.fallbackMotion, actionConfig.frameDuration);
     }
 
     /**
@@ -2859,37 +2836,7 @@ export class BoardView extends Component {
         });
     }
 
-    private loadPieceActions(): Promise<void> {
-        const promises = ANIMAL_ACTION_CONFIGS.map((config) => {
-            const framePromises = getActionFramePaths(config.name).map((path) => this.loadSpriteFrameOrNull(path));
-            return Promise.all(framePromises).then((frames) => {
-                const loadedFrames = frames.filter((frame): frame is SpriteFrame => !!frame);
-                if (hasCompleteActionFrameSet(loadedFrames.length)) {
-                    this.actionFramesByType.set(config.type, loadedFrames);
-                    console.log(`BoardView: registered ${loadedFrames.length} action frames for ${config.name}`);
-                } else {
-                    console.warn(`BoardView: incomplete action frames for ${config.name}; fallback motion will be used.`);
-                }
-            });
-        });
 
-        return Promise.all(promises).then(() => {
-            console.log(`BoardView: total action frame groups: ${this.actionFramesByType.size}`);
-        });
-    }
-
-    private loadSpriteFrameOrNull(path: string): Promise<SpriteFrame | null> {
-        return new Promise((resolve) => {
-            resources.load(path, SpriteFrame, (err, frame) => {
-                if (!err && frame) {
-                    resolve(frame);
-                    return;
-                }
-                console.warn(`BoardView: action frame load failed for ${path}:`, err);
-                resolve(null);
-            });
-        });
-    }
 
     private getPieceArt(camp: Camp, type: AnimalType): SpriteFrame | null {
         const key = `${camp}_${type}`;

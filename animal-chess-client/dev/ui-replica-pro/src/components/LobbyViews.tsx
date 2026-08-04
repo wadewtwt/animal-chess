@@ -222,23 +222,27 @@ export const LobbyViews: React.FC<LobbyViewsProps> = ({
         </button>
 
         {startTransitioning && (
-          <div className="absolute inset-0 z-50 overflow-hidden bg-[#062414]/90 flex items-center justify-center animate-fade-in">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(143,225,109,0.22),transparent_46%)] scale-125 transition-delay-150" />
-            {[0, 1, 2, 3, 4, 5, 6].map((item) => (
+          <div className="absolute inset-0 z-50 overflow-hidden bg-[#072e18]/85 backdrop-blur-md flex items-center justify-center animate-fade-in transition-all duration-300">
+            {/* Elegant Radial Emerald Ripple */}
+            <div className="absolute w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle_at_center,rgba(143,225,109,0.45)_0%,rgba(0,110,28,0.15)_50%,transparent_75%)] animate-[ping_600ms_cubic-bezier(0,0,0.2,1)_forwards] transition-delay-150" />
+            
+            {/* Sleek 5 Diagonal Leaves */}
+            {[0, 1, 2, 3, 4].map((item) => (
               <span
                 key={item}
-                className="absolute w-14 h-9 rounded-[50%] bg-[#89ce54] border border-[#245c2c]/50 opacity-85 shadow-lg animate-[leafSweep_420ms_ease-out_forwards]"
+                className="absolute w-16 h-10 rounded-[50%] bg-gradient-to-r from-[#8fe16d] to-[#4caf50] border border-[#1b5e20]/60 opacity-90 shadow-xl animate-[leafSweep_380ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
                 style={{
-                  left: `${104 + (item % 3) * 8}%`,
-                  top: `${30 + item * 7}%`,
-                  transform: `rotate(${-28 + item * 5}deg)`,
+                  left: `${104 + item * 9}%`,
+                  top: `${25 + item * 10}%`,
+                  transform: `rotate(${-25 + item * 8}deg)`,
                   animationDelay: `${item * 25}ms`,
                 }}
               />
             ))}
-            <div className="relative text-center text-[#fff9c4] drop-shadow-lg">
-              <div className="text-2xl font-black tracking-widest">穿过森林</div>
-              <div className="mt-2 text-xs font-bold text-[#c8e6c9]">森林入口正在打开</div>
+            
+            <div className="relative text-center text-[#fff9c4] drop-shadow-2xl animate-[floatUp_300ms_cubic-bezier(0.16,1,0.3,1)_forwards]">
+              <div className="text-3xl font-black tracking-widest text-[#fff9c4] drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]">穿过森林</div>
+              <div className="mt-2 text-xs font-extrabold text-[#e8f5e9] tracking-wider opacity-90">森林入口正在打开</div>
             </div>
           </div>
         )}

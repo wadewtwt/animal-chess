@@ -9,10 +9,17 @@ export class MainMenuProfileOverlay {
     private readonly root: Node;
     private nativeButton: any = null;
     private readonly onAuthorized: (profile: WechatUserInfo) => void;
+    private readonly onClose?: () => void;
     private readonly scaleFactor: number;
 
-    public constructor(parent: Node, scaleFactor: number, onAuthorized: (profile: WechatUserInfo) => void) {
+    public constructor(
+        parent: Node,
+        scaleFactor: number,
+        onAuthorized: (profile: WechatUserInfo) => void,
+        onClose?: () => void,
+    ) {
         this.onAuthorized = onAuthorized;
+        this.onClose = onClose;
         this.scaleFactor = scaleFactor;
         this.root = new Node('MainMenuProfileOverlay');
         this.root.layer = 33554432;
@@ -23,15 +30,15 @@ export class MainMenuProfileOverlay {
         graphics.fill();
         const title = new Node('Title');
         const label = title.addComponent(Label);
-        label.string = '完善微信资料';
+        label.string = '授权微信昵称';
         label.fontSize = 28 * scaleFactor;
         label.color = new Color(255, 235, 170, 255);
         title.setPosition(0, 70 * scaleFactor, 0);
         this.root.addChild(title);
         const hint = new Node('Hint');
         const hintLabel = hint.addComponent(Label);
-        hintLabel.string = '授权昵称和头像，可随时跳过';
-        hintLabel.fontSize = 20 * scaleFactor;
+        hintLabel.string = '每日签到需要授权微信昵称才能领取奖励哦';
+        hintLabel.fontSize = 18 * scaleFactor;
         hintLabel.color = new Color(220, 240, 210, 255);
         hint.setPosition(0, 20 * scaleFactor, 0);
         this.root.addChild(hint);
@@ -46,11 +53,15 @@ export class MainMenuProfileOverlay {
         skip.addComponent(UITransform).setContentSize(180 * scaleFactor, 44 * scaleFactor);
         skip.setPosition(0, -95 * scaleFactor, 0);
         skip.addComponent(Button);
-        skip.on(Node.EventType.TOUCH_END, () => this.hide());
+        skip.on(Node.EventType.TOUCH_END, () => {
+            this.hide();
+            this.onClose?.();
+        });
         this.root.addChild(skip);
         parent.addChild(this.root);
         this.root.active = false;
     }
+
 
     public show(): void {
         if (!this.root.isValid) {

@@ -1,0 +1,3 @@
+{"type":"owner-pid-invalid","pid":1,"reason":"dead at startup"}
+{"type":"server-started","port":51431,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:51431","screen_dir":"D:\\work\\ai\\animal-chess\\.superpowers\\brainstorm\\920-1785473531\\content","state_dir":"D:\\work\\ai\\animal-chess\\.superpowers\\brainstorm\\920-1785473531\\state"}
+{"type":"server-stopped","reason":"idle timeout"}
