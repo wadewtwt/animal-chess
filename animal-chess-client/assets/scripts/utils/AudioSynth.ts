@@ -5,6 +5,9 @@ export class AudioSynth {
     private static ctx: AudioContext | null = null;
     private static isInitialized = false;
 
+    /**
+     * 1. 普通/次要按钮点击音效 (Soft Pop Click)
+     */
     public static playClick() {
         const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
         if (!soundEnabled) return;
@@ -34,6 +37,119 @@ export class AudioSynth {
         
         osc.start(startTime);
         osc.stop(startTime + 0.09);
+    }
+
+    /**
+     * 2. 主要动作 / 确认 / 开始按钮音效 (Upbeat Crisp Confirm)
+     * 频率从 520Hz 快速上升至 880Hz，具有正向推进感和清脆的确认回馈
+     */
+    public static playPrimaryClick() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gainNode = this.ctx.createGain();
+
+        osc.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(520, startTime);
+        osc.frequency.exponentialRampToValueAtTime(880, startTime + 0.07);
+
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.22, startTime + 0.004);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.09);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.1);
+    }
+
+    /**
+     * 3. 返回 / 关闭 / 取消按钮音效 (Warm Downward Pop)
+     * 柔和的三角形波下行滑音 450Hz -> 260Hz，告知玩家界面已关回/取消
+     */
+    public static playBackClick() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gainNode = this.ctx.createGain();
+
+        osc.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(450, startTime);
+        osc.frequency.exponentialRampToValueAtTime(260, startTime + 0.07);
+
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.2, startTime + 0.003);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.09);
+    }
+
+    /**
+     * 4. 警告 / 认输 / 高风险按钮音效 (Low Caution Double Knock)
+     * 低沉的两连击警示音，传递二次确认与风险防护心理预期
+     */
+    public static playWarningClick() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+
+        const playKnock = (offset: number, freq: number) => {
+            const osc = this.ctx!.createOscillator();
+            const gainNode = this.ctx!.createGain();
+            const filter = this.ctx!.createBiquadFilter();
+
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, startTime + offset);
+            osc.frequency.exponentialRampToValueAtTime(100, startTime + offset + 0.06);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(400, startTime + offset);
+
+            gainNode.gain.setValueAtTime(0, startTime + offset);
+            gainNode.gain.linearRampToValueAtTime(0.18, startTime + offset + 0.004);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + offset + 0.06);
+
+            osc.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(this.ctx!.destination);
+
+            osc.start(startTime + offset);
+            osc.stop(startTime + offset + 0.07);
+        };
+
+        playKnock(0.0, 220);
+        playKnock(0.06, 180);
     }
 
     public static init() {
@@ -303,4 +419,113 @@ export class AudioSynth {
             osc.stop(startTime + note.time + note.dur);
         });
     }
+
+    public static playStartTransitionSound() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+
+        // 1. 低音升调气流感 (Sub/Mid Warm Swell)
+        const swellOsc = this.ctx.createOscillator();
+        const swellGain = this.ctx.createGain();
+        const swellFilter = this.ctx.createBiquadFilter();
+
+        swellOsc.type = 'triangle';
+        swellOsc.frequency.setValueAtTime(180, startTime);
+        swellOsc.frequency.exponentialRampToValueAtTime(450, startTime + 0.4);
+
+        swellFilter.type = 'lowpass';
+        swellFilter.frequency.setValueAtTime(400, startTime);
+        swellFilter.frequency.exponentialRampToValueAtTime(1200, startTime + 0.35);
+
+        swellGain.gain.setValueAtTime(0, startTime);
+        swellGain.gain.linearRampToValueAtTime(0.18, startTime + 0.1);
+        swellGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.5);
+
+        swellOsc.connect(swellFilter);
+        swellFilter.connect(swellGain);
+        swellGain.connect(this.ctx.destination);
+
+        swellOsc.start(startTime);
+        swellOsc.stop(startTime + 0.55);
+
+        // 2. 森林风铃上行和弦音符 (Chime Sparkle Arpeggio)
+        // G4 (392Hz), C5 (523.25Hz), E5 (659.25Hz), G5 (783.99Hz), C6 (1046.50Hz)
+        const chimes = [
+            { freq: 392.00, time: 0.02, dur: 0.25 },
+            { freq: 523.25, time: 0.08, dur: 0.30 },
+            { freq: 659.25, time: 0.14, dur: 0.35 },
+            { freq: 783.99, time: 0.20, dur: 0.40 },
+            { freq: 1046.50, time: 0.28, dur: 0.50 }
+        ];
+
+        chimes.forEach(chime => {
+            const osc = this.ctx!.createOscillator();
+            const gainNode = this.ctx!.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(chime.freq, startTime + chime.time);
+
+            gainNode.gain.setValueAtTime(0, startTime + chime.time);
+            gainNode.gain.linearRampToValueAtTime(0.15, startTime + chime.time + 0.03);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + chime.time + chime.dur);
+
+            osc.connect(gainNode);
+            gainNode.connect(this.ctx!.destination);
+
+            osc.start(startTime + chime.time);
+            osc.stop(startTime + chime.time + chime.dur);
+        });
+    }
+
+    /**
+     * 5. 轮到我方下棋的清脆小铃铛提醒音效 (Crisp Bell Chime)
+     * 极清脆的小铃铛双音阶叮铛摇铃声 (C6 1046.5Hz -> G6 1567.98Hz)，灵动而醒目
+     */
+    public static playTurnBellChime() {
+        const soundEnabled = sys.localStorage.getItem('jungle_sound_enabled') !== 'false';
+        if (!soundEnabled) return;
+
+        if (!this.ctx) this.init();
+        if (!this.ctx) return;
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        const startTime = this.ctx.currentTime;
+
+        // 模拟清脆小风铃/金属铃铛的叮铛双击声音
+        const bellNotes = [
+            { freq: 1046.50, time: 0.0, dur: 0.28 },  // C6 (叮)
+            { freq: 1567.98, time: 0.09, dur: 0.45 }  // G6 (铛~)
+        ];
+
+        bellNotes.forEach(note => {
+            const osc = this.ctx!.createOscillator();
+            const gainNode = this.ctx!.createGain();
+
+            osc.connect(gainNode);
+            gainNode.connect(this.ctx!.destination);
+
+            osc.type = 'sine'; // 纯净的清脆正弦波
+            osc.frequency.setValueAtTime(note.freq, startTime + note.time);
+
+            gainNode.gain.setValueAtTime(0, startTime + note.time);
+            gainNode.gain.linearRampToValueAtTime(0.25, startTime + note.time + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + note.time + note.dur);
+
+            osc.start(startTime + note.time);
+            osc.stop(startTime + note.time + note.dur);
+        });
+    }
 }
+

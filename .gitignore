@@ -1,5 +1,31 @@
+# OS & IDE
 .DS_Store
 Thumbs.db
-.env
-node_modules
+.idea/
+.vscode/
+.superpowers/
 
+# Environment & Dependencies
+.env
+.env.*
+node_modules/
+
+# Go Build Output & Binaries
+animal-chess-server/animal-chess-server
+*.exe
+*.exe.
+*.out
+*.test
+*.prof
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Cocos Creator Build & Temp
+library/
+temp/
+local/
+build/
+profiles/
+dist-test/

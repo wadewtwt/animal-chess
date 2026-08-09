@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -116,15 +118,7 @@ func (r *Room) startCountdownLoop() {
 				}
 
 				log.Printf("[Room %s] 回合超时: 行棋方 %s 超时, 胜者为 %s", r.ID, r.CurrentTurn, winner)
-				payload := fmt.Sprintf(`{"winner":"%s","reason":"TIMEOUT"}`, winner)
-
-				// 广播游戏结束包给双方
-				if r.PlayerRed != nil {
-					r.PlayerRed.sendAction("game_over", payload)
-				}
-				if r.PlayerBlue != nil {
-					r.PlayerBlue.sendAction("game_over", payload)
-				}
+				r.settleAndBroadcastGameOver(winner, "TIMEOUT")
 				r.mu.Unlock()
 
 				// 销毁当前房间
@@ -205,25 +199,142 @@ func (r *Room) handleMove(sender *Client, moveData string) {
 	}
 }
 
-// handleGameOver 客户端通知对局结束
-func (r *Room) handleGameOver(sender *Client, data string) {
-	// 转发游戏结束消息给对手并解散房间
+// handleQuickChat 处理玩家快捷短语/表情消息：透传转发给房间内的对手
+func (r *Room) handleQuickChat(sender *Client, data string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	opponent := r.getOpponent(sender)
 	if opponent != nil {
-		opponent.sendAction("game_over", data)
+		opponent.sendAction("quick_chat", data)
 	}
+}
+
+// GameOverBroadcastPayload 给客户端广播的完整游戏结束载荷
+type GameOverBroadcastPayload struct {
+	Winner            string `json:"winner"`
+	Reason            string `json:"reason"`
+	WinnerScoreChange int    `json:"winner_score_change,omitempty"`
+	LoserScoreChange  int    `json:"loser_score_change,omitempty"`
+	WinnerTotalPoints int    `json:"winner_total_points,omitempty"`
+	LoserTotalPoints  int    `json:"loser_total_points,omitempty"`
+	WinnerNotice      string `json:"winner_notice,omitempty"`
+	LoserNotice       string `json:"loser_notice,omitempty"`
+
+	// 给接收客户端定制的专属字段
+	MyScoreChange int    `json:"my_score_change"`
+	MyTotalPoints int    `json:"my_total_points"`
+	Notice        string `json:"notice"`
+}
+
+// settleAndBroadcastGameOver 处理胜负积分结算并广播给双方
+func (r *Room) settleAndBroadcastGameOver(winnerCamp string, reason string) {
+	var winnerClient, loserClient *Client
+	if winnerCamp == "RED" {
+		winnerClient = r.PlayerRed
+		loserClient = r.PlayerBlue
+	} else if winnerCamp == "BLUE" {
+		winnerClient = r.PlayerBlue
+		loserClient = r.PlayerRed
+	}
+
+	mode := "match"
+	if len(r.ID) == 6 && !strings.HasPrefix(r.ID, "MATCH_") {
+		mode = "room"
+	}
+
+	var resData *SettleBattleResultData
+	var err error
+
+	if winnerClient != nil && loserClient != nil && winnerClient.UserIDInt64 > 0 && loserClient.UserIDInt64 > 0 {
+		authToken := winnerClient.AuthToken
+		if authToken == "" {
+			authToken = loserClient.AuthToken
+		}
+
+		log.Printf("[Room %s] 触发对战积分结算: winnerId=%d, loserId=%d, mode=%s", r.ID, winnerClient.UserIDInt64, loserClient.UserIDInt64, mode)
+		resData, err = SettleBattleScore(r.Hub.BlogBackendURL, r.Hub.HTTPClient, r.ID, mode, winnerClient.UserIDInt64, loserClient.UserIDInt64, authToken)
+		if err != nil {
+			log.Printf("[Room %s] 积分结算接口调用失败: %v", r.ID, err)
+		} else {
+			log.Printf("[Room %s] 积分结算成功: winnerGain=%d, loserDeduct=%d", r.ID, resData.WinnerScoreChange, resData.LoserScoreChange)
+		}
+	} else {
+		log.Printf("[Room %s] 跳过后端结算 API (存在非注册数字 ID 玩家或局内信息未满)", r.ID)
+	}
+
+	sendPayloadToClient := func(c *Client) {
+		if c == nil {
+			return
+		}
+		p := GameOverBroadcastPayload{
+			Winner: winnerCamp,
+			Reason: reason,
+		}
+
+		if resData != nil {
+			p.WinnerScoreChange = resData.WinnerScoreChange
+			p.LoserScoreChange = resData.LoserScoreChange
+			p.WinnerTotalPoints = resData.WinnerCurrentPoints
+			p.LoserTotalPoints = resData.LoserCurrentPoints
+			p.WinnerNotice = resData.WinnerNotice
+			p.LoserNotice = resData.LoserNotice
+
+			if c.Camp == winnerCamp {
+				p.MyScoreChange = resData.WinnerScoreChange
+				p.MyTotalPoints = resData.WinnerCurrentPoints
+				p.Notice = resData.WinnerNotice
+			} else {
+				p.MyScoreChange = resData.LoserScoreChange
+				p.MyTotalPoints = resData.LoserCurrentPoints
+				p.Notice = resData.LoserNotice
+			}
+		} else {
+			if c.Camp == winnerCamp {
+				p.MyScoreChange = 10
+			} else {
+				p.MyScoreChange = -10
+			}
+		}
+
+		jsonBytes, _ := json.Marshal(p)
+		c.sendAction("game_over", string(jsonBytes))
+	}
+
+	sendPayloadToClient(r.PlayerRed)
+	sendPayloadToClient(r.PlayerBlue)
+}
+
+// handleGameOver 客户端通知对局结束
+func (r *Room) handleGameOver(sender *Client, data string) {
+	var req struct {
+		Winner string `json:"winner"`
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal([]byte(data), &req)
+	winner := req.Winner
+	reason := req.Reason
+	if reason == "" {
+		reason = "DEN_CAPTURED"
+	}
+	r.settleAndBroadcastGameOver(winner, reason)
 	r.Hub.destroyRoom(r.ID)
 }
 
 // handleSurrender 一方玩家认输
 func (r *Room) handleSurrender(sender *Client) {
 	opponent := r.getOpponent(sender)
+	winnerCamp := ""
 	if opponent != nil {
-		// 向对方发送游戏结束包，指定胜者
-		payload := fmt.Sprintf(`{"winner":"%s","reason":"SURRENDER"}`, opponent.Camp)
-		opponent.sendAction("game_over", payload)
+		winnerCamp = opponent.Camp
+	} else {
+		if sender.Camp == "RED" {
+			winnerCamp = "BLUE"
+		} else {
+			winnerCamp = "RED"
+		}
 	}
-	sender.sendAction("game_over", fmt.Sprintf(`{"winner":"%s","reason":"SURRENDER"}`, opponent.Camp))
+	r.settleAndBroadcastGameOver(winnerCamp, "SURRENDER")
 	r.Hub.destroyRoom(r.ID)
 }
 
@@ -272,16 +383,21 @@ type Hub struct {
 
 	// 房间匹配等待池 (房间号 -> 正在等待的第一个玩家)
 	pendingMatch map[string]*Client
+
+	BlogBackendURL string
+	HTTPClient     *http.Client
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:      make(map[*Client]bool),
-		register:     make(chan *Client),
-		unregister:   make(chan *Client),
-		matchSeek:    make(chan matchRequest),
-		rooms:        make(map[string]*Room),
-		pendingMatch: make(map[string]*Client),
+		clients:        make(map[*Client]bool),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
+		matchSeek:      make(chan matchRequest),
+		rooms:          make(map[string]*Room),
+		pendingMatch:   make(map[string]*Client),
+		BlogBackendURL: "http://127.0.0.1:8080",
+		HTTPClient:     &http.Client{Timeout: 5 * time.Second},
 	}
 }
 

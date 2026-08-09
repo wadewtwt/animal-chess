@@ -72,7 +72,9 @@ export class BoardView extends Component {
 
     // 音效与音乐播放器
     private audioSource: AudioSource | null = null;
+    private bgmNode: Node | null = null;
     private bgmSource: AudioSource | null = null;
+    private currentBGMPath: string = '';
     private walkFramesByType: Map<number, SpriteFrame[]> = new Map(); // Removed
     private pieceArtByCampAndType: Map<string, SpriteFrame> = new Map();
     private riverSprites: Sprite[] = []; // 存储小河格子 Sprite 引用以动态设置着色器材质
@@ -93,6 +95,16 @@ export class BoardView extends Component {
     private screenTimerLabelNode: Node | null = null;
     private turnIndicatorBgNode: Node | null = null;
     private boardTitleNode: Node | null = null;
+    // === 阵营呼吸发光底座与手势提示节点 ===
+    private turnCampGlowNode: Node | null = null;
+    private topCampGlowNode: Node | null = null;
+    private bottomCampGlowNode: Node | null = null;
+    private topCampGraphics: Graphics | null = null;
+    private bottomCampGraphics: Graphics | null = null;
+    private activeGlowTween: Tween<Node> | null = null;
+    private lastTurnWasMine: boolean = false;
+    private bellAlertNode: Node | null = null;
+    private hasTriggered15sBell: boolean = false;
     private customGameOverPanel: Node | null = null;
     private gameOverWinner: Camp | null = null;
     private gameOverReason: GameOverReason | null = null;
@@ -340,6 +352,7 @@ export class BoardView extends Component {
     private mainMenuNode: Node | null = null;
 
     private showMainMenu() {
+        this.playMenuBGM();
         this.unschedule(this.makeAIMove);
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
@@ -348,7 +361,9 @@ export class BoardView extends Component {
         if (this.backButtonNode) this.backButtonNode.active = false;
         if (this.undoButtonNode) this.undoButtonNode.active = false;
         if (this.surrenderButtonNode) this.surrenderButtonNode.active = false;
+        if (this.quickChatButtonNode) this.quickChatButtonNode.active = false;
         if (this.switchBattlefieldButtonNode) this.switchBattlefieldButtonNode.active = false;
+        this.hideQuickChatDialog();
         this.hideWaitingOverlay();
 
         // Ensure clean recreation
@@ -375,7 +390,7 @@ export class BoardView extends Component {
         // Listen for music toggle event
         this.mainMenuNode.on('music-toggle', (enabled: boolean) => {
             if (enabled) {
-                this.playBGM();
+                this.playMenuBGM();
             } else {
                 if (this.bgmSource) {
                     this.bgmSource.stop();
@@ -387,6 +402,7 @@ export class BoardView extends Component {
     private modeSelectionNode: Node | null = null;
 
     private showModeSelection() {
+        this.playMenuBGM();
         this.unschedule(this.makeAIMove);
         this.node.active = false;
         if (this.turnIndicator) this.turnIndicator.node.active = false;
@@ -492,6 +508,7 @@ export class BoardView extends Component {
     private playBoardEntryTransition(onComplete: () => void): void {
         this.clearBoardTransitionOverlay();
         this.isBoardTransitioning = true;
+        AudioSynth.playStartTransitionSound();
 
         const visibleSize = view.getVisibleSize();
         const overlay = new Node('BoardTransitionOverlay');
@@ -639,6 +656,8 @@ export class BoardView extends Component {
         if (this.undoButtonNode) this.undoButtonNode.active = visible;
         if (this.turnIndicatorBgNode) this.turnIndicatorBgNode.active = visible;
         if (this.turnIndicator) this.turnIndicator.node.active = visible;
+        if (this.turnCampGlowNode) this.turnCampGlowNode.active = visible;
+        if (this.bellAlertNode) this.bellAlertNode.active = visible && this.isMyTurn() && this.remainingTime <= 15;
     }
 
     private clearBoardTransitionOverlay(): void {
@@ -656,17 +675,29 @@ export class BoardView extends Component {
         // 创建用于播放音效的 AudioSource
         this.audioSource = this.addComponent(AudioSource);
         
-        // 创建专门用于播放背景音乐的 AudioSource，并尝试播放 BGM
-        this.bgmSource = this.addComponent(AudioSource);
+        // 创建独立于 BoardView 的全局常驻背景音乐节点（挂载在 Canvas 节点上），防止隐藏 BoardView 时 BGM 被引擎组件机制关闭
+        const rootNode = this.node.parent ? this.node.parent : this.node;
+        if (!this.bgmNode || !this.bgmNode.isValid) {
+            this.bgmNode = new Node('GlobalBGMNode');
+            rootNode.addChild(this.bgmNode);
+        }
+        this.bgmSource = this.bgmNode.getComponent(AudioSource) || this.bgmNode.addComponent(AudioSource);
         this.bgmSource.loop = true;
-        this.bgmSource.volume = 0.7; // 背景音乐音量调至 70%
-        this.playBGM();
+        this.bgmSource.volume = 0.7; // 背景音乐默认音量调至 70%
+
+        // 监听用户的第一次点击：解决浏览器“必须在用户交互后才能播放音频”的安全限制
+        this.node.once(Node.EventType.TOUCH_END, () => {
+            const currentMusicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+            if (currentMusicEnabled && this.bgmSource && this.bgmSource.clip && !this.bgmSource.playing) {
+                this.bgmSource.play();
+            }
+        }, this);
     }
 
     /**
-     * 尝试加载并播放背景音乐
+     * 播放主菜单 / 模式选择界面的背景音乐（随机 bgm-1 或 bgm-2）
      */
-    private playBGM() {
+    private playMenuBGM() {
         if (!this.bgmSource) return;
 
         const musicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
@@ -677,28 +708,80 @@ export class BoardView extends Component {
             return;
         }
 
-        // 随机选择一首背景音乐
-        const bgmList = ['sounds/bgm-1', 'sounds/bgm-2'];
-        const randomBGM = bgmList[Math.floor(Math.random() * bgmList.length)];
+        // 如果已经在播放菜单 BGM (bgm-1 或 bgm-2)，则无需重复切换
+        if (this.bgmSource.playing && (this.currentBGMPath === 'sounds/bgm-1' || this.currentBGMPath === 'sounds/bgm-2')) {
+            return;
+        }
+
+        // 核心修正：立即停止正在播放的其它音频（如棋盘 Carefree 音乐）
+        if (this.bgmSource.playing) {
+            this.bgmSource.stop();
+        }
+
+        this.bgmSource.volume = 0.7; // 主菜单音量 70%
+        const menuBGMList = ['sounds/bgm-1', 'sounds/bgm-2'];
+        const randomBGM = menuBGMList[Math.floor(Math.random() * menuBGMList.length)];
 
         resources.load(randomBGM, AudioClip, (err, clip) => {
             if (err) {
-                console.log(`提示：加载背景音乐失败 (${randomBGM})，请确保文件存在。`);
+                console.log(`提示：加载主界面背景音乐失败 (${randomBGM})`);
                 return;
             }
             if (clip && this.bgmSource) {
+                this.currentBGMPath = randomBGM;
                 this.bgmSource.clip = clip;
-                this.bgmSource.play(); // 尝试直接播放
+                this.bgmSource.play();
+                console.log(`[BGM] 已切换主界面背景音乐: ${randomBGM}`);
             }
         });
+    }
 
-        // 监听用户的第一次点击：解决浏览器“必须在用户交互后才能播放音频”的安全限制
-        this.node.once(Node.EventType.TOUCH_END, () => {
-            const currentMusicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
-            if (currentMusicEnabled && this.bgmSource && this.bgmSource.clip && !this.bgmSource.playing) {
-                this.bgmSource.play();
+    /**
+     * 播放棋盘对局页面的专属欢快背景音乐 (carefree)
+     */
+    private playBoardBGM() {
+        if (!this.bgmSource) return;
+
+        const musicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
+        if (!musicEnabled) {
+            if (this.bgmSource.playing) {
+                this.bgmSource.stop();
             }
-        }, this);
+            return;
+        }
+
+        // 如果已经在播放 carefree 专属背景音乐，则不重复重新播放
+        if (this.bgmSource.playing && (this.currentBGMPath === 'sounds/carefree' || this.currentBGMPath === 'sounds/Carefree')) {
+            return;
+        }
+
+        // 切换背景音乐前，立刻停止正在播放的其它音频
+        if (this.bgmSource.playing) {
+            this.bgmSource.stop();
+        }
+
+        this.bgmSource.volume = 0.45; // 棋盘对局背景音量调至 45%
+        const bgmPath = 'sounds/carefree';
+
+        resources.load(bgmPath, AudioClip, (err, clip) => {
+            if (err || !clip) {
+                console.warn(`[BGM] 尝试加载 ${bgmPath} 失败，准备降级备用加载:`, err);
+                resources.load('sounds/bgm-1', AudioClip, (fallbackErr, fallbackClip) => {
+                    if (!fallbackErr && fallbackClip && this.bgmSource) {
+                        this.currentBGMPath = 'sounds/bgm-1';
+                        this.bgmSource.clip = fallbackClip;
+                        this.bgmSource.play();
+                    }
+                });
+                return;
+            }
+            if (clip && this.bgmSource) {
+                this.currentBGMPath = bgmPath;
+                this.bgmSource.clip = clip;
+                this.bgmSource.play();
+                console.log(`[BGM] 已成功加载并播放棋盘专属背景音乐: ${bgmPath}`);
+            }
+        });
     }
 
     /**
@@ -1110,14 +1193,8 @@ export class BoardView extends Component {
             this.screenTimerLabelNode = null;
         }
 
-        // 对局中音量调低至 50% 的 0.7 = 0.35
-        if (this.bgmSource) {
-            this.bgmSource.volume = 0.35;
-            const musicEnabled = sys.localStorage.getItem('jungle_music_enabled') !== 'false';
-            if (!musicEnabled && this.bgmSource.playing) {
-                this.bgmSource.stop();
-            }
-        }
+        // 开启/重启对局时播放棋盘专属欢快背景音乐 (Carefree)
+        this.playBoardBGM();
 
         // 1. 清理棋子
         this.pieceViews.forEach(pv => {
@@ -1552,17 +1629,159 @@ export class BoardView extends Component {
     }
 
     /**
+     * 初始化棋盘上下阵营的呼吸灯发光底座框
+     */
+    private initCampGlowNodes(): void {
+        if (!this.turnCampGlowNode) {
+            this.turnCampGlowNode = new Node('TurnCampGlowRoot');
+            this.turnCampGlowNode.layer = 33554432; // UI_2D
+            this.turnCampGlowNode.addComponent(UITransform);
+            this.node.addChild(this.turnCampGlowNode);
+            // 确保其层级在格子底图之上、棋子之下的视觉合适位置
+            this.turnCampGlowNode.setSiblingIndex(2);
+        }
+
+        const width = 7 * this.cellWidth + 24;
+        const height = 4 * this.cellHeight + 16;
+
+        if (!this.bottomCampGlowNode) {
+            this.bottomCampGlowNode = new Node('BottomCampGlow');
+            this.bottomCampGlowNode.layer = 33554432;
+            const trans = this.bottomCampGlowNode.addComponent(UITransform);
+            trans.setContentSize(width, height);
+            this.bottomCampGraphics = this.bottomCampGlowNode.addComponent(Graphics);
+            this.bottomCampGlowNode.addComponent(UIOpacity).opacity = 0;
+            this.turnCampGlowNode.addChild(this.bottomCampGlowNode);
+            
+            // 下方阵营区域中心 (x:3, y:1.5)
+            const bottomPos = new Vec3(0, -2.5 * this.cellHeight, 0);
+            this.bottomCampGlowNode.setPosition(bottomPos);
+        }
+
+        if (!this.topCampGlowNode) {
+            this.topCampGlowNode = new Node('TopCampGlow');
+            this.topCampGlowNode.layer = 33554432;
+            const trans = this.topCampGlowNode.addComponent(UITransform);
+            trans.setContentSize(width, height);
+            this.topCampGraphics = this.topCampGlowNode.addComponent(Graphics);
+            this.topCampGlowNode.addComponent(UIOpacity).opacity = 0;
+            this.turnCampGlowNode.addChild(this.topCampGlowNode);
+            
+            // 上方阵营区域中心 (x:3, y:6.5)
+            const topPos = new Vec3(0, 2.5 * this.cellHeight, 0);
+            this.topCampGlowNode.setPosition(topPos);
+        }
+    }
+
+    /**
+     * 刷新并重置阵营底座呼吸灯发光样式与流光动画
+     */
+    private updateCampGlowUI(turnCamp: Camp): void {
+        this.initCampGlowNodes();
+
+        // 在倒置网络模式下（蓝方视角），物理下方为蓝方，物理上方为红方；默认/红方视角下，物理下方为红方，物理上方为蓝方
+        const isFlipped = (this.isNetworkMode && this.myCamp === Camp.BLUE);
+        const bottomCamp = isFlipped ? Camp.BLUE : Camp.RED;
+        const isBottomTurn = (turnCamp === bottomCamp);
+
+        const activeNode = isBottomTurn ? this.bottomCampGlowNode : this.topCampGlowNode;
+        const inactiveNode = isBottomTurn ? this.topCampGlowNode : this.bottomCampGlowNode;
+        const activeGraphics = isBottomTurn ? this.bottomCampGraphics : this.topCampGraphics;
+
+        const width = 7 * this.cellWidth + 24;
+        const height = 4 * this.cellHeight + 16;
+
+        // 停止之前的呼吸 Tween 动画
+        if (this.activeGlowTween) {
+            this.activeGlowTween.stop();
+            this.activeGlowTween = null;
+        }
+
+        // 隐藏非当前回合的阵营底座
+        if (inactiveNode) {
+            const op = inactiveNode.getComponent(UIOpacity);
+            if (op) op.opacity = 0;
+            inactiveNode.setScale(new Vec3(1.0, 1.0, 1.0));
+        }
+
+        // 绘制并激活当前行动方阵营的高亮发光框
+        if (activeNode && activeGraphics) {
+            activeGraphics.clear();
+            const isRed = (turnCamp === Camp.RED);
+            
+            // 描边与发光充盈色
+            const strokeColor = isRed ? new Color(255, 75, 75, 240) : new Color(56, 189, 248, 240);
+            const fillColor = isRed ? new Color(255, 60, 60, 45) : new Color(56, 189, 248, 45);
+
+            activeGraphics.lineWidth = 4;
+            activeGraphics.strokeColor = strokeColor;
+            activeGraphics.fillColor = fillColor;
+
+            // 绘制带有优雅光效的外框圆角矩形
+            activeGraphics.roundRect(-width / 2, -height / 2, width, height, 18);
+            activeGraphics.fill();
+            activeGraphics.stroke();
+
+            // 内嵌一层亮光边框
+            activeGraphics.lineWidth = 1.5;
+            activeGraphics.strokeColor = new Color(255, 255, 255, 140);
+            activeGraphics.roundRect(-width / 2 + 3, -height / 2 + 3, width - 6, height - 6, 15);
+            activeGraphics.stroke();
+
+            const op = activeNode.getComponent(UIOpacity);
+            if (op) {
+                op.opacity = 230;
+            }
+
+            // 开启持续的高雅呼吸发光动效 (Scale 1.0 ~ 1.025)
+            this.activeGlowTween = tween(activeNode)
+                .to(0.75, { scale: new Vec3(1.025, 1.025, 1.0) }, { easing: 'sineInOut' })
+                .to(0.75, { scale: new Vec3(1.0, 1.0, 1.0) }, { easing: 'sineInOut' })
+                .union()
+                .repeatForever()
+                .start();
+        }
+    }
+
+    /**
+     * 播放轮到我方下棋时的清脆小铃铛叮铛提示音
+     */
+    private playTurnChime(): void {
+        AudioSynth.playTurnBellChime();
+    }
+
+    /**
      * 更新回合提示 UI
      */
     private updateTurnUI(): void {
         if (this.turnIndicator) {
             const turnCamp = this.engine.getCurrentTurn();
 
-            let turnStr = '';
-            if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
-                turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (上方)' : '🔵 蓝方行动 (下方)';
+            // 判断是否轮到玩家自己的回合
+            let isMyTurn = false;
+            if (this.isNetworkMode) {
+                isMyTurn = (turnCamp === this.myCamp);
+            } else if (this.isAIMode) {
+                isMyTurn = (turnCamp === Camp.RED);
             } else {
-                turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+                isMyTurn = true; // 双人本地模式下双方轮流操作
+            }
+
+            // 【音效 3】：当回合切换为我方下棋时，播放清脆提醒音
+            if (isMyTurn && !this.lastTurnWasMine) {
+                this.playTurnChime();
+            }
+            this.lastTurnWasMine = isMyTurn;
+
+            let turnStr = '';
+            if (isMyTurn && (this.isNetworkMode || this.isAIMode)) {
+                turnStr = turnCamp === Camp.RED ? '👉 轮到你的回合 (红方)' : '👉 轮到你的回合 (蓝方)';
+            } else {
+                if (this.isNetworkMode && this.myCamp === Camp.BLUE) {
+                    turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (上方)' : '🔵 蓝方行动 (下方)';
+                } else {
+                    turnStr = turnCamp === Camp.RED ? '🔴 红方行动 (下方)' : '🔵 蓝方行动 (上方)';
+                }
             }
 
             this.turnIndicator.string = `${turnStr}   ⏳ ${this.remainingTime}s`;
@@ -1577,10 +1796,100 @@ export class BoardView extends Component {
                     .to(0.1, { scale: new Vec3(1.0, 1.0, 1.0) })
                     .start();
             }
+
+            // 更新棋盘上下阵营的发光呼吸灯
+            this.updateCampGlowUI(turnCamp);
+
+            // 更新倒计时进入最后15秒时的小铃铛 🔔 摇摆提醒
+            this.update15sBellAlert();
         }
 
         // 倒计时最后5秒，在需要下棋的那一方的主棋盘上显示大数字倒计时
         this.updateScreenTimerLabel();
+    }
+
+    /**
+     * 倒计时剩余 15 秒时的动态小铃铛 🔔 摇摆提醒
+     */
+    private update15sBellAlert(): void {
+        if (!this.node.active || this.isGameOverState) {
+            if (this.bellAlertNode) this.bellAlertNode.active = false;
+            return;
+        }
+
+        // 仅在属于我方的回合、且时间在 1~15 秒内显示小铃铛
+        const shouldShow = this.isMyTurn() && this.remainingTime <= 15 && this.remainingTime > 0;
+
+        if (!shouldShow) {
+            if (this.bellAlertNode) this.bellAlertNode.active = false;
+            this.hasTriggered15sBell = false; // 重置触发标志
+            return;
+        }
+
+        // 挂载在顶部回合提示板附近
+        const parentNode = this.turnIndicatorBgNode ? this.turnIndicatorBgNode.parent! : this.node;
+
+        if (!this.bellAlertNode) {
+            this.bellAlertNode = new Node("15sBellAlertNode");
+            this.bellAlertNode.layer = 33554432; // UI_2D
+            const trans = this.bellAlertNode.addComponent(UITransform);
+            trans.setContentSize(80, 80);
+
+            // 背景气泡 Graphics
+            const g = this.bellAlertNode.addComponent(Graphics);
+            g.lineWidth = 3.5;
+            g.strokeColor = new Color(255, 215, 0, 255); // 纯金亮描边
+            g.fillColor = new Color(20, 20, 26, 240); // 优雅深黑底
+            g.circle(0, 0, 38);
+            g.fill();
+            g.stroke();
+
+            // 内层金光细描边
+            g.lineWidth = 1.5;
+            g.strokeColor = new Color(255, 255, 255, 160);
+            g.circle(0, 0, 33);
+            g.stroke();
+
+            // 纯小铃铛图标 Label
+            const labelNode = new Node("BellLabel");
+            labelNode.layer = 33554432;
+            const labelTrans = labelNode.addComponent(UITransform);
+            labelTrans.setContentSize(70, 70);
+            const label = labelNode.addComponent(Label);
+            label.string = "🔔";
+            label.fontSize = 44;
+            label.lineHeight = 48;
+            labelNode.setPosition(new Vec3(0, 0, 0));
+            this.bellAlertNode.addChild(labelNode);
+
+            parentNode.addChild(this.bellAlertNode);
+        }
+
+        this.bellAlertNode.active = true;
+
+        // 对齐位置：挂在顶部 turnIndicatorBgNode 的正下方
+        if (this.turnIndicatorBgNode) {
+            const bgPos = this.turnIndicatorBgNode.position;
+            const scaleFactor = Math.min(view.getVisibleSize().width / 750, view.getVisibleSize().height / 1334);
+            this.bellAlertNode.setPosition(new Vec3(bgPos.x, bgPos.y - 78 * scaleFactor, 0));
+        }
+
+        // 精确在进入 15 秒的瞬间触发摆摇动效与小铃铛音效
+        if (this.remainingTime === 15 && !this.hasTriggered15sBell) {
+            this.hasTriggered15sBell = true;
+            
+            // 触发叮铛摇铃提示音
+            AudioSynth.playTurnBellChime();
+
+            // 小铃铛摇动抖摆 Tween 动效（更大振幅更醒目）
+            tween(this.bellAlertNode)
+                .to(0.10, { angle: 20, scale: new Vec3(1.25, 1.25, 1.0) })
+                .to(0.10, { angle: -20, scale: new Vec3(1.25, 1.25, 1.0) })
+                .to(0.08, { angle: 12, scale: new Vec3(1.12, 1.12, 1.0) })
+                .to(0.08, { angle: -12, scale: new Vec3(1.12, 1.12, 1.0) })
+                .to(0.06, { angle: 0, scale: new Vec3(1.0, 1.0, 1.0) })
+                .start();
+        }
     }
 
     /**
@@ -1599,9 +1908,19 @@ export class BoardView extends Component {
         console.log("BoardView: onPieceClicked called for piece:", piece.id, "camp:", piece.camp);
         const turn = this.engine.getCurrentTurn();
         
-        if (!piece) return;
+        // 判定是否属于敌方棋子（仅在网络模式或AI模式下判定敌我；本地双人对战模式除外）
+        const isLocalPassAndPlay = !this.isNetworkMode && !this.isAIMode;
+        let isEnemyPiece = false;
+        if (this.isNetworkMode) {
+            isEnemyPiece = (piece.camp !== this.myCamp);
+        } else if (this.isAIMode) {
+            isEnemyPiece = (piece.camp !== Camp.RED);
+        }
 
-        this.playAnimalSound(piece.type);
+        // 仅在本地双人对战模式下，或点击己方棋子时，才播放动物叫声音效
+        if (isLocalPassAndPlay || !isEnemyPiece) {
+            this.playAnimalSound(piece.type);
+        }
 
         // 如果点击的是当前已选中的棋子，则取消选中并清除高亮
         if (this.selectedPiece?.id === piece.id) {
@@ -2114,7 +2433,7 @@ export class BoardView extends Component {
     /**
      * 结算并展示游戏结束弹窗
      */
-    private showGameOver(winner: Camp | null, reason: GameOverReason | null): void {
+    private showGameOver(winner: Camp | null, reason: GameOverReason | null, networkData?: any): void {
         this.isGameOverState = true;
         this.gameOverWinner = winner;
         this.gameOverReason = reason;
@@ -2152,8 +2471,9 @@ export class BoardView extends Component {
         this.customGameOverPanel.addChild(mask);
 
         // 2. 结算主体 Dialog 节点 (自适应大小)
+        const isLocalDuo = !this.isNetworkMode && !this.isAIMode;
         const dialogW = Math.min(cw * 0.88, 580 * scaleFactor);
-        const dialogH = 460 * scaleFactor;
+        const dialogH = (isLocalDuo ? 420 : 510) * scaleFactor;
         const dialogNode = new Node("DialogNode");
         dialogNode.layer = 33554432;
         dialogNode.addComponent(UITransform).setContentSize(dialogW, dialogH);
@@ -2221,7 +2541,7 @@ export class BoardView extends Component {
         badgeLabel.isBold = true;
         badgeText.addComponent(UITransform);
         resultBadgeNode.addChild(badgeText);
-        resultBadgeNode.setPosition(new Vec3(0, dialogH / 2 - 80 * scaleFactor, 0));
+        resultBadgeNode.setPosition(new Vec3(0, dialogH / 2 - 72 * scaleFactor, 0));
         dialogNode.addChild(resultBadgeNode);
 
         // 4. 结算大字标题
@@ -2230,7 +2550,7 @@ export class BoardView extends Component {
         const titleLabel = titleNode.addComponent(Label);
         titleLabel.isBold = true;
         titleNode.addComponent(UITransform);
-        titleNode.setPosition(new Vec3(0, dialogH / 2 - 170 * scaleFactor, 0));
+        titleNode.setPosition(new Vec3(0, dialogH / 2 - 150 * scaleFactor, 0));
 
         let reasonStr = '';
         if (winner === null) {
@@ -2322,7 +2642,7 @@ export class BoardView extends Component {
                 titleLabel.color = winner === Camp.RED ? new Color(214, 48, 49, 255) : new Color(9, 132, 227, 255);
             }
         }
-        titleLabel.fontSize = Math.round(38 * scaleFactor);
+        titleLabel.fontSize = Math.round(36 * scaleFactor);
         titleLabel.lineHeight = titleLabel.fontSize;
         dialogNode.addChild(titleNode);
 
@@ -2330,18 +2650,133 @@ export class BoardView extends Component {
         const reasonNode = new Node("Reason");
         reasonNode.layer = 33554432;
         const reasonLabel = reasonNode.addComponent(Label);
-        reasonLabel.string = reasonStr;
-        reasonLabel.fontSize = Math.round(22 * scaleFactor);
+        if (networkData && typeof networkData.notice === 'string' && networkData.notice.length > 0) {
+            reasonLabel.string = `${reasonStr}\n${networkData.notice}`;
+        } else {
+            reasonLabel.string = reasonStr;
+        }
+        reasonLabel.fontSize = Math.round(20 * scaleFactor);
         reasonLabel.lineHeight = reasonLabel.fontSize;
         reasonLabel.color = new Color(100, 115, 90, 255); // 温和深草绿字
         reasonNode.addComponent(UITransform);
-        reasonNode.setPosition(new Vec3(0, dialogH / 2 - 236 * scaleFactor, 0));
+        reasonNode.setPosition(new Vec3(0, dialogH / 2 - 208 * scaleFactor, 0));
         dialogNode.addChild(reasonNode);
 
-        // 6. 并排的两个大按钮
+        // 6. 对局积分结算卡片 (Points Result Card) - 仅在非本地双人模式下展示与存储
+        if (!isLocalDuo) {
+            const savedPointsStr = sys.localStorage.getItem('animal_chess_total_points') 
+                || sys.localStorage.getItem('animal_chess_total_points_0') 
+                || '100';
+            let currentPoints = parseInt(savedPointsStr, 10);
+            if (isNaN(currentPoints)) currentPoints = 100;
+
+            let deltaPoints = 0;
+            let hasNetworkScore = false;
+
+            if (networkData && typeof networkData === 'object') {
+                if (typeof networkData.my_score_change === 'number') {
+                    deltaPoints = networkData.my_score_change;
+                    hasNetworkScore = true;
+                } else if (typeof networkData.delta_points === 'number') {
+                    deltaPoints = networkData.delta_points;
+                    hasNetworkScore = true;
+                } else if (typeof networkData.score_change === 'number') {
+                    deltaPoints = networkData.score_change;
+                    hasNetworkScore = true;
+                } else if (winner !== null && winner === this.myCamp && typeof networkData.winner_score_change === 'number') {
+                    deltaPoints = networkData.winner_score_change;
+                    hasNetworkScore = true;
+                } else if (winner !== null && winner !== this.myCamp && typeof networkData.loser_score_change === 'number') {
+                    deltaPoints = networkData.loser_score_change;
+                    hasNetworkScore = true;
+                }
+            }
+
+            if (!hasNetworkScore) {
+                if (winner === null) {
+                    deltaPoints = 0;
+                } else if (isNetworkOrAI) {
+                    deltaPoints = isMeWinner ? 10 : -10;
+                } else {
+                    deltaPoints = 10;
+                }
+            }
+
+            let newPoints = 0;
+            if (networkData && typeof networkData.my_total_points === 'number') {
+                newPoints = networkData.my_total_points;
+            } else if (networkData && typeof networkData.total_points === 'number') {
+                newPoints = networkData.total_points;
+            } else {
+                newPoints = Math.max(0, currentPoints + deltaPoints);
+            }
+
+            sys.localStorage.setItem('animal_chess_total_points', String(newPoints));
+            sys.localStorage.setItem('animal_chess_total_points_0', String(newPoints));
+
+            const pointsCardW = dialogW - 80 * scaleFactor;
+            const pointsCardH = 76 * scaleFactor;
+            const pointsCardNode = new Node("PointsCard");
+            pointsCardNode.layer = 33554432;
+            pointsCardNode.addComponent(UITransform).setContentSize(pointsCardW, pointsCardH);
+            pointsCardNode.setPosition(new Vec3(0, dialogH / 2 - 295 * scaleFactor, 0));
+
+            const cardG = pointsCardNode.addComponent(Graphics);
+            let cardBgColor = new Color(255, 246, 214, 255); // 赢方金黄背景
+            let cardBorderColor = new Color(245, 212, 113, 255);
+            if (winner === null) {
+                cardBgColor = new Color(244, 244, 244, 255);
+                cardBorderColor = new Color(210, 210, 210, 255);
+            } else if (isNetworkOrAI && !isMeWinner) {
+                cardBgColor = new Color(253, 237, 237, 255); // 败方淡红背景
+                cardBorderColor = new Color(240, 177, 177, 255);
+            }
+
+            cardG.fillColor = cardBgColor;
+            cardG.strokeColor = cardBorderColor;
+            cardG.lineWidth = 2 * scaleFactor;
+            cardG.roundRect(-pointsCardW/2, -pointsCardH/2, pointsCardW, pointsCardH, 16 * scaleFactor);
+            cardG.fill();
+            cardG.stroke();
+            dialogNode.addChild(pointsCardNode);
+
+            // 变动分值展示
+            const deltaNode = new Node("DeltaText");
+            deltaNode.layer = 33554432;
+            const deltaLabel = deltaNode.addComponent(Label);
+            let deltaStr = deltaPoints > 0 ? `+${deltaPoints} 积分` : (deltaPoints < 0 ? `${deltaPoints} 积分` : `+0 积分`);
+            deltaLabel.string = deltaStr;
+            deltaLabel.fontSize = Math.round(28 * scaleFactor);
+            deltaLabel.lineHeight = deltaLabel.fontSize;
+            deltaLabel.isBold = true;
+            let deltaTextColor = new Color(214, 129, 24, 255); // 赢
+            if (winner === null) {
+                deltaTextColor = new Color(120, 120, 120, 255); // 和
+            } else if (isNetworkOrAI && !isMeWinner) {
+                deltaTextColor = new Color(214, 58, 47, 255); // 输
+            }
+            deltaLabel.color = deltaTextColor;
+            deltaNode.addComponent(UITransform);
+            deltaNode.setPosition(new Vec3(-pointsCardW / 4, 0, 0));
+            pointsCardNode.addChild(deltaNode);
+
+            // 最新总积分展示
+            const totalNode = new Node("TotalText");
+            totalNode.layer = 33554432;
+            const totalLabel = totalNode.addComponent(Label);
+            totalLabel.string = `最新总积分: ${newPoints}`;
+            totalLabel.fontSize = Math.round(18 * scaleFactor);
+            totalLabel.lineHeight = totalLabel.fontSize;
+            totalLabel.color = new Color(106, 82, 41, 255);
+            totalNode.addComponent(UITransform);
+            totalNode.setPosition(new Vec3(pointsCardW / 4, 0, 0));
+            pointsCardNode.addChild(totalNode);
+        }
+
+        // 7. 并排的两个大按钮
         const btnW = dialogW * 0.42;
-        const btnH = 80 * scaleFactor;
-        const btnY = -dialogH / 2 + 76 * scaleFactor;
+        const btnH = 72 * scaleFactor;
+        const btnY = -dialogH / 2 + 65 * scaleFactor;
 
         // (1) 再来一局
         const restartBtn = new Node("RestartBtn");
@@ -2370,7 +2805,7 @@ export class BoardView extends Component {
         restartBtn.on(Node.EventType.TOUCH_START, () => { restartBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         restartBtn.on(Node.EventType.TOUCH_END, () => {
             restartBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playPrimaryClick();
             this.hideCustomGameOverPanel();
             if (this.isNetworkMode) {
                 this.requestOnlineRematch();
@@ -2408,7 +2843,7 @@ export class BoardView extends Component {
         exitBtn.on(Node.EventType.TOUCH_START, () => { exitBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         exitBtn.on(Node.EventType.TOUCH_END, () => {
             exitBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playBackClick();
             this.hideCustomGameOverPanel();
             this.onBackButtonClicked();
         }, this);
@@ -2924,7 +3359,7 @@ export class BoardView extends Component {
         }, this);
         this.backButtonNode.on(Node.EventType.TOUCH_END, () => {
             this.backButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playBackClick();
             this.onBackButtonClicked();
         }, this);
         this.backButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -2986,7 +3421,7 @@ export class BoardView extends Component {
         }, this);
         this.surrenderButtonNode.on(Node.EventType.TOUCH_END, () => {
             this.surrenderButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playWarningClick();
             this.onSurrenderButtonClicked();
         }, this);
         this.surrenderButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -2994,35 +3429,6 @@ export class BoardView extends Component {
         }, this);
 
         this.node.parent!.addChild(this.surrenderButtonNode);
-
-        // 2.6 创建底部快捷表达按钮
-        this.quickChatButtonNode = new Node("QuickChatButton");
-        this.quickChatButtonNode.layer = 33554432;
-        this.quickChatButtonNode.addComponent(UITransform);
-        this.quickChatButtonNode.addComponent(Graphics);
-
-        const chatLabelNode = new Node("Label");
-        chatLabelNode.layer = 33554432;
-        chatLabelNode.addComponent(UITransform);
-        const chatLabel = chatLabelNode.addComponent(Label);
-        chatLabel.string = "💬";
-        chatLabel.color = Color.WHITE;
-        chatLabel.isBold = true;
-        this.quickChatButtonNode.addChild(chatLabelNode);
-
-        this.quickChatButtonNode.on(Node.EventType.TOUCH_START, () => {
-            if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(0.95, 0.95, 1.0));
-        }, this);
-        this.quickChatButtonNode.on(Node.EventType.TOUCH_END, () => {
-            if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
-            this.showQuickChatDialog();
-        }, this);
-        this.quickChatButtonNode.on(Node.EventType.TOUCH_CANCEL, () => {
-            if (this.quickChatButtonNode) this.quickChatButtonNode.setScale(new Vec3(1.0, 1.0, 1.0));
-        }, this);
-
-        this.node.parent!.addChild(this.quickChatButtonNode);
 
         // 2.7 创建一键切换战场按钮
         this.switchBattlefieldButtonNode = new Node("SwitchBattlefieldButton");
@@ -3286,7 +3692,7 @@ export class BoardView extends Component {
         confirmBtn.on(Node.EventType.TOUCH_START, () => { confirmBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         confirmBtn.on(Node.EventType.TOUCH_END, () => {
             confirmBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playWarningClick();
             this.surrenderConfirmPanel?.destroy();
             this.surrenderConfirmPanel = null;
             this.executeSurrender();
@@ -3321,7 +3727,7 @@ export class BoardView extends Component {
         cancelBtn.on(Node.EventType.TOUCH_START, () => { cancelBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         cancelBtn.on(Node.EventType.TOUCH_END, () => {
             cancelBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playBackClick();
             this.surrenderConfirmPanel?.destroy();
             this.surrenderConfirmPanel = null;
         }, this);
@@ -3630,7 +4036,7 @@ export class BoardView extends Component {
         agreeBtn.on(Node.EventType.TOUCH_START, () => { agreeBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         agreeBtn.on(Node.EventType.TOUCH_END, () => {
             agreeBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playPrimaryClick();
             this.undoRequestPanel?.destroy();
             this.undoRequestPanel = null;
             callback(true);
@@ -3665,7 +4071,7 @@ export class BoardView extends Component {
         refuseBtn.on(Node.EventType.TOUCH_START, () => { refuseBtn.setScale(new Vec3(0.95, 0.95, 1.0)); }, this);
         refuseBtn.on(Node.EventType.TOUCH_END, () => {
             refuseBtn.setScale(new Vec3(1.0, 1.0, 1.0));
-            AudioSynth.playClick();
+            AudioSynth.playBackClick();
             this.undoRequestPanel?.destroy();
             this.undoRequestPanel = null;
             callback(false);
@@ -3822,6 +4228,44 @@ export class BoardView extends Component {
         tipLabel.color = new Color(132, 118, 84, 255);
         tipNode.setPosition(0, -76 * scaleFactor, 0);
         panel.addChild(tipNode);
+
+        // 添加左上角返回按钮（保持与其他界面统一样式）
+        const safeArea = sys.getSafeAreaRect();
+        const topInset = visibleSize.height - (safeArea.y + safeArea.height);
+        const backY = ch / 2 - Math.max(54 * scaleFactor, topInset + 15 * scaleFactor);
+        const backX = -cw / 2 + 82 * scaleFactor;
+
+        const backBtnNode = new Node('WaitingBackButton');
+        backBtnNode.layer = 33554432;
+        const backTrans = backBtnNode.addComponent(UITransform);
+        backTrans.setContentSize(92 * scaleFactor, 92 * scaleFactor);
+        const backGraphics = backBtnNode.addComponent(Graphics);
+        this.drawBackButtonBadge(backGraphics, scaleFactor);
+        backBtnNode.setPosition(backX, backY, 0);
+
+        backBtnNode.on(Node.EventType.TOUCH_START, () => {
+            backBtnNode.setScale(new Vec3(0.95, 0.95, 1.0));
+        }, this);
+        backBtnNode.on(Node.EventType.TOUCH_END, () => {
+            backBtnNode.setScale(new Vec3(1.0, 1.0, 1.0));
+            AudioSynth.playBackClick();
+
+            // 清理直接加入房间的挂起状态
+            this.pendingDirectJoinRoomCode = '';
+            if (this.isNetworkMode) {
+                this.cleanupNetworkEvents();
+                this.isNetworkMode = false;
+            }
+            this.hideWaitingOverlay();
+
+            // 返回开始游戏（模式选择）界面
+            this.showModeSelection();
+        }, this);
+        backBtnNode.on(Node.EventType.TOUCH_CANCEL, () => {
+            backBtnNode.setScale(new Vec3(1.0, 1.0, 1.0));
+        }, this);
+
+        overlay.addChild(backBtnNode);
 
         this.waitingOverlayNode = overlay;
     }
@@ -4064,7 +4508,7 @@ export class BoardView extends Component {
     private onNetworkGameOver = (dataStr: string) => {
         const data = JSON.parse(dataStr);
         console.log(`[BoardView] 网络通知游戏结束: `, data);
-        this.showGameOver(data.winner as Camp, data.reason as GameOverReason);
+        this.showGameOver(data.winner as Camp, data.reason as GameOverReason, data);
     };
 
     private onOpponentLeft = () => {
@@ -4782,12 +5226,12 @@ export class BoardView extends Component {
             bubbleG.lineTo(arrowX + arrowW / 4, arrowY - arrowH);
             bubbleG.fill();
         } else {
-            // 对方：气泡左上侧尾巴，指向左上方
-            const arrowX = -bubbleW / 2 + 16 * scaleFactor;
+            // 对方：气泡右上侧尾巴，指向右上方
+            const arrowX = bubbleW / 2 - 16 * scaleFactor;
             const arrowY = bubbleH / 2;
             bubbleG.moveTo(arrowX - arrowW / 2, arrowY);
             bubbleG.lineTo(arrowX + arrowW / 2, arrowY);
-            bubbleG.lineTo(arrowX - arrowW / 4, arrowY + arrowH);
+            bubbleG.lineTo(arrowX + arrowW / 4, arrowY + arrowH);
             bubbleG.fill();
         }
 
@@ -4801,16 +5245,16 @@ export class BoardView extends Component {
         msgLbl.isBold = true;
         bubbleNode.addChild(msgNode);
 
-        // 设置对角线位置：我方在右下角，对方在左上角
+        // 设置位置：本人在右下角，对方在右上角
         let bubbleX = 0;
         let bubbleY = 0;
         if (isMe) {
-            // 我方：右下角
+            // 本人：右下角
             bubbleX = cw / 2 - bubbleW / 2 - 30 * scaleFactor;
             bubbleY = -ch / 2 + 200 * scaleFactor;
         } else {
-            // 对方：左上角
-            bubbleX = -cw / 2 + bubbleW / 2 + 30 * scaleFactor;
+            // 对方：右上角
+            bubbleX = cw / 2 - bubbleW / 2 - 30 * scaleFactor;
             bubbleY = ch / 2 - 200 * scaleFactor;
         }
         bubbleNode.setPosition(bubbleX, bubbleY, 0);

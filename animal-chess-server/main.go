@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -38,16 +39,30 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	// 优先从客户端 Query 参数中提取已有的玩家 ID，无则重新生成，以支持页面刷新重连
 	userID := r.URL.Query().Get("user_id")
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		token = r.Header.Get("Authorization")
+	}
+
+	var userIDInt64 int64
+	if userID != "" {
+		if val, err := strconv.ParseInt(userID, 10, 64); err == nil {
+			userIDInt64 = val
+		}
+	}
+
 	if userID == "" {
 		rand.Seed(time.Now().UnixNano())
 		userID = fmt.Sprintf("user_%d_%04d", time.Now().Unix(), rand.Intn(10000))
 	}
 
 	client := &Client{
-		ID:   userID,
-		Hub:  hub,
-		Conn: conn,
-		Send: make(chan []byte, 256),
+		ID:          userID,
+		UserIDInt64: userIDInt64,
+		AuthToken:   token,
+		Hub:         hub,
+		Conn:        conn,
+		Send:        make(chan []byte, 256),
 	}
 
 	client.Hub.register <- client

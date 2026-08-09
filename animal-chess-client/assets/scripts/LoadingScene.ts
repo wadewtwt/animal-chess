@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Label, Color, UITransform, tween, Vec3, Graphics, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, director, Widget, sys } from 'cc';
+import { WxShareUtil } from './utils/WxShareUtil';
 const { ccclass, property } = _decorator;
 
 @ccclass('LoadingScene')
@@ -29,6 +30,7 @@ export class LoadingScene extends Component {
 
     onLoad() {
         console.log('=== LoadingScene onLoad ===');
+        WxShareUtil.init();
         if (sys.isBrowser) {
             try {
                 const style = document.createElement('style');

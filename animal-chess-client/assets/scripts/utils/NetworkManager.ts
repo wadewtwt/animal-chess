@@ -1,4 +1,5 @@
 import { log, sys } from 'cc';
+import { AuthManager } from './AuthManager';
 
 export interface WSMessage {
     action: string;
@@ -63,11 +64,21 @@ export class NetworkManager {
                 return;
             }
 
-            // 获取本地持久化的唯一玩家 ID 并作为 Query 参数连入，以便服务端识别重连身份
-            const savedUserId = sys.localStorage.getItem('animal_chess_user_id') || '';
+            // 获取登录用户及其 Token
+            const authUser = AuthManager.getStoredUser();
+            const authToken = AuthManager.getToken();
+            const savedUserId = authUser?.id ? String(authUser.id) : (sys.localStorage.getItem('animal_chess_user_id') || '');
+
             let finalUrl = this.serverUrl;
+            const queryParams: string[] = [];
             if (savedUserId) {
-                finalUrl += (finalUrl.indexOf('?') >= 0 ? '&' : '?') + `user_id=${savedUserId}`;
+                queryParams.push(`user_id=${encodeURIComponent(savedUserId)}`);
+            }
+            if (authToken) {
+                queryParams.push(`token=${encodeURIComponent(authToken)}`);
+            }
+            if (queryParams.length > 0) {
+                finalUrl += (finalUrl.indexOf('?') >= 0 ? '&' : '?') + queryParams.join('&');
             }
 
             log(`[Network] 正在连接服务器: ${finalUrl}`);

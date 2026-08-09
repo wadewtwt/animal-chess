@@ -24,10 +24,12 @@ const (
 
 // Client 代表一个与玩家的长连接
 type Client struct {
-	ID   string          // 唯一玩家 ID
-	Hub  *Hub            // 关联的大厅
-	Conn *websocket.Conn // Websocket 连接
-	Send chan []byte     // 待发送给该客户端的消息队列
+	ID          string          // 唯一玩家 ID
+	UserIDInt64 int64           // 绑定的数据库数字用户 ID
+	AuthToken   string          // 用户的 Bearer Token
+	Hub         *Hub            // 关联的大厅
+	Conn        *websocket.Conn // Websocket 连接
+	Send        chan []byte     // 待发送给该客户端的消息队列
 
 	Room *Room  // 当前所在的房间，没有则为 nil
 	Camp string // 分配的阵营: "RED" | "BLUE"
@@ -149,6 +151,13 @@ func (c *Client) handleMessage(msg WSMessage) {
 			return
 		}
 		c.Room.handleMove(c, msg.Data)
+
+	case "quick_chat":
+		// 快捷短语/表情消息，透传转发给对手
+		if c.Room == nil {
+			return
+		}
+		c.Room.handleQuickChat(c, msg.Data)
 
 	case "game_over":
 		// 客户端判定游戏结束并上报

@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Vec3, tween, Tween, Button, resources, SpriteFrame, Sprite, Texture2D, ImageAsset, assetManager, UIOpacity, sys, EditBox } from 'cc';
 import { AudioSynth } from '../utils/AudioSynth';
 import { NetworkManager } from '../utils/NetworkManager';
+import { WxShareUtil } from '../utils/WxShareUtil';
 import { getMatchDuration, getMatchStatusText } from './MatchmakingConfig';
 const { ccclass } = _decorator;
 
@@ -35,8 +36,10 @@ export class ModeSelectionUI extends Component {
     private matchmakingDurationSeconds = 0;
     private joinRoomEditBox: EditBox | null = null;
     private isJoinRoomSubmitting: boolean = false;
+    private roomKeydownListener: ((e: KeyboardEvent) => void) | null = null;
 
     onLoad() {
+        WxShareUtil.init();
         this.buildUI();
     }
 
@@ -431,7 +434,7 @@ export class ModeSelectionUI extends Component {
         closeBtn.addChild(closeTxt);
         closeBtn.addComponent(Button);
         closeBtn.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
+            AudioSynth.playBackClick();
             this.hideDifficultyDialog();
         }, this);
 
@@ -657,7 +660,7 @@ export class ModeSelectionUI extends Component {
 
         optionNode.addComponent(Button);
         optionNode.on(Node.EventType.TOUCH_END, () => {
-            AudioSynth.playClick();
+            AudioSynth.playPrimaryClick();
             this.selectedDifficulty = key;
             this.refreshDifficultySelection();
         }, this);
@@ -831,7 +834,7 @@ export class ModeSelectionUI extends Component {
         if (cancelButton) {
             cancelButton.active = false;
         }
-        AudioSynth.playClick();
+        AudioSynth.playBackClick();
 
         this.scheduleOnce(() => {
             if (!this.matchmakingDialog || !this.matchmakingDialog.isValid) {
@@ -1676,18 +1679,11 @@ export class ModeSelectionUI extends Component {
     }
 
     private shareGameRoom(roomCode: string) {
-        const wxObj = (window as any).wx;
-        if (typeof wxObj !== 'undefined') {
-            try {
-                wxObj.shareAppMessage({
-                    title: '快来和我进行一局斗兽棋对决吧！房间号：' + roomCode,
-                    query: 'room=' + roomCode,
-                });
-                this.showToast("已发起分享，邀请好友加入！");
-                return;
-            } catch (e) {
-                console.warn("wx.shareAppMessage failed:", e);
-            }
+        WxShareUtil.init();
+        const shared = WxShareUtil.shareRoom(roomCode);
+        if (shared) {
+            this.showToast("已发起分享，邀请好友加入！");
+            return;
         }
         
         if (sys.isBrowser) {
@@ -1983,8 +1979,8 @@ export class ModeSelectionUI extends Component {
         this.joinRoomDialog.addChild(mask);
 
         // 2. 弹窗体
-        const dialogW = Math.min(cw * 0.9, 580 * scaleFactor);
-        const dialogH = Math.min(ch * 0.5, 320 * scaleFactor);
+        const dialogW = Math.min(cw * 0.92, 580 * scaleFactor);
+        const dialogH = Math.min(ch * 0.85, 620 * scaleFactor);
         const dialog = this.createRectNode('Dialog', '#fff8df', dialogW, dialogH, 30 * scaleFactor);
         dialog.name = 'DialogNode';
         this.joinRoomDialog.addChild(dialog);
@@ -2003,21 +1999,21 @@ export class ModeSelectionUI extends Component {
 
         // 4. 标题和副标题
         const title = this.createLabelNode('Title', '加入对局', 32 * scaleFactor, '#695f00', true);
-        title.setPosition(0, dialogH / 2 - 58 * scaleFactor, 0);
+        title.setPosition(0, dialogH / 2 - 45 * scaleFactor, 0);
         dialog.addChild(title);
 
         const subtitle = this.createLabelNode('Subtitle', '请输入6位数字房间号', 18 * scaleFactor, '#9a8d5d', false);
-        subtitle.setPosition(0, dialogH / 2 - 92 * scaleFactor, 0);
+        subtitle.setPosition(0, dialogH / 2 - 75 * scaleFactor, 0);
         dialog.addChild(subtitle);
 
         // 5. 6位输入格子
         const inputContainer = new Node('InputContainer');
         inputContainer.layer = 33554432;
-        inputContainer.setPosition(0, dialogH / 2 - 150 * scaleFactor, 0);
+        inputContainer.setPosition(0, dialogH / 2 - 130 * scaleFactor, 0);
         dialog.addChild(inputContainer);
 
         const gridW = 56 * scaleFactor;
-        const gridH = 72 * scaleFactor;
+        const gridH = 68 * scaleFactor;
         const gridGap = 10 * scaleFactor;
         const startX = -((gridW * 6 + gridGap * 5) / 2) + gridW / 2;
 
@@ -2038,8 +2034,8 @@ export class ModeSelectionUI extends Component {
             this.inputGridLabels.push(lbl.getComponent(Label)!);
         }
 
-        const tapHint = this.createLabelNode('TapHint', '点击输入框唤起数字键盘', 18 * scaleFactor, '#7f7346', false);
-        tapHint.setPosition(0, dialogH / 2 - 202 * scaleFactor, 0);
+        const tapHint = this.createLabelNode('TapHint', '点击按键或系统键盘输入6位数字', 16 * scaleFactor, '#7f7346', false);
+        tapHint.setPosition(0, dialogH / 2 - 180 * scaleFactor, 0);
         dialog.addChild(tapHint);
 
         const inputTouchArea = new Node('InputTouchArea');
@@ -2078,12 +2074,94 @@ export class ModeSelectionUI extends Component {
         editBox.placeholderLabel = placeholderLabel;
         this.joinRoomEditBox = editBox;
 
-        editBoxNode.on(EditBox.EventType.TEXT_CHANGED, (input: string) => {
-            this.onJoinRoomInputChanged(input);
+        editBoxNode.on(EditBox.EventType.TEXT_CHANGED, (target: any) => {
+            this.onJoinRoomInputChanged(target);
         }, this);
         editBoxNode.on(EditBox.EventType.EDITING_RETURN, () => {
             this.trySubmitJoinRoomCode();
         }, this);
+
+        // 6. UI 虚拟数字九宫格键盘
+        const keypadContainer = new Node('KeypadContainer');
+        keypadContainer.layer = 33554432;
+        keypadContainer.setPosition(0, dialogH / 2 - 385 * scaleFactor, 0);
+        dialog.addChild(keypadContainer);
+
+        const keysData = [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9'],
+            ['清空', '0', '⌫']
+        ];
+        const btnW = Math.floor((dialogW - 70 * scaleFactor) / 3);
+        const btnH = 56 * scaleFactor;
+        const gapX = 14 * scaleFactor;
+        const gapY = 12 * scaleFactor;
+
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 3; col++) {
+                const val = keysData[row][col];
+                const posX = (col - 1) * (btnW + gapX);
+                const posY = (1.5 - row) * (btnH + gapY);
+
+                const isFunc = val === '清空' || val === '⌫';
+                const bgHex = isFunc ? '#f0e6ce' : '#ffffff';
+                const textColor = isFunc ? '#903828' : '#5a4b10';
+
+                const keyBg = this.createRectNode(`Key_${val}`, bgHex, btnW, btnH, 14 * scaleFactor, 255);
+                keyBg.setPosition(posX, posY, 0);
+                keypadContainer.addChild(keyBg);
+
+                const gg = keyBg.getComponent(Graphics)!;
+                gg.lineWidth = 1.5 * scaleFactor;
+                gg.strokeColor = new Color(215, 205, 185, 255);
+                gg.roundRect(-btnW/2, -btnH/2, btnW, btnH, 14 * scaleFactor);
+                gg.stroke();
+
+                const lblNode = this.createLabelNode(`KeyLbl_${val}`, val, isFunc ? 22 * scaleFactor : 28 * scaleFactor, textColor, true);
+                keyBg.addChild(lblNode);
+
+                keyBg.addComponent(Button);
+                keyBg.on(Node.EventType.TOUCH_END, () => {
+                    AudioSynth.playClick();
+                    if (val === '⌫') {
+                        if (this.currentInputCode.length > 0) {
+                            this.onJoinRoomInputChanged(this.currentInputCode.slice(0, -1));
+                        }
+                    } else if (val === '清空') {
+                        this.onJoinRoomInputChanged('');
+                    } else {
+                        if (this.currentInputCode.length < 6) {
+                            this.onJoinRoomInputChanged(this.currentInputCode + val);
+                        }
+                    }
+                }, this);
+            }
+        }
+
+        // 7. 绑定桌面/Web物理键盘事件
+        if (this.roomKeydownListener) {
+            if (typeof window !== 'undefined' && window.removeEventListener) {
+                window.removeEventListener('keydown', this.roomKeydownListener);
+            }
+        }
+        this.roomKeydownListener = (e: KeyboardEvent) => {
+            if (!this.joinRoomDialog || !this.joinRoomDialog.isValid) return;
+            if (e.key >= '0' && e.key <= '9') {
+                if (this.currentInputCode.length < 6) {
+                    this.onJoinRoomInputChanged(this.currentInputCode + e.key);
+                }
+            } else if (e.key === 'Backspace') {
+                if (this.currentInputCode.length > 0) {
+                    this.onJoinRoomInputChanged(this.currentInputCode.slice(0, -1));
+                }
+            } else if (e.key === 'Enter') {
+                this.trySubmitJoinRoomCode();
+            }
+        };
+        if (typeof window !== 'undefined' && window.addEventListener) {
+            window.addEventListener('keydown', this.roomKeydownListener);
+        }
 
         this.updateInputDisplay();
 
@@ -2101,6 +2179,17 @@ export class ModeSelectionUI extends Component {
     }
 
     private hideJoinRoomKeyboard() {
+        if (this.roomKeydownListener) {
+            if (typeof window !== 'undefined' && window.removeEventListener) {
+                window.removeEventListener('keydown', this.roomKeydownListener);
+            }
+            this.roomKeydownListener = null;
+        }
+        const wxObj = (globalThis as any).wx;
+        if (wxObj && typeof wxObj.hideKeyboard === 'function') {
+            wxObj.hideKeyboard({});
+        }
+
         this.joinRoomEditBox = null;
         this.currentInputCode = '';
         this.isJoinRoomSubmitting = false;
@@ -2123,13 +2212,62 @@ export class ModeSelectionUI extends Component {
     }
 
     private focusJoinRoomInput() {
+        const wxObj = (globalThis as any).wx;
+        if (wxObj && typeof wxObj.showKeyboard === 'function') {
+            wxObj.showKeyboard({
+                defaultValue: this.currentInputCode || '',
+                maxLength: 6,
+                multiple: false,
+                confirmHold: false,
+                confirmType: 'done',
+            });
+
+            const onInput = (res: any) => {
+                if (res && typeof res.value === 'string') {
+                    this.onJoinRoomInputChanged(res.value);
+                }
+            };
+            const onConfirm = (res: any) => {
+                if (res && typeof res.value === 'string') {
+                    this.onJoinRoomInputChanged(res.value);
+                }
+                if (typeof wxObj.hideKeyboard === 'function') {
+                    wxObj.hideKeyboard({});
+                }
+                this.trySubmitJoinRoomCode();
+            };
+
+            if (typeof wxObj.offKeyboardInput === 'function') {
+                wxObj.offKeyboardInput(onInput);
+            }
+            if (typeof wxObj.offKeyboardConfirm === 'function') {
+                wxObj.offKeyboardConfirm(onConfirm);
+            }
+
+            if (typeof wxObj.onKeyboardInput === 'function') {
+                wxObj.onKeyboardInput(onInput);
+            }
+            if (typeof wxObj.onKeyboardConfirm === 'function') {
+                wxObj.onKeyboardConfirm(onConfirm);
+            }
+        }
+
         if (this.joinRoomEditBox && this.joinRoomEditBox.isValid) {
             this.joinRoomEditBox.focus();
         }
     }
 
-    private onJoinRoomInputChanged(input: string) {
-        const nextCode = input.replace(/\D/g, '').slice(0, 6);
+    private onJoinRoomInputChanged(input: any) {
+        let str = '';
+        if (typeof input === 'string') {
+            str = input;
+        } else if (input && typeof input.string === 'string') {
+            str = input.string;
+        } else if (this.joinRoomEditBox && typeof this.joinRoomEditBox.string === 'string') {
+            str = this.joinRoomEditBox.string;
+        }
+
+        const nextCode = str.replace(/\D/g, '').slice(0, 6);
         if (this.joinRoomEditBox && this.joinRoomEditBox.string !== nextCode) {
             this.joinRoomEditBox.string = nextCode;
         }

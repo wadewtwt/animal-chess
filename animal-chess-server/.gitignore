@@ -1,0 +1,11 @@
+# Go binaries & build artifacts
+animal-chess-server
+animal-chess-server.exe
+*.exe
+*.out
+*.test
+*.prof
+
+# Logs & Temp files
+*.log
+.env

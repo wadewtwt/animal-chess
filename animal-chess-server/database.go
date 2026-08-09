@@ -33,10 +33,14 @@ func newApp() (*App, error) {
 	pointsRepository := NewPointsRepository(db)
 	signInRepository := NewSQLSignInStore(db, userRepository, pointsRepository)
 
+	hub := NewHub()
+	hub.BlogBackendURL = cfg.BlogBackendURL
+	hub.HTTPClient = httpClient
+
 	return &App{
 		Config:            cfg,
 		DB:                db,
-		Hub:               NewHub(),
+		Hub:               hub,
 		HTTPClient:        httpClient,
 		UserRepository:    userRepository,
 		PointsRepository:  pointsRepository,

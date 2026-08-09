@@ -272,7 +272,7 @@ export class MainMenuUI extends Component {
         }, this);
         startBtnNode.on(Node.EventType.TOUCH_END, () => {
             startBtnNode.setScale(new Vec3(1, 1, 1));
-            AudioSynth.playClick();
+            AudioSynth.playStartTransitionSound();
             this.onStartGame();
         }, this);
         startBtnNode.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -363,40 +363,62 @@ export class MainMenuUI extends Component {
         console.log('[MainMenuUI] initializeProfileFeature skipped: wait user tap profile entry');
     }
 
-    private showProfileAuthorization(): void {
+    private showProfileAuthorization(onSuccess?: () => void, onCancel?: () => void): void {
         const wxObj = (globalThis as any).wx;
         if (!wxObj || typeof wxObj.createUserInfoButton !== 'function') {
             console.log('[MainMenuUI] showProfileAuthorization skipped: native user info button unavailable');
+            AuthManager.updateStoredUser({ nickname: '微信用户' });
+            onSuccess?.();
             return;
         }
-        if (!this.profileOverlay) {
-            this.profileOverlay = new MainMenuProfileOverlay(this.node, this.scaleFactor, (profile) => {
-                void this.submitUserProfile(profile);
-            });
+
+        if (this.profileOverlay && this.profileOverlay.isShowing()) {
+            console.log('[MainMenuUI] showProfileAuthorization skipped: overlay is already showing');
+            return;
         }
+
+        if (this.profileOverlay) {
+            this.profileOverlay.destroy();
+            this.profileOverlay = null;
+        }
+
+        const storedUser = AuthManager.getStoredUser();
+        const initialNickname = storedUser?.nickname && storedUser.nickname !== '微信用户' ? storedUser.nickname : '';
+
+        this.profileOverlay = new MainMenuProfileOverlay(
+            this.node,
+            this.scaleFactor,
+            (profile) => {
+                void (async () => {
+                    const nickname = typeof profile.nickName === 'string' ? profile.nickName.trim() : '';
+                    const avatarUrl = typeof profile.avatarUrl === 'string' ? profile.avatarUrl.trim() : '';
+                    this.profileOverlay?.hide();
+                    if (!nickname && !avatarUrl) {
+                        onCancel?.();
+                        return;
+                    }
+                    try {
+                        if (!AuthManager.getToken()) {
+                            await AuthManager.ensureLogin();
+                        }
+                        const user = await UserProfileApi.updateProfile({ nickname, avatarUrl });
+                        this.updateProfileDisplay(user ?? AuthManager.getStoredUser());
+                        onSuccess?.();
+                    } catch (error) {
+                        console.warn('[MainMenuUI] submitUserProfile failed:', error);
+                        this.showToast('资料保存失败，请重试');
+                        onCancel?.();
+                    }
+                })();
+            },
+            () => {
+                onCancel?.();
+            },
+            initialNickname,
+        );
         this.profileOverlay.show();
     }
 
-    private async submitUserProfile(profile: WechatUserInfo): Promise<void> {
-        const nickname = typeof profile.nickName === 'string' ? profile.nickName.trim() : '';
-        const avatarUrl = typeof profile.avatarUrl === 'string' ? profile.avatarUrl.trim() : '';
-        this.profileOverlay?.hide();
-        if (!nickname && !avatarUrl) {
-            console.log('[MainMenuUI] submitUserProfile skipped: empty user info');
-            return;
-        }
-        try {
-            if (!AuthManager.getToken()) {
-                await AuthManager.ensureLogin();
-            }
-            const user = await UserProfileApi.updateProfile({ nickname, avatarUrl });
-            this.updateProfileDisplay(user ?? AuthManager.getStoredUser());
-        } catch (error) {
-            console.warn('[MainMenuUI] submitUserProfile failed:', error);
-            this.showToast('资料保存失败，请重试');
-            this.profileOverlay?.show();
-        }
-    }
 
     private updateProfileDisplay(user: { nickname?: string } | null): void {
         if (this.profileLabel?.isValid && user?.nickname) {
@@ -429,20 +451,29 @@ export class MainMenuUI extends Component {
         badgeG.stroke();
 
         // 左侧金币图标徽章
-        const iconSize = 50 * scaleFactor;
-        const iconCircle = this.createCircleNode('CoinIcon', '#f5b025', iconSize / 2, 255);
-        iconCircle.setPosition(-badgeWidth / 2 + 36 * scaleFactor, 0, 0);
+        const iconSize = 52 * scaleFactor;
+        const iconNode = new Node('CoinIcon');
+        const iconTrans = iconNode.addComponent(UITransform);
+        iconTrans.setContentSize(iconSize, iconSize);
+        iconNode.setPosition(-badgeWidth / 2 + 36 * scaleFactor, 0, 0);
 
-        const iconG = iconCircle.getComponent(Graphics)!;
-        iconG.lineWidth = 2 * scaleFactor;
-        iconG.strokeColor = new Color(255, 248, 220, 255);
-        iconG.circle(0, 0, iconSize / 2);
-        iconG.stroke();
+        const coinSprite = iconNode.addComponent(Sprite);
+        coinSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.safeLoadUntrimmedSprite('textures/coin_icon', coinSprite);
 
+        // 备用 emoji label (若图片加载中)
         const coinSymbol = this.createLabelNode('CoinSymbol', '🪙', 24 * scaleFactor, '#ffffff', true);
         coinSymbol.setPosition(0, 0, 0);
-        iconCircle.addChild(coinSymbol);
-        badge.addChild(iconCircle);
+        iconNode.addChild(coinSymbol);
+
+        // 图片加载就绪后隐藏备用文字
+        resources.load('textures/coin_icon', (err, asset) => {
+            if (!err && coinSymbol && coinSymbol.isValid) {
+                coinSymbol.active = false;
+            }
+        });
+
+        badge.addChild(iconNode);
 
         // 右侧文字区（左对齐）
         const textX = -badgeWidth / 2 + 70 * scaleFactor;
@@ -558,7 +589,7 @@ export class MainMenuUI extends Component {
         });
         entry.on(Node.EventType.TOUCH_END, () => {
             entry.setScale(new Vec3(1, 1, 1));
-            AudioSynth.playClick();
+            AudioSynth.playPrimaryClick();
             this.openSignInOverlay();
         }, this);
         entry.on(Node.EventType.TOUCH_CANCEL, () => {
@@ -715,9 +746,17 @@ export class MainMenuUI extends Component {
 
         if (AuthManager.isWechatSupported()) {
             if (!hasValidNickname) {
-                // 未授权微信昵称，提示并拉起授权弹窗
+                // 未设置玩家昵称，提示并唤起统一弹窗
                 this.signInOverlay?.hide();
-                this.showProfileAuthorizationForSignIn();
+                this.showProfileAuthorization(
+                    () => {
+                        this.showToast('昵称设置成功！正在完成签到...');
+                        void this.handleSignInAction();
+                    },
+                    () => {
+                        this.showToast('签到需要先设置玩家昵称');
+                    },
+                );
                 return;
             }
         } else {
@@ -756,53 +795,6 @@ export class MainMenuUI extends Component {
         }
     }
 
-    /**
-     * 为签到流程唤起微信昵称授权弹窗
-     */
-    private showProfileAuthorizationForSignIn(): void {
-        const wxObj = (globalThis as any).wx;
-        if (!wxObj || typeof wxObj.createUserInfoButton !== 'function') {
-            // 微信原生按钮不可用时（如测试环境），预设默认昵称后自动完成签到
-            AuthManager.updateStoredUser({ nickname: '微信用户' });
-            void this.handleSignInAction();
-            return;
-        }
-
-        const overlay = new MainMenuProfileOverlay(
-            this.node,
-            this.scaleFactor,
-            (profile) => {
-                void (async () => {
-                    const nickname = typeof profile.nickName === 'string' ? profile.nickName.trim() : '';
-                    const avatarUrl = typeof profile.avatarUrl === 'string' ? profile.avatarUrl.trim() : '';
-                    overlay.hide();
-                    if (!nickname) {
-                        this.showToast('授权微信昵称失败，请重试');
-                        return;
-                    }
-                    try {
-                        if (!AuthManager.getToken()) {
-                            await AuthManager.ensureLogin();
-                        }
-                        const updatedUser = await UserProfileApi.updateProfile({ nickname, avatarUrl });
-                        this.updateProfileDisplay(updatedUser ?? AuthManager.getStoredUser());
-                        this.showToast('昵称授权成功！正在完成签到...');
-                        // 自动无缝续接完成签到
-                        void this.handleSignInAction();
-                    } catch (err) {
-                        console.warn('[MainMenuUI] updateProfile for sign-in failed:', err);
-                        this.showToast('资料保存失败，请稍后重试');
-                    }
-                })();
-            },
-            () => {
-                // 用户跳过或暂不授权
-                this.showToast('签到需要授权微信昵称');
-            },
-        );
-
-        overlay.show();
-    }
 
 
     /**
@@ -1407,7 +1399,7 @@ export class MainMenuUI extends Component {
         closeIconBtn.addChild(closeCrossLabel);
 
         const closeDialogFunc = () => {
-            AudioSynth.playClick();
+            AudioSynth.playBackClick();
             if (outerFrame) {
                 tween(outerFrame)
                     .to(0.18, { scale: new Vec3(0.8, 0.8, 1.0) }, { easing: 'backIn' })
