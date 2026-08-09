@@ -1,0 +1,13 @@
+{
+  "name": "animal-chess-deploy",
+  "version": "1.0.0",
+  "description": "OSS Deploy scripts for animal-chess",
+  "main": "deploy-remote.js",
+  "scripts": {
+    "deploy": "node deploy-remote.js"
+  },
+  "dependencies": {
+    "ali-oss": "^6.20.0",
+    "dotenv": "^16.4.5"
+  }
+}
