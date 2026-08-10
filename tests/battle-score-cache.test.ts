@@ -53,9 +53,24 @@ import { resolveBattleScoreDisplay } from '../animal-chess-client/assets/scripts
         winner: 'RED',
     });
 
-    assert.equal(result.shouldShowPointsCard, true, '人机模式仍可展示本地积分预览');
-    assert.equal(result.shouldUpdateCache, true, '人机模式仍可更新本地积分预览缓存');
-    assert.equal(result.newPoints, 80, '人机模式本地预览积分应继续按胜负计算');
+    assert.equal(result.shouldShowPointsCard, false, '人机模式没有后端积分结果时不应展示结算积分卡片');
+    assert.equal(result.shouldUpdateCache, false, '人机模式没有后端积分结果时不应更新本地积分缓存');
+}
+
+{
+    const result = resolveBattleScoreDisplay({
+        isLocalDuo: false,
+        isNetworkMode: false,
+        isAIMode: true,
+        isMeWinner: true,
+        currentPoints: 70,
+        winner: 'RED',
+        networkData: { my_score_change: 10, my_total_points: 30 },
+    });
+
+    assert.equal(result.shouldShowPointsCard, true, '人机模式应展示后端结算积分');
+    assert.equal(result.shouldUpdateCache, true, '人机模式应使用后端总积分更新缓存');
+    assert.equal(result.newPoints, 30, '人机模式总积分必须以后端返回为准');
 }
 
 console.log('battle-score-cache tests passed');

@@ -19,3 +19,4 @@
 - 微信 `createUserInfoButton` 应直接显示真实文案和可见样式，不能用透明原生点击层覆盖无事件的 Cocos 假按钮，否则两套坐标轻微偏差就会造成用户看到按钮但无法点击；重复唤起授权时必须复用弹层实例并先销毁旧原生按钮，避免叠出多个授权按钮。
 - 在线对战积分展示和本地积分缓存必须只信任后端结算返回的 `my_total_points`/`total_points`；结算失败、跳过后端结算或只收到胜负结果时，不允许前端用本地缓存加减分伪造“最新总积分”。
 - 联机服务 `animal-chess-server` 部署时必须设置 `BLOG_BACKEND_URL=https://api.findfun.space`；如果漏配会回退默认后端地址，导致 WebSocket 对局结束无法写入博客后端的 `animal_chess_battle_record` 和积分明细。
+- 对局结算弹窗的积分来自 WebSocket 广播里的 `my_total_points`/`winner_total_points`，主页和个人信息页读的是数据库里的 `animal_chess_user.total_points`；如果这两个数不一致，优先查结算接口是否真的回写了用户表。
